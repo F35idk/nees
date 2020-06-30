@@ -2,18 +2,6 @@ mod parse;
 
 use parse::RomInfo;
 
-fn bytes_to_u16(bytes: [u8; 2]) -> u16 {
-    if cfg!(target_endian = "big") {
-        ((bytes[1] as u16) << 8) + bytes[0] as u16
-    } else {
-        unsafe { std::mem::transmute(bytes) }
-    }
-}
-
-fn u16_to_bytes(num: u16) -> [u8; 2] {
-    unsafe { std::mem::transmute(num) }
-}
-
 #[derive(Default)]
 struct Cpu {
     a: u8,
@@ -63,7 +51,7 @@ impl Cpu {
             // ADC $bytes (absolute)
             [0x6d, bytes @ ..] => {
                 self.pc += 3;
-                let val = memory[bytes_to_u16(bytes) as usize];
+                let val = memory[u16::from_le_bytes(bytes) as usize];
                 self.adc_immediate(val) + 2
             }
             // ADC $bytes, X (absolute indexed)
@@ -111,7 +99,7 @@ impl Cpu {
             // AND $bytes (absolute)
             [0x2d, bytes @ ..] => {
                 self.pc += 3;
-                let val = memory[bytes_to_u16(bytes) as usize];
+                let val = memory[u16::from_le_bytes(bytes) as usize];
                 self.and_immediate(val) + 2
             }
             // AND $bytes, X (absolute indexed)
@@ -160,7 +148,7 @@ impl Cpu {
             // ASL $bytes (absolute)
             [0x0e, bytes @ ..] => {
                 self.pc += 3;
-                let addr = bytes_to_u16(bytes);
+                let addr = u16::from_le_bytes(bytes);
                 memory[addr as usize] = self.asl_value(memory[addr as usize]);
                 6
             }
@@ -218,14 +206,14 @@ impl Cpu {
     fn get_absolute_indexed(&self, addr_bytes: [u8; 2], index: u8) -> (u16, bool) {
         let (addr_low, carry) = addr_bytes[0].overflowing_add(index);
         let addr_hi = addr_bytes[1] + carry as u8;
-        let addr_indexed = bytes_to_u16([addr_low, addr_hi]);
+        let addr_indexed = u16::from_le_bytes([addr_low, addr_hi]);
 
         (addr_indexed, carry)
     }
 
     fn get_indexed_indirect(&self, addr: u8, memory: &[u8]) -> u16 {
         let addr_indexed = addr.wrapping_add(self.x);
-        let dest_addr = bytes_to_u16([
+        let dest_addr = u16::from_le_bytes([
             memory[addr_indexed as usize],
             memory[(addr_indexed + 1) as usize],
         ]);
@@ -240,7 +228,7 @@ impl Cpu {
         // add index to address while keeping track of whether a page boundary was crossed
         let (indexed_addr_low, carry) = dest_addr[0].overflowing_add(self.y);
         let indexed_addr_hi = dest_addr[1] + carry as u8;
-        let indexed_addr = bytes_to_u16([indexed_addr_low, indexed_addr_hi]);
+        let indexed_addr = u16::from_le_bytes([indexed_addr_low, indexed_addr_hi]);
 
         (indexed_addr, carry)
     }
@@ -304,6 +292,23 @@ impl Cpu {
         res
     }
 
+    fn branch_if(&mut self, condition: bool, offset: u8) -> u8 {
+        if condition {
+            // sign extend 'offset' into an i16
+            let offset_sign_ext = (offset as i8) as i16;
+            // get the carry from adding the low bytes
+            let (_, carry) = (self.pc as u8).overflowing_add(offset as u8);
+            // perform the full addition
+            self.pc = (self.pc as i16 + offset_sign_ext) as u16;
+            // xor sign of 'offset' with 'carry' to determine whether a page boundary was crossed
+            let boundary_crossed = ((offset as i8) < 0) ^ carry;
+
+            3 + boundary_crossed as u8
+        } else {
+            2
+        }
+    }
+
     fn bcc(&mut self, offset: u8) -> u8 {
         self.branch_if((self.p & 1) == 0, offset)
     }
@@ -334,23 +339,6 @@ impl Cpu {
 
     fn bvs(&mut self, offset: u8) -> u8 {
         self.branch_if((self.p & 0b01000000) != 0, offset)
-    }
-
-    fn branch_if(&mut self, condition: bool, offset: u8) -> u8 {
-        if condition {
-            // sign extend 'offset' into an i16
-            let offset_sign_ext = (offset as i8) as i16;
-            // get the carry from adding the low bytes
-            let (_, carry) = (self.pc as u8).overflowing_add(offset as u8);
-            // perform the full addition
-            self.pc = (self.pc as i16 + offset_sign_ext) as u16;
-            // xor sign of 'offset' with 'carry' to determine whether a page boundary was crossed
-            let boundary_crossed = ((offset as i8) < 0) ^ carry;
-
-            3 + boundary_crossed as u8
-        } else {
-            2
-        }
     }
 
     fn debug_exec_opcode(&mut self, opc: [u8; 3], memory: &mut Vec<u8>) -> u8 {
