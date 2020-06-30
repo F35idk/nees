@@ -10,6 +10,10 @@ fn bytes_to_u16(bytes: [u8; 2]) -> u16 {
     }
 }
 
+fn u16_to_bytes(num: u16) -> [u8; 2] {
+    unsafe { std::mem::transmute(num) }
+}
+
 #[derive(Default)]
 struct Cpu {
     a: u8,
@@ -18,7 +22,7 @@ struct Cpu {
     p: u8,
     sp: u8,
     pc: u16,
-    cycle_counter: u32,
+    cycle_count: u32,
 }
 
 impl Cpu {
@@ -32,118 +36,182 @@ impl Cpu {
     fn exec_instruction(&mut self, memory: &mut [u8]) -> u8 {
         // FIXME: handle out of bounds????
         // FIXME: need to subtract from clock cycles if last cycle wasn't a write
-        // FIXME: increment pc
-        // ..
-
+        // TODO: use get_unchecked() where the index is
+        // guaranteed to be smaller than the array size
         match [
             memory[self.pc as usize],
             memory[(self.pc + 1) as usize],
             memory[(self.pc + 2) as usize],
         ] {
             // ADC #byte_1 (immediate)
-            [0x69, byte_1, _] => self.adc_immediate(byte_1),
+            [0x69, byte_1, _] => {
+                self.pc += 2;
+                self.adc_immediate(byte_1)
+            }
             // ADC $byte_1 (zero page)
             [0x65, byte_1, _] => {
+                self.pc += 2;
                 let val = memory[byte_1 as usize];
                 self.adc_immediate(val) + 1
             }
             // ADC $byte_1, X (zero page indexed)
             [0x75, byte_1, _] => {
+                self.pc += 2;
                 let addr = byte_1.wrapping_add(self.x);
                 self.adc_immediate(memory[addr as usize]) + 2
             }
             // ADC $bytes (absolute)
             [0x6d, bytes @ ..] => {
+                self.pc += 3;
                 let val = memory[bytes_to_u16(bytes) as usize];
                 self.adc_immediate(val) + 2
             }
             // ADC $bytes, X (absolute indexed)
             [0x7d, bytes @ ..] => {
+                self.pc += 3;
                 let (addr, carry) = self.get_absolute_indexed(bytes, self.x);
                 // add 'carry' to return value for one extra cycle if a page boundary was crossed
                 self.adc_immediate(memory[addr as usize]) + 2 + carry as u8
             }
             // ADC $bytes, Y (absolute indexed)
             [0x79, bytes @ ..] => {
+                self.pc += 3;
                 let (addr, carry) = self.get_absolute_indexed(bytes, self.y);
                 self.adc_immediate(memory[addr as usize]) + 2 + carry as u8
             }
             // ADC ($byte_1, X) (indexed indirect)
             [0x61, byte_1, _] => {
+                self.pc += 2;
                 let addr = self.get_indexed_indirect(byte_1, memory);
                 self.adc_immediate(memory[addr as usize]) + 4
             }
             // ADC ($byte_1), Y (indirect indexed)
             [0x71, byte_1, _] => {
+                self.pc += 2;
                 let (addr, carry) = self.get_indirect_indexed(byte_1, memory);
                 self.adc_immediate(memory[addr as usize]) + 3 + carry as u8
             }
             // AND #byte_1 (immediate)
-            [0x29, byte_1, _] => self.and_immediate(byte_1),
+            [0x29, byte_1, _] => {
+                self.pc += 2;
+                self.and_immediate(byte_1)
+            }
             // AND $byte_1 (zero page)
             [0x25, byte_1, _] => {
+                self.pc += 2;
                 let val = memory[byte_1 as usize];
                 self.and_immediate(val) + 1
             }
             // AND $byte_1, X (zero page indexed)
             [0x35, byte_1, _] => {
+                self.pc += 2;
                 let addr = byte_1.wrapping_add(self.x);
                 self.and_immediate(memory[addr as usize]) + 2
             }
             // AND $bytes (absolute)
             [0x2d, bytes @ ..] => {
+                self.pc += 3;
                 let val = memory[bytes_to_u16(bytes) as usize];
                 self.and_immediate(val) + 2
             }
             // AND $bytes, X (absolute indexed)
             [0x3d, bytes @ ..] => {
+                self.pc += 3;
                 let (addr, carry) = self.get_absolute_indexed(bytes, self.x);
                 self.and_immediate(memory[addr as usize]) + 2 + carry as u8
             }
             // AND $bytes, Y (absolute indexed)
             [0x39, bytes @ ..] => {
+                self.pc += 3;
                 let (addr, carry) = self.get_absolute_indexed(bytes, self.y);
                 self.and_immediate(memory[addr as usize]) + 2 + carry as u8
             }
             // AND ($byte_1, X) (indexed indirect)
             [0x21, byte_1, _] => {
+                self.pc += 2;
                 let addr = self.get_indexed_indirect(byte_1, memory);
                 self.and_immediate(memory[addr as usize]) + 4
             }
             // AND ($byte_1), Y (indirect indexed)
             [0x31, byte_1, _] => {
+                self.pc += 2;
                 let (addr, carry) = self.get_indirect_indexed(byte_1, memory);
                 self.and_immediate(memory[addr as usize]) + 3 + carry as u8
             }
             // ASL A (accumulator)
             [0x0a, ..] => {
+                self.pc += 1;
                 self.a = self.asl_value(self.a);
                 2
             }
             // ASL $byte_1 (zero page)
             [0x06, byte_1, _] => {
+                self.pc += 2;
                 memory[byte_1 as usize] = self.asl_value(memory[byte_1 as usize]);
                 5
             }
             // ASL $byte_1, X (zero page indexed)
             [0x16, byte_1, _] => {
+                self.pc += 2;
                 let addr = byte_1.wrapping_add(self.x);
                 memory[addr as usize] = self.asl_value(memory[byte_1 as usize]);
                 6
             }
             // ASL $bytes (absolute)
             [0x0e, bytes @ ..] => {
+                self.pc += 3;
                 let addr = bytes_to_u16(bytes);
                 memory[addr as usize] = self.asl_value(memory[addr as usize]);
                 6
             }
             // ASL $bytes, X (absolute indexed)
             [0x1e, bytes @ ..] => {
+                self.pc += 3;
                 let (addr, _) = self.get_absolute_indexed(bytes, self.x);
                 memory[addr as usize] = self.asl_value(memory[addr as usize]);
                 7
             }
-            _ => 0,
+            // BCC $byte_1
+            [0x90, byte_1, _] => {
+                self.pc += 2;
+                self.bcc(byte_1)
+            }
+            // BCS $byte_1
+            [0xb0, byte_1, _] => {
+                self.pc += 2;
+                self.bcs(byte_1)
+            }
+            // BEQ $byte_1
+            [0xf0, byte_1, _] => {
+                self.pc += 2;
+                self.beq(byte_1)
+            }
+            // BMI $byte_1
+            [0x30, byte_1, _] => {
+                self.pc += 2;
+                self.bmi(byte_1)
+            }
+            // BNE $byte_1
+            [0xd0, byte_1, _] => {
+                self.pc += 2;
+                self.bne(byte_1)
+            }
+            // BPL $byte_1
+            [0x10, byte_1, _] => {
+                self.pc += 2;
+                self.bpl(byte_1)
+            }
+            // BVC $byte_1
+            [0x50, byte_1, _] => {
+                self.pc += 2;
+                self.bvc(byte_1)
+            }
+            // BVS $byte_1
+            [0x70, byte_1, _] => {
+                self.pc += 2;
+                self.bvs(byte_1)
+            }
+            _ => panic!("TODO: handle invalid opcode"),
         }
     }
 
@@ -231,7 +299,56 @@ impl Cpu {
         val << 1
     }
 
-    fn exec_opcode(&mut self, opc: [u8; 3], memory: &mut Vec<u8>) -> u8 {
+    fn bcc(&mut self, offset: u8) -> u8 {
+        self.branch_if((self.p & 1) == 0, offset)
+    }
+
+    fn bcs(&mut self, offset: u8) -> u8 {
+        self.branch_if((self.p & 1) != 0, offset)
+    }
+
+    fn beq(&mut self, offset: u8) -> u8 {
+        self.branch_if((self.p & 2) != 0, offset)
+    }
+
+    fn bmi(&mut self, offset: u8) -> u8 {
+        self.branch_if((self.p as i8) < 0, offset)
+    }
+
+    fn bne(&mut self, offset: u8) -> u8 {
+        self.branch_if((self.p & 2) == 0, offset)
+    }
+
+    fn bpl(&mut self, offset: u8) -> u8 {
+        self.branch_if((self.p as i8) > 0, offset)
+    }
+
+    fn bvc(&mut self, offset: u8) -> u8 {
+        self.branch_if((self.p & 0b01000000) == 0, offset)
+    }
+
+    fn bvs(&mut self, offset: u8) -> u8 {
+        self.branch_if((self.p & 0b01000000) != 0, offset)
+    }
+
+    fn branch_if(&mut self, condition: bool, offset: u8) -> u8 {
+        if condition {
+            // sign extend 'offset' into an i16
+            let offset_sign_ext = (offset as i8) as i16;
+            // get the carry from adding the low bytes
+            let (_, carry) = (self.pc as u8).overflowing_add(offset as u8);
+            // perform the full addition
+            self.pc = (self.pc as i16 + offset_sign_ext) as u16;
+            // xor sign of 'offset' with 'carry' to determine whether a page boundary was crossed
+            let boundary_crossed = ((offset as i8) < 0) ^ carry;
+
+            3 + boundary_crossed as u8
+        } else {
+            2
+        }
+    }
+
+    fn debug_exec_opcode(&mut self, opc: [u8; 3], memory: &mut Vec<u8>) -> u8 {
         memory.extend_from_slice(&opc);
         self.pc = (memory.len() - 3) as u16;
 
@@ -282,7 +399,7 @@ fn test_adc() {
     cpu.a = 0;
     cpu.p = 0x66;
     // ADC ($80, X) (indexed indirect)
-    let cyc = cpu.exec_opcode([0x61, 0x80, 0x00], &mut memory);
+    let cyc = cpu.debug_exec_opcode([0x61, 0x80, 0x00], &mut memory);
 
     assert_eq!(cyc, 6);
     assert_eq!(cpu.a, 0x69);
@@ -295,7 +412,7 @@ fn test_adc() {
     cpu.a = 0;
     cpu.p = 0x66;
     // ADC $78 (zero page)
-    let cyc = cpu.exec_opcode([0x65, 0x78, 0x00], &mut memory);
+    let cyc = cpu.debug_exec_opcode([0x65, 0x78, 0x00], &mut memory);
 
     assert_eq!(cyc, 3);
     assert_eq!(cpu.a, 0x69);
@@ -305,13 +422,56 @@ fn test_adc() {
     memory[0x678] = 0x69;
     cpu.a = 0;
     cpu.p = 0x66;
-    let cyc = cpu.exec_opcode([0x6d, 0x78, 0x06], &mut memory);
+    let cyc = cpu.debug_exec_opcode([0x6d, 0x78, 0x06], &mut memory);
 
     assert_eq!(cyc, 4);
     assert_eq!(cpu.a, 0x69);
     assert_eq!(cpu.p, 0x24);
 
     cpu.debug_print_registers();
+}
+
+fn test_and() {
+    let mut cpu = Cpu::new_nestest();
+
+    cpu.a = 0x55;
+    cpu.p = 0;
+    let cyc = cpu.and_immediate(0xaa);
+
+    assert_eq!(cyc, 2);
+    assert_eq!(cpu.a, 0);
+    assert_eq!(cpu.p, 2); // zero-flag should be set
+
+    let mut memory = vec![0u8; 0x1000];
+    memory[0x80] = 00;
+    memory[0x81] = 02;
+    memory[0x200] = 0xaa;
+    cpu.a = 0x55;
+    cpu.p = 0;
+    let cyc = cpu.debug_exec_opcode([0x21, 0x80, 00], &mut memory);
+
+    assert_eq!(cyc, 6);
+    assert_eq!(cpu.a, 0);
+    assert_eq!(cpu.p, 2); // zero-flag should be set
+}
+
+fn test_asl() {
+    // ..
+}
+
+fn test_bcc() {
+    let mut cpu = Cpu::new_nestest();
+    cpu.pc = 0x100;
+    cpu.p = 0;
+    cpu.bcc(0x80);
+
+    assert_eq!(cpu.pc, 0x100 - 0x80);
+
+    cpu.pc = 0x100;
+    cpu.p = 0;
+    cpu.bcc(0x7f);
+
+    assert_eq!(cpu.pc, 0x100 + 0x7f);
 }
 
 fn main() {
@@ -327,10 +487,6 @@ fn main() {
     println!("chr rom size: {}KB", info.get_chr_size() as u32 * 8);
 
     test_adc();
-
-    let thing = [0x15u8, 0x20u8];
-    let ubit16 = bytes_to_u16(thing);
-    let transmuted: u16 = unsafe { std::mem::transmute(thing) };
-
-    assert_eq!(ubit16, transmuted);
+    test_and();
+    test_bcc();
 }
