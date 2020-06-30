@@ -296,7 +296,12 @@ impl Cpu {
 
     fn asl_value(&mut self, val: u8) -> u8 {
         self.set_carry((val >> 7) != 0);
-        val << 1
+        let res = val << 1;
+
+        self.set_zero(res);
+        self.set_negative(res);
+
+        res
     }
 
     fn bcc(&mut self, offset: u8) -> u8 {
@@ -427,8 +432,6 @@ fn test_adc() {
     assert_eq!(cyc, 4);
     assert_eq!(cpu.a, 0x69);
     assert_eq!(cpu.p, 0x24);
-
-    cpu.debug_print_registers();
 }
 
 fn test_and() {
@@ -448,6 +451,7 @@ fn test_and() {
     memory[0x200] = 0xaa;
     cpu.a = 0x55;
     cpu.p = 0;
+    // AND ($80, X)
     let cyc = cpu.debug_exec_opcode([0x21, 0x80, 00], &mut memory);
 
     assert_eq!(cyc, 6);
@@ -456,22 +460,68 @@ fn test_and() {
 }
 
 fn test_asl() {
-    // ..
+    let mut cpu = Cpu::new_nestest();
+    let mut memory = vec![0u8; 0x1000];
+
+    cpu.a = 0x80;
+    cpu.p = 0xe5;
+    // ASL A
+    let cyc = cpu.debug_exec_opcode([0x0a, 00, 00], &mut memory);
+
+    assert_eq!(cyc, 2);
+    assert_eq!(cpu.a, 0);
+    assert_eq!(cpu.p, 0x67);
+
+    cpu.a = 0;
+    cpu.p = 0xe5;
+    memory[0x78] = 0x80;
+    // ASL $78
+    let cyc = cpu.debug_exec_opcode([0x06, 0x78, 00], &mut memory);
+
+    assert_eq!(cyc, 5);
+    assert_eq!(memory[0x78], 0);
+    assert_eq!(cpu.p, 0x67);
+
+    cpu.p = 0xa5;
+    memory[0x78] = 0;
+    memory[0x678] = 0x55;
+    // ASL $0678
+    let cyc = cpu.debug_exec_opcode([0x0e, 0x78, 0x06], &mut memory);
+
+    assert_eq!(cyc, 6);
+    assert_eq!(memory[0x678], 0xaa);
+    assert_eq!(cpu.p, 0xa4);
 }
 
-fn test_bcc() {
+fn test_branch_instrs() {
     let mut cpu = Cpu::new_nestest();
     cpu.pc = 0x100;
     cpu.p = 0;
-    cpu.bcc(0x80);
+    let cyc = cpu.bcc(0x80);
 
     assert_eq!(cpu.pc, 0x100 - 0x80);
+    assert_eq!(cyc, 4);
 
     cpu.pc = 0x100;
     cpu.p = 0;
-    cpu.bcc(0x7f);
+    let cyc = cpu.bcc(0x7f);
 
     assert_eq!(cpu.pc, 0x100 + 0x7f);
+    assert_eq!(cyc, 3);
+
+    cpu.pc = 0x100;
+    cpu.p = 0b01000000;
+    let cyc = cpu.bvc(0xff);
+
+    assert_eq!(cpu.pc, 0x100);
+    assert_eq!(cyc, 2);
+
+    cpu.pc = 0x100;
+    cpu.p = 0b01000000;
+    let cyc = cpu.bvs(0xff);
+
+    assert_eq!(cpu.pc, 0x100 - 1);
+    assert_eq!(cyc, 4);
 }
 
 fn main() {
@@ -488,5 +538,6 @@ fn main() {
 
     test_adc();
     test_and();
-    test_bcc();
+    test_asl();
+    test_branch_instrs();
 }
