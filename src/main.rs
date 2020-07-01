@@ -162,42 +162,78 @@ impl Cpu {
             // BCC $byte_1
             [0x90, byte_1, _] => {
                 self.pc += 2;
-                self.bcc(byte_1)
+                self.branch_if((self.p & 1) == 0, byte_1)
             }
             // BCS $byte_1
             [0xb0, byte_1, _] => {
                 self.pc += 2;
-                self.bcs(byte_1)
+                self.branch_if((self.p & 1) != 0, byte_1)
             }
             // BEQ $byte_1
             [0xf0, byte_1, _] => {
                 self.pc += 2;
-                self.beq(byte_1)
+                self.branch_if((self.p & 2) != 0, byte_1)
             }
             // BMI $byte_1
             [0x30, byte_1, _] => {
                 self.pc += 2;
-                self.bmi(byte_1)
+                self.branch_if((self.p as i8) < 0, byte_1)
             }
             // BNE $byte_1
             [0xd0, byte_1, _] => {
                 self.pc += 2;
-                self.bne(byte_1)
+                self.branch_if((self.p & 2) == 0, byte_1)
             }
             // BPL $byte_1
             [0x10, byte_1, _] => {
                 self.pc += 2;
-                self.bpl(byte_1)
+                self.branch_if((self.p as i8) > 0, byte_1)
             }
             // BVC $byte_1
             [0x50, byte_1, _] => {
                 self.pc += 2;
-                self.bvc(byte_1)
+                self.branch_if((self.p & 0b01000000) == 0, byte_1)
             }
             // BVS $byte_1
             [0x70, byte_1, _] => {
                 self.pc += 2;
-                self.bvs(byte_1)
+                self.branch_if((self.p & 0b01000000) != 0, byte_1)
+            }
+            // BIT $byte_1 (zero page)
+            [0x24, byte_1, _] => {
+                self.pc += 2;
+                self.bit_value(memory[byte_1 as usize]);
+                3
+            }
+            // BIT $bytes (absolute)
+            [0x2c, bytes @ ..] => {
+                self.pc += 3;
+                self.bit_value(memory[u16::from_le_bytes(bytes) as usize]);
+                4
+            }
+            // CLC
+            [0x18, ..] => {
+                self.pc += 1;
+                self.set_c_from_bool(false);
+                2
+            }
+            // CLD
+            [0xd8, ..] => {
+                self.pc += 1;
+                (self.p & !8) | 0;
+                2
+            }
+            // CLI
+            [0x58, ..] => {
+                self.pc += 1;
+                self.set_i_from_bit(0);
+                2
+            }
+            // CLV
+            [0xb8, ..] => {
+                self.pc += 1;
+                self.set_v_from_bit(0);
+                2
             }
             _ => panic!("TODO: handle invalid opcode"),
         }
@@ -234,23 +270,35 @@ impl Cpu {
     }
 
     #[inline]
-    fn set_carry(&mut self, carry: bool) {
+    fn set_c_from_bool(&mut self, carry: bool) {
         self.p = (self.p & !1) | carry as u8;
     }
 
     #[inline]
-    fn set_overflow(&mut self, overflow: bool) {
+    // sets the overflow flag based on the 'overflow' bool
+    fn set_v_from_bool(&mut self, overflow: bool) {
         self.p = (self.p & !0b01000000) | ((overflow as u8) << 6);
     }
 
     #[inline]
-    fn set_zero(&mut self, val: u8) {
+    // ors 'bit' directly with the overflow flag
+    fn set_v_from_bit(&mut self, bit: u8) {
+        self.p = (self.p & !0b01000000) | bit;
+    }
+
+    #[inline]
+    fn set_z_from_val(&mut self, val: u8) {
         self.p = (self.p & !2) | (((val == 0) as u8) << 1);
     }
 
     #[inline]
-    fn set_negative(&mut self, val: u8) {
+    fn set_n_from_val(&mut self, val: u8) {
         self.p = (self.p & !0x80) | val & 0x80;
+    }
+
+    #[inline]
+    fn set_i_from_bit(&mut self, bit: u8) {
+        self.p = (self.p & !4) | bit;
     }
 
     fn adc_immediate(&mut self, imm: u8) -> u8 {
@@ -266,28 +314,29 @@ impl Cpu {
         carry |= carry_2;
 
         self.a = res;
-        self.set_carry(carry);
-        self.set_overflow(overflow);
-        self.set_zero(res);
-        self.set_negative(res);
+        self.set_c_from_bool(carry);
+        self.set_v_from_bool(overflow);
+        self.set_z_from_val(res);
+        self.set_n_from_val(res);
 
         2
     }
 
     fn and_immediate(&mut self, imm: u8) -> u8 {
         self.a &= imm;
-        self.set_negative(self.a);
-        self.set_zero(self.a);
+        self.set_n_from_val(self.a);
+        self.set_z_from_val(self.a);
 
         2
     }
 
+    // NOTE: this returns the result of the asl operation, not the amt. of cycles
     fn asl_value(&mut self, val: u8) -> u8 {
-        self.set_carry((val >> 7) != 0);
+        self.set_c_from_bool((val >> 7) != 0);
         let res = val << 1;
 
-        self.set_zero(res);
-        self.set_negative(res);
+        self.set_z_from_val(res);
+        self.set_n_from_val(res);
 
         res
     }
@@ -309,45 +358,30 @@ impl Cpu {
         }
     }
 
-    fn bcc(&mut self, offset: u8) -> u8 {
-        self.branch_if((self.p & 1) == 0, offset)
+    fn bit_value(&mut self, val: u8) {
+        self.set_v_from_bit(val & 0b01000000);
+        self.set_n_from_val(val);
+
+        let res = val & self.a;
+        self.set_z_from_val(res);
     }
 
-    fn bcs(&mut self, offset: u8) -> u8 {
-        self.branch_if((self.p & 1) != 0, offset)
+    fn brk(&mut self) -> u8 {
+        // TODO: implement
+        0
     }
 
-    fn beq(&mut self, offset: u8) -> u8 {
-        self.branch_if((self.p & 2) != 0, offset)
-    }
-
-    fn bmi(&mut self, offset: u8) -> u8 {
-        self.branch_if((self.p as i8) < 0, offset)
-    }
-
-    fn bne(&mut self, offset: u8) -> u8 {
-        self.branch_if((self.p & 2) == 0, offset)
-    }
-
-    fn bpl(&mut self, offset: u8) -> u8 {
-        self.branch_if((self.p as i8) > 0, offset)
-    }
-
-    fn bvc(&mut self, offset: u8) -> u8 {
-        self.branch_if((self.p & 0b01000000) == 0, offset)
-    }
-
-    fn bvs(&mut self, offset: u8) -> u8 {
-        self.branch_if((self.p & 0b01000000) != 0, offset)
+    fn cmp_immediate(&mut self, imm: u8) -> u8 {
+        // TODO: implement
+        0
     }
 
     fn debug_exec_opcode(&mut self, opc: [u8; 3], memory: &mut Vec<u8>) -> u8 {
-        memory.extend_from_slice(&opc);
-        self.pc = (memory.len() - 3) as u16;
+        memory[self.pc as usize] = opc[0];
+        memory[self.pc as usize + 1] = opc[1];
+        memory[self.pc as usize + 2] = opc[2];
 
-        let cyc = self.exec_instruction(memory);
-        memory.truncate(memory.len() - 3);
-        cyc
+        self.exec_instruction(memory)
     }
 
     fn debug_print_registers(&self) {
@@ -363,7 +397,7 @@ impl Cpu {
 }
 
 fn test_adc() {
-    let mut cpu = Cpu::new_nestest();
+    let mut cpu = Cpu::default();
 
     cpu.p = 0x6e;
     cpu.adc_immediate(0x69);
@@ -423,7 +457,7 @@ fn test_adc() {
 }
 
 fn test_and() {
-    let mut cpu = Cpu::new_nestest();
+    let mut cpu = Cpu::default();
 
     cpu.a = 0x55;
     cpu.p = 0;
@@ -448,7 +482,7 @@ fn test_and() {
 }
 
 fn test_asl() {
-    let mut cpu = Cpu::new_nestest();
+    let mut cpu = Cpu::default();
     let mut memory = vec![0u8; 0x1000];
 
     cpu.a = 0x80;
@@ -482,34 +516,35 @@ fn test_asl() {
 }
 
 fn test_branch_instrs() {
-    let mut cpu = Cpu::new_nestest();
-    cpu.pc = 0x100;
+    let mut cpu = Cpu::default();
+    let mut memory = vec![0u8; 0x1000];
     cpu.p = 0;
-    let cyc = cpu.bcc(0x80);
+    cpu.pc = 0x100;
+    let cyc = cpu.debug_exec_opcode([0x90, 0x80, 00], &mut memory);
 
-    assert_eq!(cpu.pc, 0x100 - 0x80);
+    assert_eq!(cpu.pc, 0x100 - 0x80 + 2);
     assert_eq!(cyc, 4);
 
     cpu.pc = 0x100;
     cpu.p = 0;
-    let cyc = cpu.bcc(0x7f);
+    let cyc = cpu.debug_exec_opcode([0x90, 0x7f, 00], &mut memory);
 
-    assert_eq!(cpu.pc, 0x100 + 0x7f);
+    assert_eq!(cpu.pc, 0x100 + 0x7f + 2);
     assert_eq!(cyc, 3);
 
     cpu.pc = 0x100;
     cpu.p = 0b01000000;
-    let cyc = cpu.bvc(0xff);
+    let cyc = cpu.debug_exec_opcode([0x50, 0xff, 00], &mut memory);
 
-    assert_eq!(cpu.pc, 0x100);
+    assert_eq!(cpu.pc, 0x100 + 2);
     assert_eq!(cyc, 2);
 
     cpu.pc = 0x100;
     cpu.p = 0b01000000;
-    let cyc = cpu.bvs(0xff);
+    let cyc = cpu.debug_exec_opcode([0x70, 0xff, 00], &mut memory);
 
-    assert_eq!(cpu.pc, 0x100 - 1);
-    assert_eq!(cyc, 4);
+    assert_eq!(cpu.pc, 0x100 - 1 + 2);
+    assert_eq!(cyc, 3);
 }
 
 fn main() {
