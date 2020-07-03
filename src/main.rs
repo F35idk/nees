@@ -2,6 +2,52 @@ mod parse;
 
 use parse::RomInfo;
 
+struct MemoryMap {
+    memory: [u8; 0x1000],
+}
+
+impl MemoryMap {
+    fn new() -> Self {
+        MemoryMap {
+            memory: [0; 0x1000],
+        }
+    }
+
+    #[inline]
+    fn get_mut(&mut self, index: u16) -> &mut u8 {
+        unsafe { self.memory.get_unchecked_mut(index as usize) }
+    }
+
+    #[inline]
+    fn get_mut_u8(&mut self, index: u8) -> &mut u8 {
+        unsafe { self.memory.get_unchecked_mut(index as usize) }
+    }
+
+    #[inline]
+    fn get(&self, index: u16) -> u8 {
+        unsafe { *self.memory.get_unchecked(index as usize) }
+    }
+
+    #[inline]
+    fn get_u8(&self, index: u8) -> u8 {
+        unsafe { *self.memory.get_unchecked(index as usize) }
+    }
+
+    fn test_calc_addr(&self, mut addr: u16) {
+        let is_lt_2000 = addr < 0x2000;
+        // mask off high bits if address is < 0x2000 (i.e a mirror of 0-0x7ff)
+        addr &= !(0b1100000000000 * is_lt_2000 as u16);
+
+        // set to true if addr is between 2000 and 3fff (nes ppu registers)
+        let is_ppu = is_lt_2000 ^ (addr < 0x4000);
+        // TODO: apply this to addr instead and place ppu registers in 'memory'
+        let ppu_register_index = addr & (0b111 | !is_ppu as u16 * 0xffff);
+
+        println!("ppu register index = {:x}", ppu_register_index);
+        println!("final addr: {:x}", addr);
+    }
+}
+
 #[derive(Default)]
 struct Cpu {
     a: u8,
@@ -21,16 +67,16 @@ impl Cpu {
         }
     }
 
-    fn exec_instruction(&mut self, memory: &mut [u8]) -> u8 {
+    fn exec_instruction(&mut self, memory: &mut MemoryMap) -> u8 {
         // FIXME: handle out of bounds????
         // FIXME: need to subtract from clock cycles if last cycle wasn't a write?? (in these
         // cases, the 6502 will fetch the next instruction while the current one is executing)
         // TODO: use get_unchecked() where the index is
         // guaranteed to be smaller than the array size
         match [
-            memory[self.pc as usize],
-            memory[(self.pc + 1) as usize],
-            memory[(self.pc + 2) as usize],
+            memory.get(self.pc),
+            memory.get(self.pc + 1),
+            memory.get(self.pc + 2),
         ] {
             // ADC #byte_1 (immediate)
             [0x69, byte_1, _] => {
@@ -39,45 +85,45 @@ impl Cpu {
             }
             // ADC $byte_1 (zero page)
             [0x65, byte_1, _] => {
-                let val = memory[byte_1 as usize];
+                let val = memory.get_u8(byte_1);
                 self.adc(val, 2);
                 3
             }
             // ADC $byte_1, X (zero page indexed)
             [0x75, byte_1, _] => {
                 let addr = byte_1.wrapping_add(self.x);
-                self.adc(memory[addr as usize], 2);
+                self.adc(memory.get_u8(addr), 2);
                 4
             }
             // ADC $bytes (absolute)
             [0x6d, bytes @ ..] => {
-                let val = memory[u16::from_le_bytes(bytes) as usize];
+                let val = memory.get(u16::from_le_bytes(bytes));
                 self.adc(val, 3);
                 4
             }
             // ADC $bytes, X (absolute indexed)
             [0x7d, bytes @ ..] => {
                 let (addr, carry) = self.get_absolute_indexed(bytes, self.x);
-                // add 'carry' to return value for one extra cycle if a page boundary was crossed
-                self.adc(memory[addr as usize], 3);
+                self.adc(memory.get(addr), 3);
+                // add 'carry' for one extra cycle if a page boundary was crossed
                 4 + carry as u8
             }
             // ADC $bytes, Y (absolute indexed)
             [0x79, bytes @ ..] => {
                 let (addr, carry) = self.get_absolute_indexed(bytes, self.y);
-                self.adc(memory[addr as usize], 3);
+                self.adc(memory.get(addr), 3);
                 4 + carry as u8
             }
             // ADC ($byte_1, X) (indexed indirect)
             [0x61, byte_1, _] => {
                 let addr = self.get_indexed_indirect(byte_1, memory);
-                self.adc(memory[addr as usize], 2);
+                self.adc(memory.get(addr), 2);
                 6
             }
             // ADC ($byte_1), Y (indirect indexed)
             [0x71, byte_1, _] => {
                 let (addr, carry) = self.get_indirect_indexed(byte_1, memory);
-                self.adc(memory[addr as usize], 2);
+                self.adc(memory.get(addr), 2);
                 5 + carry as u8
             }
             // AND #byte_1 (immediate)
@@ -87,45 +133,45 @@ impl Cpu {
             }
             // AND $byte_1 (zero page)
             [0x25, byte_1, _] => {
-                let val = memory[byte_1 as usize];
+                let val = memory.get_u8(byte_1);
                 self.and(val, 2);
                 3
             }
             // AND $byte_1, X (zero page indexed)
             [0x35, byte_1, _] => {
                 let addr = byte_1.wrapping_add(self.x);
-                self.and(memory[addr as usize], 2);
+                self.and(memory.get_u8(addr), 2);
                 4
             }
             // AND $bytes (absolute)
             [0x2d, bytes @ ..] => {
                 self.pc += 3;
-                let val = memory[u16::from_le_bytes(bytes) as usize];
+                let val = memory.get(u16::from_le_bytes(bytes));
                 self.and(val, 3);
                 4
             }
             // AND $bytes, X (absolute indexed)
             [0x3d, bytes @ ..] => {
                 let (addr, carry) = self.get_absolute_indexed(bytes, self.x);
-                self.and(memory[addr as usize], 3);
+                self.and(memory.get(addr), 3);
                 4 + carry as u8
             }
             // AND $bytes, Y (absolute indexed)
             [0x39, bytes @ ..] => {
                 let (addr, carry) = self.get_absolute_indexed(bytes, self.y);
-                self.and(memory[addr as usize], 3);
+                self.and(memory.get(addr), 3);
                 4 + carry as u8
             }
             // AND ($byte_1, X) (indexed indirect)
             [0x21, byte_1, _] => {
                 let addr = self.get_indexed_indirect(byte_1, memory);
-                self.and(memory[addr as usize], 2);
+                self.and(memory.get(addr), 2);
                 6
             }
             // AND ($byte_1), Y (indirect indexed)
             [0x31, byte_1, _] => {
                 let (addr, carry) = self.get_indirect_indexed(byte_1, memory);
-                self.and(memory[addr as usize], 2);
+                self.and(memory.get(addr), 2);
                 5 + carry as u8
             }
             // ASL A (accumulator)
@@ -135,25 +181,25 @@ impl Cpu {
             }
             // ASL $byte_1 (zero page)
             [0x06, byte_1, _] => {
-                memory[byte_1 as usize] = self.asl(memory[byte_1 as usize], 2);
+                *memory.get_mut_u8(byte_1) = self.asl(memory.get_u8(byte_1), 2);
                 5
             }
             // ASL $byte_1, X (zero page indexed)
             [0x16, byte_1, _] => {
                 let addr = byte_1.wrapping_add(self.x);
-                memory[addr as usize] = self.asl(memory[byte_1 as usize], 2);
+                *memory.get_mut_u8(addr) = self.asl(memory.get_u8(byte_1), 2);
                 6
             }
             // ASL $bytes (absolute)
             [0x0e, bytes @ ..] => {
                 let addr = u16::from_le_bytes(bytes);
-                memory[addr as usize] = self.asl(memory[addr as usize], 3);
+                *memory.get_mut(addr) = self.asl(memory.get(addr), 3);
                 6
             }
             // ASL $bytes, X (absolute indexed)
             [0x1e, bytes @ ..] => {
                 let (addr, _) = self.get_absolute_indexed(bytes, self.x);
-                memory[addr as usize] = self.asl(memory[addr as usize], 3);
+                *memory.get_mut(addr) = self.asl(memory.get(addr), 3);
                 7
             }
             // BCC $byte_1
@@ -174,12 +220,12 @@ impl Cpu {
             [0x70, byte_1, _] => self.branch_if((self.p & 0b01000000) != 0, byte_1),
             // BIT $byte_1 (zero page)
             [0x24, byte_1, _] => {
-                self.bit(memory[byte_1 as usize], 2);
+                self.bit(memory.get_u8(byte_1), 2);
                 3
             }
             // BIT $bytes (absolute)
             [0x2c, bytes @ ..] => {
-                self.bit(memory[u16::from_le_bytes(bytes) as usize], 3);
+                self.bit(memory.get(u16::from_le_bytes(bytes)), 3);
                 4
             }
             // CLC
@@ -213,44 +259,44 @@ impl Cpu {
             }
             // CMP $byte_1 (zero page)
             [0xc5, byte_1, _] => {
-                let val = memory[byte_1 as usize];
+                let val = memory.get_u8(byte_1);
                 self.cmp_register_val(self.a, val, 2);
                 3
             }
             // CMP $byte_1, X (zero page indexed)
             [0xd5, byte_1, _] => {
-                let val = memory[byte_1.wrapping_add(self.x) as usize];
+                let val = memory.get_u8(byte_1.wrapping_add(self.x));
                 self.cmp_register_val(self.a, val, 2);
                 4
             }
             // CMP $bytes (absolute)
             [0xcd, bytes @ ..] => {
-                let val = memory[u16::from_le_bytes(bytes) as usize];
+                let val = memory.get(u16::from_le_bytes(bytes));
                 self.cmp_register_val(self.a, val, 3);
                 4
             }
             // CMP $bytes, X (absolute indexed)
             [0xdd, bytes @ ..] => {
                 let (addr, carry) = self.get_absolute_indexed(bytes, self.x);
-                self.cmp_register_val(self.a, memory[addr as usize], 3);
+                self.cmp_register_val(self.a, memory.get(addr), 3);
                 4 + carry as u8
             }
             // CMP $bytes, Y (absolute indexed)
             [0xd9, bytes @ ..] => {
                 let (addr, carry) = self.get_absolute_indexed(bytes, self.y);
-                self.cmp_register_val(self.a, memory[addr as usize], 3);
+                self.cmp_register_val(self.a, memory.get(addr), 3);
                 4 + carry as u8
             }
             // CMP ($byte_1, X) (indexed indirect)
             [0xc1, byte_1, _] => {
                 let addr = self.get_indexed_indirect(byte_1, memory);
-                self.cmp_register_val(self.a, memory[addr as usize], 2);
+                self.cmp_register_val(self.a, memory.get(addr), 2);
                 6
             }
             // CMP ($byte_1), Y (indirect indexed)
             [0xd1, byte_1, _] => {
                 let (addr, carry) = self.get_indirect_indexed(byte_1, memory);
-                self.cmp_register_val(self.a, memory[addr as usize], 2);
+                self.cmp_register_val(self.a, memory.get(addr), 2);
                 5 + carry as u8
             }
             // CPX #byte_1 (immediate)
@@ -260,13 +306,13 @@ impl Cpu {
             }
             // CPX $byte_1 (zero page)
             [0xe4, byte_1, _] => {
-                self.cmp_register_val(self.x, memory[byte_1 as usize], 2);
+                self.cmp_register_val(self.x, memory.get_u8(byte_1), 2);
                 3
             }
             // CPX $bytes (absolute)
             [0xec, bytes @ ..] => {
                 let addr = u16::from_le_bytes(bytes);
-                self.cmp_register_val(self.x, memory[addr as usize], 3);
+                self.cmp_register_val(self.x, memory.get(addr), 3);
                 4
             }
             // CPY #byte_1 (immediate)
@@ -276,19 +322,99 @@ impl Cpu {
             }
             // CPY $byte_1 (zero page)
             [0xc4, byte_1, _] => {
-                self.cmp_register_val(self.y, memory[byte_1 as usize], 2);
+                self.cmp_register_val(self.y, memory.get_u8(byte_1), 2);
                 3
             }
             // CPY $bytes (absolute)
             [0xcc, bytes @ ..] => {
                 let addr = u16::from_le_bytes(bytes);
-                self.cmp_register_val(self.y, memory[addr as usize], 3);
+                self.cmp_register_val(self.y, memory.get(addr), 3);
                 4
+            }
+            // DEC $byte_1 (zero page)
+            [0xc6, byte_1, _] => {
+                *memory.get_mut_u8(byte_1) = self.dec(memory.get_u8(byte_1), 2);
+                5
+            }
+            // DEC $byte_1, X (zero page indexed)
+            [0xd6, byte_1, _] => {
+                let addr = byte_1.wrapping_add(self.x);
+                *memory.get_mut_u8(addr) = self.dec(memory.get_u8(addr), 2);
+                6
+            }
+            // DEC $bytes (absolute)
+            [0xce, bytes @ ..] => {
+                let addr = u16::from_le_bytes(bytes);
+                *memory.get_mut(addr) = self.dec(memory.get(addr), 3);
+                6
+            }
+            // DEC $bytes, X (absolute indexed)
+            [0xde, bytes @ ..] => {
+                let (addr, _) = self.get_absolute_indexed(bytes, self.x);
+                *memory.get_mut(addr) = self.dec(memory.get(addr), 3);
+                7
+            }
+            // DEX
+            [0xca, ..] => {
+                self.x = self.dec(self.x, 1);
+                2
+            }
+            // DEY
+            [0x88, ..] => {
+                self.y = self.dec(self.y, 1);
+                2
+            }
+            // EOR #byte_1 (immediate)
+            [0x49, byte_1, _] => {
+                self.eor(byte_1, 2);
+                2
+            }
+            // EOR $byte_1 (zero page)
+            [0x45, byte_1, _] => {
+                self.eor(memory.get_u8(byte_1), 2);
+                3
+            }
+            // EOR $byte_1, X (zero page indexed)
+            [0x55, byte_1, _] => {
+                let addr = byte_1.wrapping_add(self.x);
+                self.eor(memory.get_u8(addr), 2);
+                4
+            }
+            // EOR $bytes (absolute)
+            [0x4d, bytes @ ..] => {
+                self.eor(memory.get(u16::from_le_bytes(bytes)), 3);
+                4
+            }
+            // EOR $bytes, X (absolute indexed)
+            [0x5d, bytes @ ..] => {
+                let (addr, carry) = self.get_absolute_indexed(bytes, self.x);
+                self.eor(memory.get(addr), 3);
+                4 + carry as u8
+            }
+            // EOR $bytes, Y (absolute indexed)
+            [0x59, bytes @ ..] => {
+                let (addr, carry) = self.get_absolute_indexed(bytes, self.y);
+                self.eor(memory.get(addr), 3);
+                4 + carry as u8
+            }
+            // EOR ($bytes, X) (indexed indirect)
+            [0x41, byte_1, _] => {
+                let addr = self.get_indexed_indirect(byte_1, memory);
+                self.eor(memory.get(addr), 3);
+                6
+            }
+            // EOR ($bytes), Y (indirect indexed)
+            [0x51, byte_1, _] => {
+                let (addr, carry) = self.get_indirect_indexed(byte_1, memory);
+                self.eor(memory.get(addr), 3);
+                5 + carry as u8
             }
             _ => panic!("TODO: handle invalid opcode"),
         }
     }
 
+    // computes the result address from 'addr_bytes' and 'index'.
+    // also returns whether a page boundary was crossed
     fn get_absolute_indexed(&self, addr_bytes: [u8; 2], index: u8) -> (u16, bool) {
         let (addr_low, carry) = addr_bytes[0].overflowing_add(index);
         let addr_hi = addr_bytes[1] + carry as u8;
@@ -297,19 +423,17 @@ impl Cpu {
         (addr_indexed, carry)
     }
 
-    fn get_indexed_indirect(&self, addr: u8, memory: &[u8]) -> u16 {
+    fn get_indexed_indirect(&self, addr: u8, memory: &mut MemoryMap) -> u16 {
         let addr_indexed = addr.wrapping_add(self.x);
-        let dest_addr = u16::from_le_bytes([
-            memory[addr_indexed as usize],
-            memory[(addr_indexed + 1) as usize],
-        ]);
+        let dest_addr =
+            u16::from_le_bytes([memory.get_u8(addr_indexed), memory.get_u8(addr_indexed + 1)]);
 
         dest_addr
     }
 
-    fn get_indirect_indexed(&self, addr: u8, memory: &[u8]) -> (u16, bool) {
+    fn get_indirect_indexed(&self, addr: u8, memory: &mut MemoryMap) -> (u16, bool) {
         // get address at memory[addr]
-        let dest_addr = [memory[addr as usize], memory[(addr + 1) as usize]];
+        let dest_addr = [memory.get_u8(addr), memory.get_u8(addr + 1)];
 
         // add index to address while keeping track of whether a page boundary was crossed
         let (indexed_addr_low, carry) = dest_addr[0].overflowing_add(self.y);
@@ -390,7 +514,6 @@ impl Cpu {
         self.set_z_from_val(self.a);
     }
 
-    // NOTE: returns the result of the asl op
     fn asl(&mut self, val: u8, pc_increment: u8) -> u8 {
         self.pc += pc_increment as u16;
 
@@ -404,7 +527,7 @@ impl Cpu {
     }
 
     // used for bcc, bcs, beq, bmi, bne, bpl, bvc, bvs instructions.
-    // returns the amount of cycles the branch will take to execute
+    // returns the number of cycles the branch will take to execute
     fn branch_if(&mut self, condition: bool, offset: u8) -> u8 {
         self.pc += 2;
 
@@ -452,11 +575,30 @@ impl Cpu {
         self.set_n_from_bool(!(lt | eq));
     }
 
-    fn debug_exec_opcode(&mut self, opc: [u8; 3], memory: &mut Vec<u8>) -> u8 {
+    fn dec(&mut self, val: u8, pc_increment: u8) -> u8 {
+        self.pc += pc_increment as u16;
+
+        let res = val.wrapping_sub(1);
+
+        self.set_z_from_val(res);
+        self.set_n_from_val(res);
+
+        res
+    }
+
+    fn eor(&mut self, val: u8, pc_increment: u8) {
+        self.pc += pc_increment as u16;
+
+        self.a ^= val;
+        self.set_z_from_val(self.a);
+        self.set_n_from_val(self.a);
+    }
+
+    fn debug_exec_opcode(&mut self, opc: [u8; 3], memory: &mut MemoryMap) -> u8 {
         if cfg!(debug_assertions) {
-            memory[self.pc as usize] = opc[0];
-            memory[self.pc as usize + 1] = opc[1];
-            memory[self.pc as usize + 2] = opc[2];
+            *memory.get_mut(self.pc) = opc[0];
+            *memory.get_mut(self.pc + 1) = opc[1];
+            *memory.get_mut(self.pc + 2) = opc[2];
 
             self.exec_instruction(memory)
         } else {
@@ -473,20 +615,6 @@ impl Cpu {
             println!("SP: {:x}", self.sp);
             println!("PC: {:x}", self.pc);
         }
-    }
-
-    fn test_calc_addr(&self, mut addr: u16) {
-        let is_lt_2000 = addr < 0x2000;
-        // mask off high bits if address is a mirror of 0-0x7ff
-        addr &= !(0b1100000000000 * is_lt_2000 as u16);
-
-        // set to true if addr is between 2000 and 3fff
-        let is_ppu = is_lt_2000 ^ (addr < 0x4000);
-        // TODO: apply this to addr instead and index into memory for ppu register writes
-        let ppu_register_index = addr & (0b111 | !is_ppu as u16 * 0xffff);
-
-        println!("ppu register index = {:x}", ppu_register_index);
-        println!("final addr: {:x}", addr);
     }
 }
 
@@ -513,10 +641,10 @@ fn test_adc() {
     assert_eq!(cpu.a, 0);
     assert_eq!(cpu.p, 0x27);
 
-    let mut memory = vec![0u8; 0x1000];
-    memory[0x80] = 00;
-    memory[0x81] = 02;
-    memory[0x200] = 0x69;
+    let mut memory = MemoryMap::new();
+    *memory.get_mut(0x80) = 00;
+    *memory.get_mut(0x81) = 02;
+    *memory.get_mut(0x200) = 0x69;
     cpu.a = 0;
     cpu.p = 0x66;
     // ADC ($80, X) (indexed indirect)
@@ -526,10 +654,10 @@ fn test_adc() {
     assert_eq!(cpu.a, 0x69);
     assert_eq!(cpu.p, 0x24);
 
-    memory[0x80] = 0;
-    memory[0x81] = 0;
-    memory[0x200] = 0;
-    memory[0x78] = 0x69;
+    *memory.get_mut(0x80) = 0;
+    *memory.get_mut(0x81) = 0;
+    *memory.get_mut(0x200) = 0;
+    *memory.get_mut(0x78) = 0x69;
     cpu.a = 0;
     cpu.p = 0x66;
     // ADC $78 (zero page)
@@ -539,8 +667,8 @@ fn test_adc() {
     assert_eq!(cpu.a, 0x69);
     assert_eq!(cpu.p, 0x24);
 
-    memory[0x78] = 0;
-    memory[0x678] = 0x69;
+    *memory.get_mut(0x78) = 0;
+    *memory.get_mut(0x678) = 0x69;
     cpu.a = 0;
     cpu.p = 0x66;
     let cyc = cpu.debug_exec_opcode([0x6d, 0x78, 0x06], &mut memory);
@@ -561,10 +689,10 @@ fn test_and() {
     assert_eq!(cpu.a, 0);
     assert_eq!(cpu.p, 2); // zero-flag should be set
 
-    let mut memory = vec![0u8; 0x1000];
-    memory[0x80] = 00;
-    memory[0x81] = 02;
-    memory[0x200] = 0xaa;
+    let mut memory = MemoryMap::new();
+    *memory.get_mut(0x80) = 00;
+    *memory.get_mut(0x81) = 02;
+    *memory.get_mut(0x200) = 0xaa;
     cpu.a = 0x55;
     cpu.p = 0;
     // AND ($80, X)
@@ -577,7 +705,7 @@ fn test_and() {
 
 fn test_asl() {
     let mut cpu = Cpu::default();
-    let mut memory = vec![0u8; 0x1000];
+    let mut memory = MemoryMap::new();
 
     cpu.a = 0x80;
     cpu.p = 0xe5;
@@ -590,28 +718,28 @@ fn test_asl() {
 
     cpu.a = 0;
     cpu.p = 0xe5;
-    memory[0x78] = 0x80;
+    *memory.get_mut(0x78) = 0x80;
     // ASL $78
     let cyc = cpu.debug_exec_opcode([0x06, 0x78, 00], &mut memory);
 
     assert_eq!(cyc, 5);
-    assert_eq!(memory[0x78], 0);
+    assert_eq!(memory.get(0x78), 0);
     assert_eq!(cpu.p, 0x67);
 
     cpu.p = 0xa5;
-    memory[0x78] = 0;
-    memory[0x678] = 0x55;
+    *memory.get_mut(0x78) = 0;
+    *memory.get_mut(0x678) = 0x55;
     // ASL $0678
     let cyc = cpu.debug_exec_opcode([0x0e, 0x78, 0x06], &mut memory);
 
     assert_eq!(cyc, 6);
-    assert_eq!(memory[0x678], 0xaa);
+    assert_eq!(memory.get(0x678), 0xaa);
     assert_eq!(cpu.p, 0xa4);
 }
 
 fn test_branch_instrs() {
     let mut cpu = Cpu::default();
-    let mut memory = vec![0u8; 0x1000];
+    let mut memory = MemoryMap::new();
     cpu.p = 0;
     cpu.pc = 0x100;
     let cyc = cpu.debug_exec_opcode([0x90, 0x80, 00], &mut memory);
@@ -642,7 +770,18 @@ fn test_branch_instrs() {
 }
 
 fn test_bit() {
-    // TODO: ..
+    let mut cpu = Cpu::default();
+    let mut memory = MemoryMap::new();
+
+    cpu.p = 0xa4;
+    cpu.a = 0xff;
+    cpu.pc = 0x40;
+    *memory.get_mut(1) = 0xff;
+    // BIT $01
+    let cyc = cpu.debug_exec_opcode([0x24, 0x01, 00], &mut memory);
+
+    assert_eq!(cyc, 3);
+    assert_eq!(cpu.p, 0xe4);
 }
 
 fn test_cmp() {
@@ -671,16 +810,17 @@ fn main() {
     test_and();
     test_asl();
     test_branch_instrs();
+    test_bit();
     test_cmp();
 
-    let cpu = Cpu::default();
-    cpu.test_calc_addr(0x800);
-    cpu.test_calc_addr(0xfff);
-    cpu.test_calc_addr(0x80f);
-    cpu.test_calc_addr(0xa0e);
-    cpu.test_calc_addr(0x1000);
-    cpu.test_calc_addr(0x18f0);
-    cpu.test_calc_addr(0x48f0);
-    cpu.test_calc_addr(0x3fff);
-    cpu.test_calc_addr(0x2001);
+    let memory = MemoryMap::new();
+    memory.test_calc_addr(0x800);
+    memory.test_calc_addr(0xfff);
+    memory.test_calc_addr(0x80f);
+    memory.test_calc_addr(0xa0e);
+    memory.test_calc_addr(0x1000);
+    memory.test_calc_addr(0x18f0);
+    memory.test_calc_addr(0x48f0);
+    memory.test_calc_addr(0x3fff);
+    memory.test_calc_addr(0x2001);
 }
