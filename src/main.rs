@@ -989,11 +989,44 @@ fn test_cmp() {
 }
 
 fn test_dec_inc() {
-    // TODO: ..
+    let mut cpu = Cpu::default();
+    let mut memory = MemoryMap::new();
+
+    *memory.get_mut(0x78) = 0x80;
+    cpu.p = 0xa4;
+    // DEC $78
+    let cyc = cpu.debug_exec_opcode([0xc6, 0x78, 00], &mut memory);
+
+    assert_eq!(cyc, 5);
+    assert_eq!(cpu.pc, 2);
+    assert_eq!(cpu.p, 0x24);
 }
 
 fn test_eor() {
-    // TODO: ..
+    let mut cpu = Cpu::default();
+    let mut memory = MemoryMap::new();
+
+    cpu.p = 0x6c;
+    cpu.a = 0x5f;
+    // EOR #$AA
+    let cyc = cpu.debug_exec_opcode([0x49, 0xaa, 00], &mut memory);
+
+    assert_eq!(cyc, 2);
+    assert_eq!(cpu.pc, 2);
+    assert_eq!(cpu.p, 0xec);
+
+    *memory.get_mut(0x80) = 00;
+    *memory.get_mut(0x81) = 02;
+    *memory.get_mut(0x200) = 0xaa;
+    cpu.p = 0x64;
+    cpu.a = 0x5f;
+    cpu.x = 0;
+    // EOR ($80, X) (indexed indirect)
+    let cyc = cpu.debug_exec_opcode([0x41, 0x80, 00], &mut memory);
+
+    assert_eq!(cyc, 6);
+    assert_eq!(cpu.pc, 4);
+    assert_eq!(cpu.p, 0xe4);
 }
 
 fn test_jmp() {
@@ -1045,7 +1078,30 @@ fn test_jsr() {
 }
 
 fn test_ld() {
-    // TODO: ..
+    let mut cpu = Cpu::default();
+    let mut memory = MemoryMap::new();
+
+    *memory.get_mut(0x89) = 0x00;
+    *memory.get_mut(0x8a) = 0x03;
+    *memory.get_mut(0x300) = 0x89;
+    cpu.y = 0;
+    cpu.p = 0x27;
+    // LDA ($89), Y (indirect indexed)
+    let cyc = cpu.debug_exec_opcode([0xb1, 0x89, 00], &mut memory);
+
+    assert_eq!(cyc, 5);
+    assert_eq!(cpu.pc, 2);
+    assert_eq!(cpu.p, 0xa5);
+
+    *memory.get_mut(0x633) = 0xaa;
+    cpu.y = 0;
+    cpu.p = 0x67;
+    // LDY ($0633, X) (indexed indirect)
+    let cyc = cpu.debug_exec_opcode([0xbc, 0x33, 06], &mut memory);
+
+    assert_eq!(cyc, 4);
+    assert_eq!(cpu.y, 0xaa);
+    assert_eq!(cpu.p, 0xe5);
 }
 
 fn main() {
@@ -1066,8 +1122,11 @@ fn main() {
     test_branch_instrs();
     test_bit();
     test_cmp();
+    test_dec_inc();
+    test_eor();
     test_jmp();
     test_jsr();
+    test_ld();
 
     let memory = MemoryMap::new();
     memory.test_calc_addr(0x800);
