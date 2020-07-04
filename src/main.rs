@@ -3,19 +3,20 @@ mod parse;
 use parse::RomInfo;
 
 struct MemoryMap {
-    memory: [u8; 0x1000],
+    // TODO: reduce size, use custom address calculation
+    memory: [u8; 0x10000],
 }
 
 impl MemoryMap {
     fn new() -> Self {
         MemoryMap {
-            memory: [0; 0x1000],
+            memory: [0; 0x10000],
         }
     }
 
     #[inline]
     fn get_mut(&mut self, index: u16) -> &mut u8 {
-        unsafe { self.memory.get_unchecked_mut(index as usize) }
+        unsafe { self.memory.get_mut(index as usize).unwrap() }
     }
 
     #[inline]
@@ -71,8 +72,6 @@ impl Cpu {
         // FIXME: handle out of bounds????
         // FIXME: need to subtract from clock cycles if last cycle wasn't a write?? (in these
         // cases, the 6502 will fetch the next instruction while the current one is executing)
-        // TODO: use get_unchecked() where the index is
-        // guaranteed to be smaller than the array size
         match [
             memory.get(self.pc),
             memory.get(self.pc + 1),
@@ -400,14 +399,65 @@ impl Cpu {
             // EOR ($bytes, X) (indexed indirect)
             [0x41, byte_1, _] => {
                 let addr = self.get_indexed_indirect(byte_1, memory);
-                self.eor(memory.get(addr), 3);
+                self.eor(memory.get(addr), 2);
                 6
             }
             // EOR ($bytes), Y (indirect indexed)
             [0x51, byte_1, _] => {
                 let (addr, carry) = self.get_indirect_indexed(byte_1, memory);
-                self.eor(memory.get(addr), 3);
+                self.eor(memory.get(addr), 2);
                 5 + carry as u8
+            }
+            // INC $byte_1 (zero page)
+            [0xe6, byte_1, _] => {
+                *memory.get_mut_u8(byte_1) = self.inc(memory.get_u8(byte_1), 2);
+                5
+            }
+            // INC $byte_1, X (zero page indexed)
+            [0xf6, byte_1, _] => {
+                let addr = byte_1.wrapping_add(self.x);
+                *memory.get_mut_u8(addr) = self.inc(memory.get_u8(addr), 2);
+                6
+            }
+            // INC $bytes (absolute)
+            [0xee, bytes @ ..] => {
+                let addr = u16::from_le_bytes(bytes);
+                *memory.get_mut(addr) = self.inc(memory.get(addr), 3);
+                6
+            }
+            // INC $bytes, X (absolute indexed)
+            [0xfe, bytes @ ..] => {
+                let (addr, _) = self.get_absolute_indexed(bytes, self.x);
+                *memory.get_mut(addr) = self.inc(memory.get(addr), 3);
+                7
+            }
+            // INX
+            [0xe8, ..] => {
+                self.x = self.inc(self.x, 1);
+                2
+            }
+            // INY
+            [0xc8, ..] => {
+                self.y = self.inc(self.y, 1);
+                2
+            }
+            // JMP $bytes (absolute)
+            [0x4c, bytes @ ..] => {
+                self.pc = u16::from_le_bytes(bytes);
+                3
+            }
+            // JMP ($bytes) (absolute indirect)
+            [0x6c, mut bytes @ ..] => {
+                let addr_lo = memory.get(u16::from_le_bytes(bytes));
+                // add 1 to low bits without carry to get address of high bits of final address
+                bytes[0] = bytes[0].wrapping_add(1);
+                let addr_hi = memory.get(u16::from_le_bytes(bytes));
+                self.pc = u16::from_le_bytes([addr_lo, addr_hi]);
+                5
+            }
+            [0x20, bytes @ ..] => {
+                self.jsr(u16::from_le_bytes(bytes), memory);
+                6
             }
             _ => panic!("TODO: handle invalid opcode"),
         }
@@ -423,7 +473,7 @@ impl Cpu {
         (addr_indexed, carry)
     }
 
-    fn get_indexed_indirect(&self, addr: u8, memory: &mut MemoryMap) -> u16 {
+    fn get_indexed_indirect(&self, addr: u8, memory: &MemoryMap) -> u16 {
         let addr_indexed = addr.wrapping_add(self.x);
         let dest_addr =
             u16::from_le_bytes([memory.get_u8(addr_indexed), memory.get_u8(addr_indexed + 1)]);
@@ -431,7 +481,7 @@ impl Cpu {
         dest_addr
     }
 
-    fn get_indirect_indexed(&self, addr: u8, memory: &mut MemoryMap) -> (u16, bool) {
+    fn get_indirect_indexed(&self, addr: u8, memory: &MemoryMap) -> (u16, bool) {
         // get address at memory[addr]
         let dest_addr = [memory.get_u8(addr), memory.get_u8(addr + 1)];
 
@@ -579,7 +629,6 @@ impl Cpu {
         self.pc += pc_increment as u16;
 
         let res = val.wrapping_sub(1);
-
         self.set_z_from_val(res);
         self.set_n_from_val(res);
 
@@ -592,6 +641,28 @@ impl Cpu {
         self.a ^= val;
         self.set_z_from_val(self.a);
         self.set_n_from_val(self.a);
+    }
+
+    fn inc(&mut self, val: u8, pc_increment: u8) -> u8 {
+        self.pc += pc_increment as u16;
+
+        let res = val.wrapping_add(1);
+        self.set_z_from_val(res);
+        self.set_n_from_val(res);
+
+        res
+    }
+
+    fn jsr(&mut self, addr: u16, memory: &mut MemoryMap) {
+        // get return address (next instruction - 1)
+        let ret_addr = (self.pc + 2).to_le_bytes();
+        // push low bytes of address to sp - 1
+        *memory.get_mut(self.sp.wrapping_sub(1) as u16 + 0x100) = ret_addr[0];
+        // push high bytes of address to sp
+        *memory.get_mut(self.sp as u16 + 0x100) = ret_addr[1];
+
+        self.sp = self.sp.wrapping_sub(2);
+        self.pc = addr;
     }
 
     fn debug_exec_opcode(&mut self, opc: [u8; 3], memory: &mut MemoryMap) -> u8 {
@@ -794,6 +865,62 @@ fn test_cmp() {
     assert_eq!(cpu.p, 0xa4);
 }
 
+fn test_dec_inc() {
+    // TODO: ..
+}
+
+fn test_eor() {
+    // TODO: ..
+}
+
+fn test_jmp() {
+    let mut cpu = Cpu::new_nestest();
+    let mut memory = MemoryMap::new();
+
+    cpu.debug_exec_opcode([0x4c, 0xf5, 0xc5], &mut memory);
+
+    assert_eq!(cpu.pc, 0xc5f5);
+
+    *memory.get_mut(0x2ff) = 0x00;
+    *memory.get_mut(0x200) = 0x03;
+    // JMP ($02ff)
+    cpu.debug_exec_opcode([0x6c, 0xff, 0x02], &mut memory);
+
+    assert_eq!(cpu.pc, 0x300);
+}
+
+fn test_jsr() {
+    let mut cpu = Cpu::default();
+    let mut memory = MemoryMap::new();
+
+    cpu.pc = 0x300;
+    cpu.sp = 0xff;
+
+    let cyc = cpu.debug_exec_opcode([0x20, 00, 00], &mut memory);
+
+    assert_eq!(cyc, 6);
+    assert_eq!(memory.get(cpu.sp.wrapping_add(1) as u16 + 0x100), 0x02);
+    assert_eq!(memory.get(cpu.sp.wrapping_add(2) as u16 + 0x100), 0x03);
+
+    cpu.pc = 0x300;
+    cpu.sp = 0x00;
+
+    // sp = 0x00, so the jsr will cause it to underflow through zero
+    cpu.debug_exec_opcode([0x20, 00, 00], &mut memory);
+
+    assert_eq!(memory.get(cpu.sp.wrapping_add(1) as u16 + 0x100), 0x02);
+    assert_eq!(memory.get(cpu.sp.wrapping_add(2) as u16 + 0x100), 0x03);
+
+    cpu.pc = 0xc5fd;
+    cpu.sp = 0xfd;
+    cpu.debug_exec_opcode([0x20, 0x2d, 0xc7], &mut memory);
+
+    assert_eq!(cpu.sp, 0xfb);
+    assert_eq!(cpu.pc, 0xc72d);
+    assert_eq!(memory.get(cpu.sp.wrapping_add(1) as u16 + 0x100), 0xfd + 2);
+    assert_eq!(memory.get(cpu.sp.wrapping_add(2) as u16 + 0x100), 0xc5);
+}
+
 fn main() {
     let rom = std::fs::read("nestest.nes").unwrap();
     println!("{}", std::str::from_utf8(&rom[0..=3]).unwrap());
@@ -812,6 +939,8 @@ fn main() {
     test_branch_instrs();
     test_bit();
     test_cmp();
+    test_jmp();
+    test_jsr();
 
     let memory = MemoryMap::new();
     memory.test_calc_addr(0x800);
