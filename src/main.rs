@@ -455,9 +455,109 @@ impl Cpu {
                 self.pc = u16::from_le_bytes([addr_lo, addr_hi]);
                 5
             }
+            // JSR $bytes (absolute)
             [0x20, bytes @ ..] => {
                 self.jsr(u16::from_le_bytes(bytes), memory);
                 6
+            }
+            // LDA #byte_1 (immediate)
+            [0xa9, byte_1, _] => {
+                self.lda(byte_1, 2);
+                2
+            }
+            // LDA $byte_1 (zero page)
+            [0xa5, byte_1, _] => {
+                self.lda(memory.get_u8(byte_1), 2);
+                3
+            }
+            // LDA $byte_1, X (zero page indexed)
+            [0xb5, byte_1, _] => {
+                let addr = byte_1.wrapping_add(self.x);
+                self.lda(memory.get_u8(addr), 2);
+                4
+            }
+            // LDA $bytes (absolute)
+            [0xad, bytes @ ..] => {
+                self.lda(memory.get(u16::from_le_bytes(bytes)), 3);
+                4
+            }
+            // LDA $bytes, X (absolute indexed)
+            [0xbd, bytes @ ..] => {
+                let (addr, carry) = self.get_absolute_indexed(bytes, self.x);
+                self.lda(memory.get(addr), 3);
+                4 + carry as u8
+            }
+            // LDA $bytes, Y (absolute indexed)
+            [0xb9, bytes @ ..] => {
+                let (addr, carry) = self.get_absolute_indexed(bytes, self.y);
+                self.lda(memory.get(addr), 3);
+                4 + carry as u8
+            }
+            // LDA ($byte_1, X) (indexed indirect)
+            [0xa1, byte_1, _] => {
+                let addr = self.get_indexed_indirect(byte_1, memory);
+                self.lda(memory.get(addr), 2);
+                6
+            }
+            // LDA ($byte_1), Y (indirect indexed)
+            [0xb1, byte_1, _] => {
+                let (addr, carry) = self.get_indirect_indexed(byte_1, memory);
+                self.lda(memory.get(addr), 2);
+                5 + carry as u8
+            }
+            // LDX #byte_1 (immediate)
+            [0xa2, byte_1, _] => {
+                self.ldx(byte_1, 2);
+                2
+            }
+            // LDX $byte_1 (zero page)
+            [0xa6, byte_1, _] => {
+                self.ldx(memory.get_u8(byte_1), 2);
+                3
+            }
+            // LDX $byte_1, Y (zero page indexed)
+            [0xb6, byte_1, _] => {
+                let addr = byte_1.wrapping_add(self.y);
+                self.ldx(memory.get_u8(addr), 2);
+                4
+            }
+            // LDX $bytes (absolute)
+            [0xae, bytes @ ..] => {
+                self.ldx(memory.get(u16::from_le_bytes(bytes)), 3);
+                4
+            }
+            // LDX $bytes, Y (absolute indexed)
+            [0xbe, bytes @ ..] => {
+                let (addr, carry) = self.get_absolute_indexed(bytes, self.y);
+                self.ldx(memory.get(addr), 3);
+                4 + carry as u8
+            }
+            // LDY #byte_1 (immediate)
+            [0xa0, byte_1, _] => {
+                self.ldy(byte_1, 2);
+                2
+            }
+            // LDY $byte_1 (zero page)
+            [0xa4, byte_1, _] => {
+                self.ldy(memory.get_u8(byte_1), 2);
+                3
+            }
+            // LDY $byte_1, X (zero page indexed)
+            [0xb4, byte_1, _] => {
+                let addr = byte_1.wrapping_add(self.x);
+                self.ldy(memory.get_u8(addr), 2);
+                4
+            }
+            // LDY $bytes (absolute)
+            [0xac, bytes @ ..] => {
+                self.ldy(memory.get(u16::from_le_bytes(bytes)), 3);
+                4
+            }
+            // LDY $bytes, X (absolute indexed)
+            [0xbc, bytes @ ..] => {
+                let (addr, carry) = self.get_absolute_indexed(bytes, self.x);
+                self.ldy(memory.get(addr), 3);
+                4 + carry as u8
             }
             _ => panic!("TODO: handle invalid opcode"),
         }
@@ -475,8 +575,10 @@ impl Cpu {
 
     fn get_indexed_indirect(&self, addr: u8, memory: &MemoryMap) -> u16 {
         let addr_indexed = addr.wrapping_add(self.x);
-        let dest_addr =
-            u16::from_le_bytes([memory.get_u8(addr_indexed), memory.get_u8(addr_indexed + 1)]);
+        let dest_addr = u16::from_le_bytes([
+            memory.get_u8(addr_indexed),
+            memory.get_u8(addr_indexed.wrapping_add(1)),
+        ]);
 
         dest_addr
     }
@@ -539,19 +641,16 @@ impl Cpu {
         self.pc += pc_increment as u16;
 
         // add the carry from the status flag to 'val' first
-        let (val, mut carry) = val.overflowing_add(self.p & 1);
-        let (_, mut overflow) = (val as i8).overflowing_add((self.p & 1) as i8);
+        let (val, carry_1) = val.overflowing_add(self.p & 1);
+        let (_, overflow_1) = (val as i8).overflowing_add((self.p & 1) as i8);
 
         // then add 'val' to the accumulator
         let (res, carry_2) = val.overflowing_add(self.a);
         let (_, overflow_2) = (val as i8).overflowing_add(self.a as i8);
 
-        overflow |= overflow_2;
-        carry |= carry_2;
-
         self.a = res;
-        self.set_c_from_bool(carry);
-        self.set_v_from_bool(overflow);
+        self.set_c_from_bool(carry_1 | carry_2);
+        self.set_v_from_bool(overflow_1 | overflow_2);
         self.set_z_from_val(res);
         self.set_n_from_val(res);
     }
@@ -663,6 +762,30 @@ impl Cpu {
 
         self.sp = self.sp.wrapping_sub(2);
         self.pc = addr;
+    }
+
+    fn lda(&mut self, val: u8, pc_increment: u16) {
+        self.pc += pc_increment as u16;
+
+        self.set_z_from_val(val);
+        self.set_n_from_val(val);
+        self.a = val;
+    }
+
+    fn ldx(&mut self, val: u8, pc_increment: u16) {
+        self.pc += pc_increment as u16;
+
+        self.set_z_from_val(val);
+        self.set_n_from_val(val);
+        self.x = val;
+    }
+
+    fn ldy(&mut self, val: u8, pc_increment: u16) {
+        self.pc += pc_increment as u16;
+
+        self.set_z_from_val(val);
+        self.set_n_from_val(val);
+        self.y = val;
     }
 
     fn debug_exec_opcode(&mut self, opc: [u8; 3], memory: &mut MemoryMap) -> u8 {
@@ -919,6 +1042,10 @@ fn test_jsr() {
     assert_eq!(cpu.pc, 0xc72d);
     assert_eq!(memory.get(cpu.sp.wrapping_add(1) as u16 + 0x100), 0xfd + 2);
     assert_eq!(memory.get(cpu.sp.wrapping_add(2) as u16 + 0x100), 0xc5);
+}
+
+fn test_ld() {
+    // TODO: ..
 }
 
 fn main() {
