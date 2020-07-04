@@ -186,7 +186,7 @@ impl Cpu {
             // ASL $byte_1, X (zero page indexed)
             [0x16, byte_1, _] => {
                 let addr = byte_1.wrapping_add(self.x);
-                *memory.get_mut_u8(addr) = self.asl(memory.get_u8(byte_1), 2);
+                *memory.get_mut_u8(addr) = self.asl(memory.get_u8(addr), 2);
                 6
             }
             // ASL $bytes (absolute)
@@ -572,7 +572,7 @@ impl Cpu {
             // LSR $byte_1, X (zero page indexed)
             [0x56, byte_1, _] => {
                 let addr = byte_1.wrapping_add(self.x);
-                *memory.get_mut_u8(addr) = self.lsr(memory.get_u8(byte_1), 2);
+                *memory.get_mut_u8(addr) = self.lsr(memory.get_u8(addr), 2);
                 6
             }
             // LSR $bytes (absolute)
@@ -644,7 +644,8 @@ impl Cpu {
             }
             // PHP
             [0x08, ..] => {
-                self.push_val(self.p, memory);
+                // NOTE: the 'b-flag' bit is set when pushing
+                self.push_val(self.p | 0b10000, memory);
                 3
             }
             // PLA
@@ -656,8 +657,65 @@ impl Cpu {
             }
             // PLP
             [0x28, ..] => {
-                self.p = self.pull_val(memory);
+                // NOTE: the 'b-flag' bit is cleared when pulling
+                self.p = self.pull_val(memory) & !0b10000;
                 4
+            }
+            // ROL A (accumulator)
+            [0x2a, ..] => {
+                self.a = self.rol(self.a, 1);
+                2
+            }
+            // ROL $byte_1 (zero page)
+            [0x26, byte_1, _] => {
+                *memory.get_mut_u8(byte_1) = self.rol(memory.get_u8(byte_1), 2);
+                5
+            }
+            // ROL $byte_1, X (zero page indexed)
+            [0x36, byte_1, _] => {
+                let addr = byte_1.wrapping_add(self.x);
+                *memory.get_mut_u8(addr) = self.rol(memory.get_u8(addr), 2);
+                6
+            }
+            // ROL $bytes (absolute)
+            [0x2e, bytes @ ..] => {
+                let addr = u16::from_le_bytes(bytes);
+                *memory.get_mut(addr) = self.rol(memory.get(addr), 3);
+                6
+            }
+            // ROL $bytes, X (absolute indexed)
+            [0x3e, bytes @ ..] => {
+                let (addr, _) = self.get_absolute_indexed(bytes, self.x);
+                *memory.get_mut(addr) = self.rol(memory.get(addr), 3);
+                7
+            }
+            // ROR A (accumulator)
+            [0x6a, ..] => {
+                self.a = self.ror(self.a, 1);
+                2
+            }
+            // ROR $byte_1 (zero page)
+            [0x66, byte_1, _] => {
+                *memory.get_mut_u8(byte_1) = self.ror(memory.get_u8(byte_1), 2);
+                5
+            }
+            // ROR $byte_1, X (zero page indexed)
+            [0x76, byte_1, _] => {
+                let addr = byte_1.wrapping_add(self.x);
+                *memory.get_mut_u8(addr) = self.ror(memory.get_u8(addr), 2);
+                6
+            }
+            // ROR $bytes (absolute)
+            [0x6e, bytes @ ..] => {
+                let addr = u16::from_le_bytes(bytes);
+                *memory.get_mut(addr) = self.ror(memory.get(addr), 3);
+                6
+            }
+            // ROR $bytes, X (absolute indexed)
+            [0x7e, bytes @ ..] => {
+                let (addr, _) = self.get_absolute_indexed(bytes, self.x);
+                *memory.get_mut(addr) = self.ror(memory.get(addr), 3);
+                7
             }
             _ => panic!("TODO: handle invalid opcode"),
         }
@@ -685,7 +743,7 @@ impl Cpu {
 
     fn get_indirect_indexed(&self, addr: u8, memory: &MemoryMap) -> (u16, bool) {
         // get address at memory[addr]
-        let dest_addr = [memory.get_u8(addr), memory.get_u8(addr + 1)];
+        let dest_addr = [memory.get_u8(addr), memory.get_u8(addr.wrapping_add(1))];
 
         // add index to address while keeping track of whether a page boundary was crossed
         let (indexed_addr_low, carry) = dest_addr[0].overflowing_add(self.y);
@@ -920,11 +978,38 @@ impl Cpu {
         self.sp = self.sp.wrapping_sub(1);
     }
 
+    // used for pla, plp instructions
     fn pull_val(&mut self, memory: &mut MemoryMap) -> u8 {
         self.pc += 1;
 
         self.sp = self.sp.wrapping_add(1);
         memory.get(self.sp as u16 + 0x100)
+    }
+
+    fn rol(&mut self, val: u8, pc_increment: u8) -> u8 {
+        self.pc += pc_increment as u16;
+
+        // shift 'val' left and or carry into bit 0
+        let res = (val << 1) | (self.p & 1);
+        // set carry to bit 7 of 'val'
+        self.set_c_from_bit(val >> 7);
+        self.set_z_from_val(res);
+        self.set_n_from_val(res);
+
+        res
+    }
+
+    fn ror(&mut self, val: u8, pc_increment: u16) -> u8 {
+        self.pc += pc_increment as u16;
+
+        // shift 'val' right and or carry into bit 7
+        let res = (val >> 1) | (self.p << 7);
+        // set carry to bit 0 of 'val'
+        self.set_c_from_bit(val & 1);
+        self.set_z_from_val(res);
+        self.set_n_from_val(res);
+
+        res
     }
 
     fn debug_exec_opcode(&mut self, opc: [u8; 3], memory: &mut MemoryMap) -> u8 {
@@ -1252,7 +1337,67 @@ fn test_ora() {
 }
 
 fn test_push_pull() {
-    // TODO: ..
+    let mut cpu = Cpu::default();
+    let mut memory = MemoryMap::new();
+
+    cpu.a = 0xff;
+    cpu.sp = 0xfb;
+    // PHA (push accumulator)
+    let cyc_1 = cpu.debug_exec_opcode([0x48, 00, 00], &mut memory);
+    // PLP (pop top of stack into status flags)
+    let cyc_2 = cpu.debug_exec_opcode([0x28, 00, 00], &mut memory);
+
+    assert_eq!(cyc_1, 3);
+    assert_eq!(cyc_2, 4);
+    assert_eq!(cpu.p, 0xef);
+    assert_eq!(cpu.sp, 0xfb);
+
+    cpu.a = 0;
+    cpu.p = 0x6f;
+    cpu.sp = 0xfb;
+    // PHP (push status flags)
+    let cyc_1 = cpu.debug_exec_opcode([0x08, 00, 00], &mut memory);
+    // PLA (pop top of stack into accumulator)
+    let cyc_2 = cpu.debug_exec_opcode([0x68, 00, 00], &mut memory);
+
+    assert_eq!(cyc_1, 3);
+    assert_eq!(cyc_2, 4);
+    assert_eq!(cpu.a, 0x7f);
+    assert_eq!(cpu.p, 0x6d);
+    assert_eq!(cpu.sp, 0xfb);
+}
+
+fn test_rol_ror() {
+    let mut cpu = Cpu::default();
+    let mut memory = MemoryMap::new();
+
+    cpu.a = 0x55;
+    cpu.p = 0x24;
+    let cyc = cpu.debug_exec_opcode([0x2a, 00, 00], &mut memory);
+
+    assert_eq!(cyc, 2);
+    assert_eq!(cpu.a, 0xaa);
+    assert_eq!(cpu.p, 0xa4);
+
+    cpu.x = 0x55;
+    cpu.p = 0x24;
+    *memory.get_mut(0x655) = 0x55;
+    // ROL $0600, X (absolute indexed)
+    let cyc = cpu.debug_exec_opcode([0x3e, 00, 06], &mut memory);
+
+    assert_eq!(cyc, 7);
+    assert_eq!(cpu.p, 0xa4);
+    assert_eq!(memory.get(0x655), 0xaa);
+
+    cpu.x = 0x55;
+    cpu.p = 0x65;
+    *memory.get_mut(0x55) = 1;
+    // ROR $00, X (zero page indexed)
+    let cyc = cpu.debug_exec_opcode([0x76, 00, 00], &mut memory);
+
+    assert_eq!(cyc, 6);
+    assert_eq!(cpu.p, 0xe5);
+    assert_eq!(memory.get(0x55), 0x80);
 }
 
 fn main() {
@@ -1278,6 +1423,8 @@ fn main() {
     test_jmp();
     test_jsr();
     test_ld();
+    test_push_pull();
+    test_rol_ror();
 
     let memory = MemoryMap::new();
     memory.test_calc_addr(0x800);
