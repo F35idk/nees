@@ -717,6 +717,82 @@ impl Cpu {
                 *memory.get_mut(addr) = self.ror(memory.get(addr), 3);
                 7
             }
+            // RTI
+            [0x40, ..] => {
+                self.rti(memory);
+                6
+            }
+            // RTS
+            [0x60, ..] => {
+                self.rts(memory);
+                6
+            }
+            // SBC #byte_1 (immediate)
+            [0xe9, byte_1, _] => {
+                self.sbc(byte_1, 2);
+                2
+            }
+            // SBC $byte_1 (zero page)
+            [0xe5, byte_1, _] => {
+                let val = memory.get_u8(byte_1);
+                self.sbc(val, 2);
+                3
+            }
+            // SBC $byte_1, X (zero page indexed)
+            [0xf5, byte_1, _] => {
+                let addr = byte_1.wrapping_add(self.x);
+                self.sbc(memory.get_u8(addr), 2);
+                4
+            }
+            // SBC $bytes (absolute)
+            [0xed, bytes @ ..] => {
+                let val = memory.get(u16::from_le_bytes(bytes));
+                self.sbc(val, 3);
+                4
+            }
+            // SBC $bytes, X (absolute indexed)
+            [0xfd, bytes @ ..] => {
+                let (addr, carry) = self.get_absolute_indexed(bytes, self.x);
+                self.sbc(memory.get(addr), 3);
+                // add 'carry' for one extra cycle if a page boundary was crossed
+                4 + carry as u8
+            }
+            // SBC $bytes, Y (absolute indexed)
+            [0xf9, bytes @ ..] => {
+                let (addr, carry) = self.get_absolute_indexed(bytes, self.y);
+                self.sbc(memory.get(addr), 3);
+                4 + carry as u8
+            }
+            // SBC ($byte_1, X) (indexed indirect)
+            [0xe1, byte_1, _] => {
+                let addr = self.get_indexed_indirect(byte_1, memory);
+                self.sbc(memory.get(addr), 2);
+                6
+            }
+            // SBC ($byte_1), Y (indirect indexed)
+            [0xf1, byte_1, _] => {
+                let (addr, carry) = self.get_indirect_indexed(byte_1, memory);
+                self.sbc(memory.get(addr), 2);
+                5 + carry as u8
+            }
+            // SEC
+            [0x38, ..] => {
+                self.pc += 1;
+                self.set_c_from_bit(1);
+                2
+            }
+            // SED
+            [0xf8, ..] => {
+                self.pc += 1;
+                self.p = self.p & 8;
+                2
+            }
+            // SEI
+            [0x78, ..] => {
+                self.pc += 1;
+                self.set_i_from_bit(4);
+                2
+            }
             _ => panic!("TODO: handle invalid opcode"),
         }
     }
@@ -871,6 +947,7 @@ impl Cpu {
 
     fn brk(&mut self) -> u8 {
         // TODO: implement
+        // NOTE: clear the 'b-flag' bit when pushing the status register
         0
     }
 
@@ -1010,6 +1087,46 @@ impl Cpu {
         self.set_n_from_val(res);
 
         res
+    }
+
+    fn rti(&mut self, memory: &mut MemoryMap) {
+        // pull into status flags
+        self.sp = self.sp.wrapping_add(1);
+        self.p = memory.get(self.sp as u16 + 0x100);
+
+        // pull into program counter
+        self.sp = self.sp.wrapping_add(1);
+        let pc_low = memory.get(self.sp as u16 + 0x100);
+        self.sp = self.sp.wrapping_add(1);
+        let pc_hi = memory.get(self.sp as u16 + 0x100);
+        self.pc = u16::from_le_bytes([pc_low, pc_hi]);
+    }
+
+    fn rts(&mut self, memory: &mut MemoryMap) {
+        // pull into program counter
+        self.sp = self.sp.wrapping_add(1);
+        let pc_low = memory.get(self.sp as u16 + 0x100);
+        self.sp = self.sp.wrapping_add(1);
+        let pc_hi = memory.get(self.sp as u16 + 0x100);
+        // add 1 since pushed value is expected to be pc - 1 (from the jsr instruction)
+        // FIXME: should discard carry from low 8 bits when adding?
+        self.pc = u16::from_le_bytes([pc_low, pc_hi]).wrapping_add(1);
+    }
+
+    fn sbc(&mut self, val: u8, pc_increment: u8) {
+        self.pc += pc_increment as u16;
+
+        let (res, borrow_1) = self.a.overflowing_sub(val);
+        let (_, overflow_1) = (self.a as i8).overflowing_sub(val as i8);
+
+        let (res, borrow_2) = res.overflowing_sub(!(self.p | !1));
+        let (_, overflow_2) = (res as i8).overflowing_sub(!(self.p | !1) as i8);
+
+        self.a = res;
+        self.set_c_from_bool(!(borrow_1 | borrow_2));
+        self.set_v_from_bool(overflow_1 | overflow_2);
+        self.set_z_from_val(res);
+        self.set_n_from_val(res);
     }
 
     fn debug_exec_opcode(&mut self, opc: [u8; 3], memory: &mut MemoryMap) -> u8 {
@@ -1400,6 +1517,62 @@ fn test_rol_ror() {
     assert_eq!(memory.get(0x55), 0x80);
 }
 
+fn test_rti() {
+    // TODO: ..
+}
+
+fn test_rts() {
+    let mut cpu = Cpu::default();
+    let mut memory = MemoryMap::new();
+
+    cpu.pc = 0x0401;
+    cpu.sp = 0xf0;
+    // JSR $2013
+    let cyc_1 = cpu.debug_exec_opcode([0x20, 0x13, 0x20], &mut memory);
+    assert_eq!(cyc_1, 6);
+    assert_eq!(cpu.pc, 0x2013);
+    assert_eq!(memory.get(0x100 + cpu.sp.wrapping_add(1) as u16), 01 + 2);
+    assert_eq!(memory.get(0x100 + cpu.sp.wrapping_add(2) as u16), 04);
+
+    // RTS
+    let cyc_2 = cpu.debug_exec_opcode([0x60, 00, 00], &mut memory);
+    assert_eq!(cyc_2, 6);
+    assert_eq!(cpu.pc, 0x0401 + 3);
+    assert_eq!(cpu.sp, 0xf0);
+}
+
+fn test_sbc() {
+    let mut cpu = Cpu::default();
+
+    cpu.a = 0x40;
+    cpu.p = 0x65;
+    cpu.sbc(0x40, 2);
+
+    assert_eq!(cpu.a, 0);
+    assert_eq!(cpu.p, 0x27);
+
+    cpu.a = 0x40;
+    cpu.p = 0x25;
+    cpu.sbc(0x3f, 2);
+
+    assert_eq!(cpu.a, 1);
+    assert_eq!(cpu.p, 0x25);
+
+    cpu.a = 0x40;
+    cpu.p = 0xe5;
+    cpu.sbc(0x41, 2);
+
+    assert_eq!(cpu.a, 0xff);
+    assert_eq!(cpu.p, 0xa4);
+
+    cpu.a = 0x81;
+    cpu.p = 0xe5;
+    cpu.sbc(0x7f, 2);
+
+    assert_eq!(cpu.a, 2);
+    assert_eq!(cpu.p, 0x65);
+}
+
 fn main() {
     let rom = std::fs::read("nestest.nes").unwrap();
     println!("{}", std::str::from_utf8(&rom[0..=3]).unwrap());
@@ -1425,6 +1598,8 @@ fn main() {
     test_ld();
     test_push_pull();
     test_rol_ror();
+    test_rts();
+    test_sbc();
 
     let memory = MemoryMap::new();
     memory.test_calc_addr(0x800);
