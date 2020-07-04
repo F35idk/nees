@@ -559,6 +559,106 @@ impl Cpu {
                 self.ldy(memory.get(addr), 3);
                 4 + carry as u8
             }
+            // LSR A (accumulator)
+            [0x4a, ..] => {
+                self.a = self.lsr(self.a, 1);
+                2
+            }
+            // LSR $byte_1 (zero page)
+            [0x46, byte_1, _] => {
+                *memory.get_mut_u8(byte_1) = self.lsr(memory.get_u8(byte_1), 2);
+                5
+            }
+            // LSR $byte_1, X (zero page indexed)
+            [0x56, byte_1, _] => {
+                let addr = byte_1.wrapping_add(self.x);
+                *memory.get_mut_u8(addr) = self.lsr(memory.get_u8(byte_1), 2);
+                6
+            }
+            // LSR $bytes (absolute)
+            [0x4e, bytes @ ..] => {
+                let addr = u16::from_le_bytes(bytes);
+                *memory.get_mut(addr) = self.lsr(memory.get(addr), 3);
+                6
+            }
+            // LSR $bytes, X (absolute indexed)
+            [0x5e, bytes @ ..] => {
+                let (addr, _) = self.get_absolute_indexed(bytes, self.x);
+                *memory.get_mut(addr) = self.lsr(memory.get(addr), 3);
+                7
+            }
+            // NOP
+            [0xea, ..] => {
+                self.pc += 1;
+                2
+            }
+            // ORA #byte_1 (immediate)
+            [0x09, byte_1, _] => {
+                self.ora(byte_1, 2);
+                2
+            }
+            // ORA $byte_1 (zero page)
+            [0x05, byte_1, _] => {
+                self.ora(memory.get_u8(byte_1), 2);
+                3
+            }
+            // ORA $byte_1, X (zero page indexed)
+            [0x15, byte_1, _] => {
+                let addr = byte_1.wrapping_add(self.x);
+                self.ora(memory.get_u8(addr), 2);
+                4
+            }
+            // ORA $bytes (absolute)
+            [0x0d, bytes @ ..] => {
+                self.ora(memory.get(u16::from_le_bytes(bytes)), 3);
+                4
+            }
+            // ORA $bytes, X (absolute indexed)
+            [0x1d, bytes @ ..] => {
+                let (addr, carry) = self.get_absolute_indexed(bytes, self.x);
+                self.ora(memory.get(addr), 3);
+                4 + carry as u8
+            }
+            // ORA $bytes, Y (absolute indexed)
+            [0x19, bytes @ ..] => {
+                let (addr, carry) = self.get_absolute_indexed(bytes, self.y);
+                self.ora(memory.get(addr), 3);
+                4 + carry as u8
+            }
+            // ORA ($bytes, X) (indexed indirect)
+            [0x01, byte_1, _] => {
+                let addr = self.get_indexed_indirect(byte_1, memory);
+                self.ora(memory.get(addr), 2);
+                6
+            }
+            // ORA ($bytes), Y (indirect indexed)
+            [0x11, byte_1, _] => {
+                let (addr, carry) = self.get_indirect_indexed(byte_1, memory);
+                self.ora(memory.get(addr), 2);
+                5 + carry as u8
+            }
+            // PHA
+            [0x48, ..] => {
+                self.push_val(self.a, memory);
+                3
+            }
+            // PHP
+            [0x08, ..] => {
+                self.push_val(self.p, memory);
+                3
+            }
+            // PLA
+            [0x68, ..] => {
+                self.a = self.pull_val(memory);
+                self.set_z_from_val(self.a);
+                self.set_n_from_val(self.a);
+                4
+            }
+            // PLP
+            [0x28, ..] => {
+                self.p = self.pull_val(memory);
+                4
+            }
             _ => panic!("TODO: handle invalid opcode"),
         }
     }
@@ -598,6 +698,11 @@ impl Cpu {
     #[inline]
     fn set_c_from_bool(&mut self, carry: bool) {
         self.p = (self.p & !1) | carry as u8;
+    }
+
+    #[inline]
+    fn set_c_from_bit(&mut self, bit: u8) {
+        self.p = (self.p & !1) | bit;
     }
 
     #[inline]
@@ -764,7 +869,7 @@ impl Cpu {
         self.pc = addr;
     }
 
-    fn lda(&mut self, val: u8, pc_increment: u16) {
+    fn lda(&mut self, val: u8, pc_increment: u8) {
         self.pc += pc_increment as u16;
 
         self.set_z_from_val(val);
@@ -772,7 +877,7 @@ impl Cpu {
         self.a = val;
     }
 
-    fn ldx(&mut self, val: u8, pc_increment: u16) {
+    fn ldx(&mut self, val: u8, pc_increment: u8) {
         self.pc += pc_increment as u16;
 
         self.set_z_from_val(val);
@@ -780,12 +885,46 @@ impl Cpu {
         self.x = val;
     }
 
-    fn ldy(&mut self, val: u8, pc_increment: u16) {
+    fn ldy(&mut self, val: u8, pc_increment: u8) {
         self.pc += pc_increment as u16;
 
         self.set_z_from_val(val);
         self.set_n_from_val(val);
         self.y = val;
+    }
+
+    fn lsr(&mut self, val: u8, pc_increment: u8) -> u8 {
+        self.pc += pc_increment as u16;
+
+        let res = val >> 1;
+        self.set_c_from_bit(val & 1);
+        self.set_z_from_val(res);
+        self.set_n_from_val(res);
+
+        res
+    }
+
+    fn ora(&mut self, val: u8, pc_increment: u8) {
+        self.pc += pc_increment as u16;
+
+        self.a |= val;
+        self.set_z_from_val(self.a);
+        self.set_n_from_val(self.a);
+    }
+
+    // used for pha, php instructions
+    fn push_val(&mut self, val: u8, memory: &mut MemoryMap) {
+        self.pc += 1;
+
+        *memory.get_mut(self.sp as u16 + 0x100) = val;
+        self.sp = self.sp.wrapping_sub(1);
+    }
+
+    fn pull_val(&mut self, memory: &mut MemoryMap) -> u8 {
+        self.pc += 1;
+
+        self.sp = self.sp.wrapping_add(1);
+        memory.get(self.sp as u16 + 0x100)
     }
 
     fn debug_exec_opcode(&mut self, opc: [u8; 3], memory: &mut MemoryMap) -> u8 {
@@ -1102,6 +1241,18 @@ fn test_ld() {
     assert_eq!(cyc, 4);
     assert_eq!(cpu.y, 0xaa);
     assert_eq!(cpu.p, 0xe5);
+}
+
+fn test_lsr() {
+    // TODO: ..
+}
+
+fn test_ora() {
+    // TODO: ..
+}
+
+fn test_push_pull() {
+    // TODO: ..
 }
 
 fn main() {
