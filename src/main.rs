@@ -146,7 +146,6 @@ impl Cpu {
             }
             // AND $bytes (absolute)
             [0x2d, bytes @ ..] => {
-                self.pc += 3;
                 let val = memory.get(u16::from_le_bytes(bytes));
                 self.and(val, 3);
                 4
@@ -935,6 +934,7 @@ impl Cpu {
     // also returns whether a page boundary was crossed
     fn get_absolute_indexed(&self, addr_bytes: [u8; 2], index: u8) -> (u16, bool) {
         let (addr_low, carry) = addr_bytes[0].overflowing_add(index);
+        // FIXME: wrapping_add()
         let addr_hi = addr_bytes[1] + carry as u8;
         let addr_indexed = u16::from_le_bytes([addr_low, addr_hi]);
 
@@ -1559,12 +1559,29 @@ fn test_jsr() {
 
     cpu.pc = 0xc5fd;
     cpu.sp = 0xfd;
-    cpu.debug_exec_opcode([0x20, 0x2d, 0xc7], &mut memory);
+    cpu.debug_exec_opcode([0x20, 0xe5, 0xf7], &mut memory);
 
     assert_eq!(cpu.sp, 0xfb);
-    assert_eq!(cpu.pc, 0xc72d);
+    assert_eq!(cpu.pc, 0xf7e5);
     assert_eq!(memory.get(cpu.sp.wrapping_add(1) as u16 + 0x100), 0xfd + 2);
     assert_eq!(memory.get(cpu.sp.wrapping_add(2) as u16 + 0x100), 0xc5);
+}
+
+fn test_jsr_2() {
+    let mut cpu = Cpu::default();
+    let mut memory = MemoryMap::new();
+
+    cpu.pc = 0xd620;
+    cpu.sp = 0xfb;
+    cpu.x = 0x33;
+    cpu.y = 0xba;
+
+    let cyc = cpu.debug_exec_opcode([0x20, 0xe5, 0xf7], &mut memory);
+
+    assert_eq!(cpu.pc, 0xf7e5);
+    assert_eq!(cyc, 6);
+    assert_eq!(memory.get(cpu.sp.wrapping_add(1) as u16 + 0x100), 0x20 + 2);
+    assert_eq!(memory.get(cpu.sp.wrapping_add(2) as u16 + 0x100), 0xd6);
 }
 
 fn test_ld() {
@@ -1738,6 +1755,7 @@ fn test() {
     test_eor();
     test_jmp();
     test_jsr();
+    test_jsr_2();
     test_ld();
     test_push_pull();
     test_rol_ror();
