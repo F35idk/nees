@@ -64,6 +64,8 @@ impl Cpu {
     fn new_nestest() -> Self {
         Self {
             pc: 0xc000,
+            p: 0x24,
+            sp: 0xfd,
             ..Default::default()
         }
     }
@@ -227,6 +229,9 @@ impl Cpu {
                 self.bit(memory.get(u16::from_le_bytes(bytes)), 3);
                 4
             }
+            // BRK
+            // NOTE: this is apparently 2 bytes, not one!
+            [0x00, ..] => panic!("BRK is not implemented yet"),
             // CLC
             [0x18, ..] => {
                 self.pc += 1;
@@ -645,6 +650,7 @@ impl Cpu {
             // PHP
             [0x08, ..] => {
                 // NOTE: the 'b-flag' bit is set when pushing
+                // FIXME: may need to set bit 5 when pushing as well? it should be set by default, but
                 self.push_val(self.p | 0b10000, memory);
                 3
             }
@@ -657,8 +663,8 @@ impl Cpu {
             }
             // PLP
             [0x28, ..] => {
-                // NOTE: the 'b-flag' bit is cleared when pulling
-                self.p = self.pull_val(memory) & !0b10000;
+                // NOTE: the 'b-flag'(bit 4) is cleared when pulling and bit 5 is set
+                self.p = (self.pull_val(memory) & !0b10000) | 0b100000;
                 4
             }
             // ROL A (accumulator)
@@ -784,13 +790,141 @@ impl Cpu {
             // SED
             [0xf8, ..] => {
                 self.pc += 1;
-                self.p = self.p & 8;
+                self.p |= 8;
                 2
             }
             // SEI
             [0x78, ..] => {
                 self.pc += 1;
                 self.set_i_from_bit(4);
+                2
+            }
+            // STA $byte_1 (zero page)
+            [0x85, byte_1, _] => {
+                self.pc += 2;
+                *memory.get_mut_u8(byte_1) = self.a;
+                3
+            }
+            // STA $byte_1, X (zero page indexed)
+            [0x95, byte_1, _] => {
+                self.pc += 2;
+                *memory.get_mut_u8(byte_1.wrapping_add(self.x)) = self.a;
+                4
+            }
+            // STA $bytes (absolute)
+            [0x8d, bytes @ ..] => {
+                self.pc += 3;
+                *memory.get_mut(u16::from_le_bytes(bytes)) = self.a;
+                4
+            }
+            // STA $bytes, X (absolute indexed)
+            [0x9d, bytes @ ..] => {
+                self.pc += 3;
+                let (addr, _) = self.get_absolute_indexed(bytes, self.x);
+                *memory.get_mut(addr) = self.a;
+                5
+            }
+            // STA $bytes, Y (absolute indexed)
+            [0x99, bytes @ ..] => {
+                self.pc += 3;
+                let (addr, _) = self.get_absolute_indexed(bytes, self.y);
+                *memory.get_mut(addr) = self.a;
+                5
+            }
+            // STA ($byte_1, X) (indexed indirect)
+            [0x81, byte_1, _] => {
+                self.pc += 2;
+                let addr = self.get_indexed_indirect(byte_1, memory);
+                *memory.get_mut(addr) = self.a;
+                6
+            }
+            // STA ($byte_1), Y (indirect indexed)
+            [0x91, byte_1, _] => {
+                self.pc += 2;
+                let (addr, _) = self.get_indirect_indexed(byte_1, memory);
+                *memory.get_mut(addr) = self.a;
+                6
+            }
+            // STX $byte_1 (zero page)
+            [0x86, byte_1, _] => {
+                self.pc += 2;
+                *memory.get_mut_u8(byte_1) = self.x;
+                3
+            }
+            // STX $byte_1, Y (zero page indexed)
+            [0x96, byte_1, _] => {
+                self.pc += 2;
+                *memory.get_mut_u8(byte_1.wrapping_add(self.y)) = self.x;
+                4
+            }
+            // STX $bytes (absolute)
+            [0x8e, bytes @ ..] => {
+                self.pc += 3;
+                *memory.get_mut(u16::from_le_bytes(bytes)) = self.x;
+                4
+            }
+            // STY $byte_1 (zero page)
+            [0x84, byte_1, _] => {
+                self.pc += 2;
+                *memory.get_mut_u8(byte_1) = self.y;
+                3
+            }
+            // STY $byte_1, Y (zero page indexed)
+            [0x94, byte_1, _] => {
+                self.pc += 2;
+                *memory.get_mut_u8(byte_1.wrapping_add(self.x)) = self.y;
+                4
+            }
+            // STY $bytes (absolute)
+            [0x8c, bytes @ ..] => {
+                self.pc += 3;
+                *memory.get_mut(u16::from_le_bytes(bytes)) = self.y;
+                4
+            }
+            // TAX
+            [0xaa, ..] => {
+                self.pc += 1;
+                self.x = self.a;
+                self.set_z_from_val(self.x);
+                self.set_n_from_val(self.x);
+                2
+            }
+            // TAY
+            [0xa8, ..] => {
+                self.pc += 1;
+                self.y = self.a;
+                self.set_z_from_val(self.y);
+                self.set_n_from_val(self.y);
+                2
+            }
+            // TSX
+            [0xba, ..] => {
+                self.pc += 1;
+                self.x = self.sp;
+                self.set_z_from_val(self.x);
+                self.set_n_from_val(self.x);
+                2
+            }
+            // TXA
+            [0x8a, ..] => {
+                self.pc += 1;
+                self.a = self.x;
+                self.set_z_from_val(self.a);
+                self.set_n_from_val(self.a);
+                2
+            }
+            // TXS
+            [0x9a, ..] => {
+                self.pc += 1;
+                self.sp = self.x;
+                2
+            }
+            // TYA
+            [0x98, ..] => {
+                self.pc += 1;
+                self.a = self.y;
+                self.set_z_from_val(self.a);
+                self.set_n_from_val(self.a);
                 2
             }
             _ => panic!("TODO: handle invalid opcode"),
@@ -823,7 +957,13 @@ impl Cpu {
 
         // add index to address while keeping track of whether a page boundary was crossed
         let (indexed_addr_low, carry) = dest_addr[0].overflowing_add(self.y);
-        let indexed_addr_hi = dest_addr[1] + carry as u8;
+        let (indexed_addr_hi, debug_carry) = dest_addr[1].overflowing_add(carry as u8);
+        // let indexed_addr_hi = dest_addr[1] + carry as u8;
+
+        if debug_carry {
+            println!("went past highest address??")
+        }
+
         let indexed_addr = u16::from_le_bytes([indexed_addr_low, indexed_addr_hi]);
 
         (indexed_addr, carry)
@@ -879,19 +1019,19 @@ impl Cpu {
     fn adc(&mut self, val: u8, pc_increment: u8) {
         self.pc += pc_increment as u16;
 
-        // add the carry from the status flag to 'val' first
-        let (val, carry_1) = val.overflowing_add(self.p & 1);
-        let (_, overflow_1) = (val as i8).overflowing_add((self.p & 1) as i8);
-
-        // then add 'val' to the accumulator
-        let (res, carry_2) = val.overflowing_add(self.a);
+        // add 'val' to the accumulator first
+        let (res_1, carry_2) = val.overflowing_add(self.a);
         let (_, overflow_2) = (val as i8).overflowing_add(self.a as i8);
 
-        self.a = res;
+        // then add the carry from the status flag to the accumulator
+        let (res_2, carry_1) = res_1.overflowing_add(self.p & 1);
+        let (_, overflow_1) = (res_1 as i8).overflowing_add((self.p & 1) as i8);
+
+        self.a = res_2;
         self.set_c_from_bool(carry_1 | carry_2);
         self.set_v_from_bool(overflow_1 | overflow_2);
-        self.set_z_from_val(res);
-        self.set_n_from_val(res);
+        self.set_z_from_val(res_2);
+        self.set_n_from_val(res_2);
     }
 
     fn and(&mut self, val: u8, pc_increment: u8) {
@@ -955,13 +1095,10 @@ impl Cpu {
     fn cmp_register_val(&mut self, register: u8, val: u8, pc_increment: u8) {
         self.pc += pc_increment as u16;
 
-        let eq = val == register;
-        let lt = val < register;
-
-        self.set_c_from_bool(lt | eq);
-        self.set_z_from_bool(eq);
-        // NOTE: may want to set from bit by subtracting etc.
-        self.set_n_from_bool(!(lt | eq));
+        let (sub, underflow) = register.overflowing_sub(val);
+        self.set_c_from_bool((sub == 0) | !underflow);
+        self.set_z_from_val(sub);
+        self.set_n_from_val(sub);
     }
 
     fn dec(&mut self, val: u8, pc_increment: u8) -> u8 {
@@ -1092,7 +1229,8 @@ impl Cpu {
     fn rti(&mut self, memory: &mut MemoryMap) {
         // pull into status flags
         self.sp = self.sp.wrapping_add(1);
-        self.p = memory.get(self.sp as u16 + 0x100);
+        // NOTE: bit 4 is cleared and bit 5 is set when pulling into status register
+        self.p = (memory.get(self.sp as u16 + 0x100) & !0b10000) | 0b100000;
 
         // pull into program counter
         self.sp = self.sp.wrapping_add(1);
@@ -1116,17 +1254,18 @@ impl Cpu {
     fn sbc(&mut self, val: u8, pc_increment: u8) {
         self.pc += pc_increment as u16;
 
-        let (res, borrow_1) = self.a.overflowing_sub(val);
+        let (res_1, borrow_1) = self.a.overflowing_sub(val);
         let (_, overflow_1) = (self.a as i8).overflowing_sub(val as i8);
 
-        let (res, borrow_2) = res.overflowing_sub(!(self.p | !1));
-        let (_, overflow_2) = (res as i8).overflowing_sub(!(self.p | !1) as i8);
+        // subtract the not of the carry from the result
+        let (res_2, borrow_2) = res_1.overflowing_sub((self.p & 1) ^ 1);
+        let (_, overflow_2) = (res_1 as i8).overflowing_sub(((self.p & 1) ^ 1) as i8);
 
-        self.a = res;
+        self.a = res_2;
         self.set_c_from_bool(!(borrow_1 | borrow_2));
         self.set_v_from_bool(overflow_1 | overflow_2);
-        self.set_z_from_val(res);
-        self.set_n_from_val(res);
+        self.set_z_from_val(res_2);
+        self.set_n_from_val(res_2);
     }
 
     fn debug_exec_opcode(&mut self, opc: [u8; 3], memory: &mut MemoryMap) -> u8 {
@@ -1143,12 +1282,22 @@ impl Cpu {
 
     fn debug_print_registers(&self) {
         if cfg!(debug_assertions) {
-            println!("A: {:x}", self.a);
-            println!("X: {:x}", self.x);
-            println!("Y: {:x}", self.y);
-            println!("P: {:x}", self.p);
-            println!("SP: {:x}", self.sp);
-            println!("PC: {:x}", self.pc);
+            print!("A: {:x} ", self.a);
+            print!("X: {:x} ", self.x);
+            print!("Y: {:x} ", self.y);
+            print!("P: {:x} ", self.p);
+            print!("SP: {:x} ", self.sp);
+            print!("PC: {:x}\n", self.pc);
+        }
+    }
+
+    fn nestest_print_registers(&self) {
+        if cfg!(debug_assertions) {
+            print!("A:{:0>2X} ", self.a);
+            print!("X:{:0>2X} ", self.x);
+            print!("Y:{:0>2X} ", self.y);
+            print!("P:{:0>2X} ", self.p);
+            print!("SP:{:0>2X}\n", self.sp);
         }
     }
 }
@@ -1573,18 +1722,12 @@ fn test_sbc() {
     assert_eq!(cpu.p, 0x65);
 }
 
-fn main() {
-    let rom = std::fs::read("nestest.nes").unwrap();
-    println!("{}", std::str::from_utf8(&rom[0..=3]).unwrap());
+fn test_sta_stx_sty() {
+    // TODO: ..
+}
 
-    let info = RomInfo::new(&rom).unwrap();
-    println!("is nes 2.0: {}", info.is_nes_2_format());
-    println!("has trainer: {}", info.has_trainer());
-    println!("mirroring type: {:?}", info.get_mirroring_type());
-    println!("mapper number: {}", info.get_mapper_num());
-    println!("prg rom size: {}KB", info.get_prg_size() as u32 * 16);
-    println!("chr rom size: {}KB", info.get_chr_size() as u32 * 8);
-
+#[test]
+fn test() {
     test_adc();
     test_and();
     test_asl();
@@ -1611,4 +1754,30 @@ fn main() {
     memory.test_calc_addr(0x48f0);
     memory.test_calc_addr(0x3fff);
     memory.test_calc_addr(0x2001);
+}
+
+fn main() {
+    let rom = std::fs::read("nestest.nes").unwrap();
+    let info = RomInfo::new(&rom).unwrap();
+
+    if false {
+        println!("{}", std::str::from_utf8(&rom[0..=3]).unwrap());
+        println!("is nes 2.0: {}", info.is_nes_2_format());
+        println!("has trainer: {}", info.has_trainer());
+        println!("mirroring type: {:?}", info.get_mirroring_type());
+        println!("mapper number: {}", info.get_mapper_num());
+        println!("prg rom size: {}KB", info.get_prg_size() as u32 * 16);
+        println!("chr rom size: {}KB", info.get_chr_size() as u32 * 8);
+    }
+
+    let mut cpu = Cpu::new_nestest();
+    let mut memory = MemoryMap::new();
+
+    let prg_size = 16384 * (info.get_prg_size() as usize);
+    memory.memory[0xc000..0xc000 + prg_size - 1].copy_from_slice(&rom[16..prg_size + 15]);
+
+    loop {
+        cpu.nestest_print_registers();
+        cpu.exec_instruction(&mut memory);
+    }
 }
