@@ -934,8 +934,7 @@ impl Cpu {
     // also returns whether a page boundary was crossed
     fn get_absolute_indexed(&self, addr_bytes: [u8; 2], index: u8) -> (u16, bool) {
         let (addr_low, carry) = addr_bytes[0].overflowing_add(index);
-        // FIXME: wrapping_add()
-        let addr_hi = addr_bytes[1] + carry as u8;
+        let addr_hi = addr_bytes[1].wrapping_add(carry as u8);
         let addr_indexed = u16::from_le_bytes([addr_low, addr_hi]);
 
         (addr_indexed, carry)
