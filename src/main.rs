@@ -16,7 +16,7 @@ impl MemoryMap {
 
     #[inline]
     fn get_mut(&mut self, index: u16) -> &mut u8 {
-        unsafe { self.memory.get_mut(index as usize).unwrap() }
+        unsafe { self.memory.get_unchecked_mut(index as usize) }
     }
 
     #[inline]
@@ -1021,12 +1021,12 @@ impl Cpu {
         self.pc += pc_increment as u16;
 
         // add 'val' to the accumulator first
-        let (res_1, carry_2) = val.overflowing_add(self.a);
-        let (_, overflow_2) = (val as i8).overflowing_add(self.a as i8);
+        let (res_1, carry_1) = val.overflowing_add(self.a);
+        let (_, overflow_1) = (val as i8).overflowing_add(self.a as i8);
 
         // then add the carry from the status flag to the accumulator
-        let (res_2, carry_1) = res_1.overflowing_add(self.p & 1);
-        let (_, overflow_1) = (res_1 as i8).overflowing_add((self.p & 1) as i8);
+        let (res_2, carry_2) = res_1.overflowing_add(self.p & 1);
+        let (_, overflow_2) = (res_1 as i8).overflowing_add((self.p & 1) as i8);
 
         self.a = res_2;
         self.set_c_from_bool(carry_1 | carry_2);
