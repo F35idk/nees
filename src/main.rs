@@ -229,8 +229,10 @@ impl Cpu {
                 4
             }
             // BRK
-            // NOTE: this is apparently 2 bytes, not one!
-            [0x00, ..] => panic!("BRK is not implemented yet"),
+            [0x00, ..] => {
+                self.brk(memory);
+                7
+            }
             // CLC
             [0x18, ..] => {
                 self.pc += 1;
@@ -1084,10 +1086,27 @@ impl Cpu {
         self.set_z_from_val(res);
     }
 
-    fn brk(&mut self) -> u8 {
-        // TODO: implement
-        // NOTE: clear the 'b-flag' bit when pushing the status register
-        0
+    fn brk(&mut self, memory: &mut MemoryMap) {
+        // NOTE: pc + 2 is pushed, despite brk being a one byte instruction
+        let pc_bytes = (self.pc + 2).to_le_bytes();
+
+        // push high bits of pc + 2
+        *memory.get_mut(self.sp as u16 + 0x100) = pc_bytes[1];
+        self.sp = self.sp.wrapping_sub(1);
+        // push low bits of pc + 2
+        *memory.get_mut(self.sp as u16 + 0x100) = pc_bytes[0];
+        self.sp = self.sp.wrapping_sub(1);
+
+        // push status flags (with the 'b-flag' set)
+        *memory.get_mut(self.sp as u16 + 0x100) = self.p | 0b10000;
+        self.sp = self.sp.wrapping_sub(1);
+
+        // set interrupt disable flag
+        self.set_i_from_bit(4);
+
+        // set pc to address in brk/irq vector
+        let brk_vector = u16::from_le_bytes([memory.get(0xfffe), memory.get(0xffff)]);
+        self.pc = brk_vector;
     }
 
     // used for cmp, cpx, cpy instructions
@@ -1131,9 +1150,9 @@ impl Cpu {
     fn jsr(&mut self, addr: u16, memory: &mut MemoryMap) {
         // get return address (next instruction - 1)
         let ret_addr = (self.pc + 2).to_le_bytes();
-        // push low bytes of address to sp - 1
+        // push low bits of address to sp - 1
         *memory.get_mut(self.sp.wrapping_sub(1) as u16 + 0x100) = ret_addr[0];
-        // push high bytes of address to sp
+        // push high bits of address to sp
         *memory.get_mut(self.sp as u16 + 0x100) = ret_addr[1];
 
         self.sp = self.sp.wrapping_sub(2);
@@ -1231,11 +1250,13 @@ impl Cpu {
         // NOTE: bit 4 is cleared and bit 5 is set when pulling into status register
         self.p = (memory.get(self.sp as u16 + 0x100) & !0b10000) | 0b100000;
 
-        // pull into program counter
         self.sp = self.sp.wrapping_add(1);
+        // get program counter low bits
         let pc_low = memory.get(self.sp as u16 + 0x100);
         self.sp = self.sp.wrapping_add(1);
+        // get program counter high bits
         let pc_hi = memory.get(self.sp as u16 + 0x100);
+
         self.pc = u16::from_le_bytes([pc_low, pc_hi]);
     }
 
@@ -1771,6 +1792,11 @@ fn test() {
     memory.test_calc_addr(0x48f0);
     memory.test_calc_addr(0x3fff);
     memory.test_calc_addr(0x2001);
+}
+
+fn test_brk() {
+    // FIXME: ..
+    // TODO: ..
 }
 
 fn main() {
