@@ -2,6 +2,24 @@ mod parse;
 
 use parse::RomInfo;
 
+trait SmallInt {
+    fn to_usize(self) -> usize;
+}
+
+impl SmallInt for u8 {
+    #[inline]
+    fn to_usize(self) -> usize {
+        self as usize
+    }
+}
+
+impl SmallInt for u16 {
+    #[inline]
+    fn to_usize(self) -> usize {
+        self as usize
+    }
+}
+
 struct MemoryMap {
     // TODO: reduce size, use custom address calculation
     memory: [u8; 0x10000],
@@ -15,26 +33,29 @@ impl MemoryMap {
     }
 
     #[inline]
-    fn get_mut(&mut self, index: u16) -> &mut u8 {
-        unsafe { self.memory.get_unchecked_mut(index as usize) }
+    // NOTE: only used by outdated tests
+    fn _get_mut(&mut self, addr: u16) -> &mut u8 {
+        unsafe { self.memory.get_unchecked_mut(addr as usize) }
     }
 
     #[inline]
-    fn get_mut_u8(&mut self, index: u8) -> &mut u8 {
-        unsafe { self.memory.get_unchecked_mut(index as usize) }
+    fn get<I: SmallInt>(&self, addr: I) -> u8 {
+        unsafe { *self.memory.get_unchecked(addr.to_usize()) }
     }
 
     #[inline]
-    fn get(&self, index: u16) -> u8 {
-        unsafe { *self.memory.get_unchecked(index as usize) }
-    }
-
-    #[inline]
-    fn get_u8(&self, index: u8) -> u8 {
-        unsafe { *self.memory.get_unchecked(index as usize) }
+    fn set<I: SmallInt>(&mut self, addr: I, val: u8) {
+        unsafe {
+            *self.memory.get_unchecked_mut(addr.to_usize()) = val;
+        }
     }
 
     fn test_calc_addr(&self, mut addr: u16) {
+        // if between 4000 and 4017 {
+        //     do special apu/io stuff
+        //     ...
+        // }
+
         let is_lt_2000 = addr < 0x2000;
         // mask off high bits if address is < 0x2000 (i.e a mirror of 0-0x7ff)
         addr &= !(0b1100000000000 * is_lt_2000 as u16);
@@ -43,6 +64,8 @@ impl MemoryMap {
         let is_ppu = is_lt_2000 ^ (addr < 0x4000);
         // TODO: apply this to addr instead and place ppu registers in 'memory'
         let ppu_register_index = addr & (0b111 | !is_ppu as u16 * 0xffff);
+
+        // (unconditionally) perform shift register calculations etc.
 
         println!("ppu register index = {:x}", ppu_register_index);
         println!("final addr: {:x}", addr);
@@ -86,14 +109,14 @@ impl Cpu {
             }
             // ADC $byte_1 (zero page)
             [0x65, byte_1, _] => {
-                let val = memory.get_u8(byte_1);
+                let val = memory.get(byte_1);
                 self.adc(val, 2);
                 3
             }
             // ADC $byte_1, X (zero page indexed)
             [0x75, byte_1, _] => {
                 let addr = byte_1.wrapping_add(self.x);
-                self.adc(memory.get_u8(addr), 2);
+                self.adc(memory.get(addr), 2);
                 4
             }
             // ADC $bytes (absolute)
@@ -134,14 +157,14 @@ impl Cpu {
             }
             // AND $byte_1 (zero page)
             [0x25, byte_1, _] => {
-                let val = memory.get_u8(byte_1);
+                let val = memory.get(byte_1);
                 self.and(val, 2);
                 3
             }
             // AND $byte_1, X (zero page indexed)
             [0x35, byte_1, _] => {
                 let addr = byte_1.wrapping_add(self.x);
-                self.and(memory.get_u8(addr), 2);
+                self.and(memory.get(addr), 2);
                 4
             }
             // AND $bytes (absolute)
@@ -181,25 +204,25 @@ impl Cpu {
             }
             // ASL $byte_1 (zero page)
             [0x06, byte_1, _] => {
-                *memory.get_mut_u8(byte_1) = self.asl(memory.get_u8(byte_1), 2);
+                memory.set(byte_1, self.asl(memory.get(byte_1), 2));
                 5
             }
             // ASL $byte_1, X (zero page indexed)
             [0x16, byte_1, _] => {
                 let addr = byte_1.wrapping_add(self.x);
-                *memory.get_mut_u8(addr) = self.asl(memory.get_u8(addr), 2);
+                memory.set(addr, self.asl(memory.get(addr), 2));
                 6
             }
             // ASL $bytes (absolute)
             [0x0e, bytes @ ..] => {
                 let addr = u16::from_le_bytes(bytes);
-                *memory.get_mut(addr) = self.asl(memory.get(addr), 3);
+                memory.set(addr, self.asl(memory.get(addr), 3));
                 6
             }
             // ASL $bytes, X (absolute indexed)
             [0x1e, bytes @ ..] => {
                 let (addr, _) = self.get_absolute_indexed(bytes, self.x);
-                *memory.get_mut(addr) = self.asl(memory.get(addr), 3);
+                memory.set(addr, self.asl(memory.get(addr), 3));
                 7
             }
             // BCC $byte_1
@@ -220,7 +243,7 @@ impl Cpu {
             [0x70, byte_1, _] => self.branch_if((self.p & 0b01000000) != 0, byte_1),
             // BIT $byte_1 (zero page)
             [0x24, byte_1, _] => {
-                self.bit(memory.get_u8(byte_1), 2);
+                self.bit(memory.get(byte_1), 2);
                 3
             }
             // BIT $bytes (absolute)
@@ -230,6 +253,7 @@ impl Cpu {
             }
             // BRK
             [0x00, ..] => {
+                println!("BRK");
                 self.brk(memory);
                 7
             }
@@ -264,13 +288,13 @@ impl Cpu {
             }
             // CMP $byte_1 (zero page)
             [0xc5, byte_1, _] => {
-                let val = memory.get_u8(byte_1);
+                let val = memory.get(byte_1);
                 self.cmp_register_val(self.a, val, 2);
                 3
             }
             // CMP $byte_1, X (zero page indexed)
             [0xd5, byte_1, _] => {
-                let val = memory.get_u8(byte_1.wrapping_add(self.x));
+                let val = memory.get(byte_1.wrapping_add(self.x));
                 self.cmp_register_val(self.a, val, 2);
                 4
             }
@@ -311,7 +335,7 @@ impl Cpu {
             }
             // CPX $byte_1 (zero page)
             [0xe4, byte_1, _] => {
-                self.cmp_register_val(self.x, memory.get_u8(byte_1), 2);
+                self.cmp_register_val(self.x, memory.get(byte_1), 2);
                 3
             }
             // CPX $bytes (absolute)
@@ -327,7 +351,7 @@ impl Cpu {
             }
             // CPY $byte_1 (zero page)
             [0xc4, byte_1, _] => {
-                self.cmp_register_val(self.y, memory.get_u8(byte_1), 2);
+                self.cmp_register_val(self.y, memory.get(byte_1), 2);
                 3
             }
             // CPY $bytes (absolute)
@@ -338,25 +362,25 @@ impl Cpu {
             }
             // DEC $byte_1 (zero page)
             [0xc6, byte_1, _] => {
-                *memory.get_mut_u8(byte_1) = self.dec(memory.get_u8(byte_1), 2);
+                memory.set(byte_1, self.dec(memory.get(byte_1), 2));
                 5
             }
             // DEC $byte_1, X (zero page indexed)
             [0xd6, byte_1, _] => {
                 let addr = byte_1.wrapping_add(self.x);
-                *memory.get_mut_u8(addr) = self.dec(memory.get_u8(addr), 2);
+                memory.set(addr, self.dec(memory.get(addr), 2));
                 6
             }
             // DEC $bytes (absolute)
             [0xce, bytes @ ..] => {
                 let addr = u16::from_le_bytes(bytes);
-                *memory.get_mut(addr) = self.dec(memory.get(addr), 3);
+                memory.set(addr, self.dec(memory.get(addr), 3));
                 6
             }
             // DEC $bytes, X (absolute indexed)
             [0xde, bytes @ ..] => {
                 let (addr, _) = self.get_absolute_indexed(bytes, self.x);
-                *memory.get_mut(addr) = self.dec(memory.get(addr), 3);
+                memory.set(addr, self.dec(memory.get(addr), 3));
                 7
             }
             // DEX
@@ -376,13 +400,13 @@ impl Cpu {
             }
             // EOR $byte_1 (zero page)
             [0x45, byte_1, _] => {
-                self.eor(memory.get_u8(byte_1), 2);
+                self.eor(memory.get(byte_1), 2);
                 3
             }
             // EOR $byte_1, X (zero page indexed)
             [0x55, byte_1, _] => {
                 let addr = byte_1.wrapping_add(self.x);
-                self.eor(memory.get_u8(addr), 2);
+                self.eor(memory.get(addr), 2);
                 4
             }
             // EOR $bytes (absolute)
@@ -416,25 +440,25 @@ impl Cpu {
             }
             // INC $byte_1 (zero page)
             [0xe6, byte_1, _] => {
-                *memory.get_mut_u8(byte_1) = self.inc(memory.get_u8(byte_1), 2);
+                memory.set(byte_1, self.inc(memory.get(byte_1), 2));
                 5
             }
             // INC $byte_1, X (zero page indexed)
             [0xf6, byte_1, _] => {
                 let addr = byte_1.wrapping_add(self.x);
-                *memory.get_mut_u8(addr) = self.inc(memory.get_u8(addr), 2);
+                memory.set(addr, self.inc(memory.get(addr), 2));
                 6
             }
             // INC $bytes (absolute)
             [0xee, bytes @ ..] => {
                 let addr = u16::from_le_bytes(bytes);
-                *memory.get_mut(addr) = self.inc(memory.get(addr), 3);
+                memory.set(addr, self.inc(memory.get(addr), 3));
                 6
             }
             // INC $bytes, X (absolute indexed)
             [0xfe, bytes @ ..] => {
                 let (addr, _) = self.get_absolute_indexed(bytes, self.x);
-                *memory.get_mut(addr) = self.inc(memory.get(addr), 3);
+                memory.set(addr, self.inc(memory.get(addr), 3));
                 7
             }
             // INX
@@ -473,13 +497,13 @@ impl Cpu {
             }
             // LDA $byte_1 (zero page)
             [0xa5, byte_1, _] => {
-                self.lda(memory.get_u8(byte_1), 2);
+                self.lda(memory.get(byte_1), 2);
                 3
             }
             // LDA $byte_1, X (zero page indexed)
             [0xb5, byte_1, _] => {
                 let addr = byte_1.wrapping_add(self.x);
-                self.lda(memory.get_u8(addr), 2);
+                self.lda(memory.get(addr), 2);
                 4
             }
             // LDA $bytes (absolute)
@@ -518,13 +542,13 @@ impl Cpu {
             }
             // LDX $byte_1 (zero page)
             [0xa6, byte_1, _] => {
-                self.ldx(memory.get_u8(byte_1), 2);
+                self.ldx(memory.get(byte_1), 2);
                 3
             }
             // LDX $byte_1, Y (zero page indexed)
             [0xb6, byte_1, _] => {
                 let addr = byte_1.wrapping_add(self.y);
-                self.ldx(memory.get_u8(addr), 2);
+                self.ldx(memory.get(addr), 2);
                 4
             }
             // LDX $bytes (absolute)
@@ -545,13 +569,13 @@ impl Cpu {
             }
             // LDY $byte_1 (zero page)
             [0xa4, byte_1, _] => {
-                self.ldy(memory.get_u8(byte_1), 2);
+                self.ldy(memory.get(byte_1), 2);
                 3
             }
             // LDY $byte_1, X (zero page indexed)
             [0xb4, byte_1, _] => {
                 let addr = byte_1.wrapping_add(self.x);
-                self.ldy(memory.get_u8(addr), 2);
+                self.ldy(memory.get(addr), 2);
                 4
             }
             // LDY $bytes (absolute)
@@ -572,25 +596,25 @@ impl Cpu {
             }
             // LSR $byte_1 (zero page)
             [0x46, byte_1, _] => {
-                *memory.get_mut_u8(byte_1) = self.lsr(memory.get_u8(byte_1), 2);
+                memory.set(byte_1, self.lsr(memory.get(byte_1), 2));
                 5
             }
             // LSR $byte_1, X (zero page indexed)
             [0x56, byte_1, _] => {
                 let addr = byte_1.wrapping_add(self.x);
-                *memory.get_mut_u8(addr) = self.lsr(memory.get_u8(addr), 2);
+                memory.set(addr, self.lsr(memory.get(addr), 2));
                 6
             }
             // LSR $bytes (absolute)
             [0x4e, bytes @ ..] => {
                 let addr = u16::from_le_bytes(bytes);
-                *memory.get_mut(addr) = self.lsr(memory.get(addr), 3);
+                memory.set(addr, self.lsr(memory.get(addr), 3));
                 6
             }
             // LSR $bytes, X (absolute indexed)
             [0x5e, bytes @ ..] => {
                 let (addr, _) = self.get_absolute_indexed(bytes, self.x);
-                *memory.get_mut(addr) = self.lsr(memory.get(addr), 3);
+                memory.set(addr, self.lsr(memory.get(addr), 3));
                 7
             }
             // NOP
@@ -605,13 +629,13 @@ impl Cpu {
             }
             // ORA $byte_1 (zero page)
             [0x05, byte_1, _] => {
-                self.ora(memory.get_u8(byte_1), 2);
+                self.ora(memory.get(byte_1), 2);
                 3
             }
             // ORA $byte_1, X (zero page indexed)
             [0x15, byte_1, _] => {
                 let addr = byte_1.wrapping_add(self.x);
-                self.ora(memory.get_u8(addr), 2);
+                self.ora(memory.get(addr), 2);
                 4
             }
             // ORA $bytes (absolute)
@@ -675,25 +699,25 @@ impl Cpu {
             }
             // ROL $byte_1 (zero page)
             [0x26, byte_1, _] => {
-                *memory.get_mut_u8(byte_1) = self.rol(memory.get_u8(byte_1), 2);
+                memory.set(byte_1, self.rol(memory.get(byte_1), 2));
                 5
             }
             // ROL $byte_1, X (zero page indexed)
             [0x36, byte_1, _] => {
                 let addr = byte_1.wrapping_add(self.x);
-                *memory.get_mut_u8(addr) = self.rol(memory.get_u8(addr), 2);
+                memory.set(addr, self.rol(memory.get(addr), 2));
                 6
             }
             // ROL $bytes (absolute)
             [0x2e, bytes @ ..] => {
                 let addr = u16::from_le_bytes(bytes);
-                *memory.get_mut(addr) = self.rol(memory.get(addr), 3);
+                memory.set(addr, self.rol(memory.get(addr), 3));
                 6
             }
             // ROL $bytes, X (absolute indexed)
             [0x3e, bytes @ ..] => {
                 let (addr, _) = self.get_absolute_indexed(bytes, self.x);
-                *memory.get_mut(addr) = self.rol(memory.get(addr), 3);
+                memory.set(addr, self.rol(memory.get(addr), 3));
                 7
             }
             // ROR A (accumulator)
@@ -703,25 +727,25 @@ impl Cpu {
             }
             // ROR $byte_1 (zero page)
             [0x66, byte_1, _] => {
-                *memory.get_mut_u8(byte_1) = self.ror(memory.get_u8(byte_1), 2);
+                memory.set(byte_1, self.ror(memory.get(byte_1), 2));
                 5
             }
             // ROR $byte_1, X (zero page indexed)
             [0x76, byte_1, _] => {
                 let addr = byte_1.wrapping_add(self.x);
-                *memory.get_mut_u8(addr) = self.ror(memory.get_u8(addr), 2);
+                memory.set(addr, self.ror(memory.get(addr), 2));
                 6
             }
             // ROR $bytes (absolute)
             [0x6e, bytes @ ..] => {
                 let addr = u16::from_le_bytes(bytes);
-                *memory.get_mut(addr) = self.ror(memory.get(addr), 3);
+                memory.set(addr, self.ror(memory.get(addr), 3));
                 6
             }
             // ROR $bytes, X (absolute indexed)
             [0x7e, bytes @ ..] => {
                 let (addr, _) = self.get_absolute_indexed(bytes, self.x);
-                *memory.get_mut(addr) = self.ror(memory.get(addr), 3);
+                memory.set(addr, self.ror(memory.get(addr), 3));
                 7
             }
             // RTI
@@ -741,14 +765,14 @@ impl Cpu {
             }
             // SBC $byte_1 (zero page)
             [0xe5, byte_1, _] => {
-                let val = memory.get_u8(byte_1);
+                let val = memory.get(byte_1);
                 self.sbc(val, 2);
                 3
             }
             // SBC $byte_1, X (zero page indexed)
             [0xf5, byte_1, _] => {
                 let addr = byte_1.wrapping_add(self.x);
-                self.sbc(memory.get_u8(addr), 2);
+                self.sbc(memory.get(addr), 2);
                 4
             }
             // SBC $bytes (absolute)
@@ -803,83 +827,83 @@ impl Cpu {
             // STA $byte_1 (zero page)
             [0x85, byte_1, _] => {
                 self.pc += 2;
-                *memory.get_mut_u8(byte_1) = self.a;
+                memory.set(byte_1, self.a);
                 3
             }
             // STA $byte_1, X (zero page indexed)
             [0x95, byte_1, _] => {
                 self.pc += 2;
-                *memory.get_mut_u8(byte_1.wrapping_add(self.x)) = self.a;
+                memory.set(byte_1.wrapping_add(self.x), self.a);
                 4
             }
             // STA $bytes (absolute)
             [0x8d, bytes @ ..] => {
                 self.pc += 3;
-                *memory.get_mut(u16::from_le_bytes(bytes)) = self.a;
+                memory.set(u16::from_le_bytes(bytes), self.a);
                 4
             }
             // STA $bytes, X (absolute indexed)
             [0x9d, bytes @ ..] => {
                 self.pc += 3;
                 let (addr, _) = self.get_absolute_indexed(bytes, self.x);
-                *memory.get_mut(addr) = self.a;
+                memory.set(addr, self.a);
                 5
             }
             // STA $bytes, Y (absolute indexed)
             [0x99, bytes @ ..] => {
                 self.pc += 3;
                 let (addr, _) = self.get_absolute_indexed(bytes, self.y);
-                *memory.get_mut(addr) = self.a;
+                memory.set(addr, self.a);
                 5
             }
             // STA ($byte_1, X) (indexed indirect)
             [0x81, byte_1, _] => {
                 self.pc += 2;
                 let addr = self.get_indexed_indirect(byte_1, memory);
-                *memory.get_mut(addr) = self.a;
+                memory.set(addr, self.a);
                 6
             }
             // STA ($byte_1), Y (indirect indexed)
             [0x91, byte_1, _] => {
                 self.pc += 2;
                 let (addr, _) = self.get_indirect_indexed(byte_1, memory);
-                *memory.get_mut(addr) = self.a;
+                memory.set(addr, self.a);
                 6
             }
             // STX $byte_1 (zero page)
             [0x86, byte_1, _] => {
                 self.pc += 2;
-                *memory.get_mut_u8(byte_1) = self.x;
+                memory.set(byte_1, self.x);
                 3
             }
             // STX $byte_1, Y (zero page indexed)
             [0x96, byte_1, _] => {
                 self.pc += 2;
-                *memory.get_mut_u8(byte_1.wrapping_add(self.y)) = self.x;
+                memory.set(byte_1.wrapping_add(self.y), self.x);
                 4
             }
             // STX $bytes (absolute)
             [0x8e, bytes @ ..] => {
                 self.pc += 3;
-                *memory.get_mut(u16::from_le_bytes(bytes)) = self.x;
+                memory.set(u16::from_le_bytes(bytes), self.x);
                 4
             }
             // STY $byte_1 (zero page)
             [0x84, byte_1, _] => {
                 self.pc += 2;
-                *memory.get_mut_u8(byte_1) = self.y;
+                memory.set(byte_1, self.y);
                 3
             }
             // STY $byte_1, Y (zero page indexed)
             [0x94, byte_1, _] => {
                 self.pc += 2;
-                *memory.get_mut_u8(byte_1.wrapping_add(self.x)) = self.y;
+                memory.set(byte_1.wrapping_add(self.x), self.y);
                 4
             }
             // STY $bytes (absolute)
             [0x8c, bytes @ ..] => {
                 self.pc += 3;
-                *memory.get_mut(u16::from_le_bytes(bytes)) = self.y;
+                memory.set(u16::from_le_bytes(bytes), self.y);
                 4
             }
             // TAX
@@ -945,8 +969,8 @@ impl Cpu {
     fn get_indexed_indirect(&self, addr: u8, memory: &MemoryMap) -> u16 {
         let addr_indexed = addr.wrapping_add(self.x);
         let dest_addr = u16::from_le_bytes([
-            memory.get_u8(addr_indexed),
-            memory.get_u8(addr_indexed.wrapping_add(1)),
+            memory.get(addr_indexed),
+            memory.get(addr_indexed.wrapping_add(1)),
         ]);
 
         dest_addr
@@ -954,7 +978,7 @@ impl Cpu {
 
     fn get_indirect_indexed(&self, addr: u8, memory: &MemoryMap) -> (u16, bool) {
         // get address at memory[addr]
-        let dest_addr = [memory.get_u8(addr), memory.get_u8(addr.wrapping_add(1))];
+        let dest_addr = [memory.get(addr), memory.get(addr.wrapping_add(1))];
 
         // add index to address while keeping track of whether a page boundary was crossed
         let (indexed_addr_low, carry) = dest_addr[0].overflowing_add(self.y);
@@ -1091,21 +1115,21 @@ impl Cpu {
         let pc_bytes = (self.pc + 2).to_le_bytes();
 
         // push high bits of pc + 2
-        *memory.get_mut(self.sp as u16 + 0x100) = pc_bytes[1];
+        memory.set(self.sp as u16 + 0x100, pc_bytes[1]);
         self.sp = self.sp.wrapping_sub(1);
         // push low bits of pc + 2
-        *memory.get_mut(self.sp as u16 + 0x100) = pc_bytes[0];
+        memory.set(self.sp as u16 + 0x100, pc_bytes[0]);
         self.sp = self.sp.wrapping_sub(1);
 
         // push status flags (with the 'b-flag' set)
-        *memory.get_mut(self.sp as u16 + 0x100) = self.p | 0b10000;
+        memory.set(self.sp as u16 + 0x100, self.p | 0b10000);
         self.sp = self.sp.wrapping_sub(1);
 
         // set interrupt disable flag
         self.set_i_from_bit(4);
 
         // set pc to address in brk/irq vector
-        let brk_vector = u16::from_le_bytes([memory.get(0xfffe), memory.get(0xffff)]);
+        let brk_vector = u16::from_le_bytes([memory.get(0xfffeu16), memory.get(0xffffu16)]);
         self.pc = brk_vector;
     }
 
@@ -1151,9 +1175,9 @@ impl Cpu {
         // get return address (next instruction - 1)
         let ret_addr = (self.pc + 2).to_le_bytes();
         // push low bits of address to sp - 1
-        *memory.get_mut(self.sp.wrapping_sub(1) as u16 + 0x100) = ret_addr[0];
+        memory.set(self.sp.wrapping_sub(1) as u16 + 0x100, ret_addr[0]);
         // push high bits of address to sp
-        *memory.get_mut(self.sp as u16 + 0x100) = ret_addr[1];
+        memory.set(self.sp as u16 + 0x100, ret_addr[1]);
 
         self.sp = self.sp.wrapping_sub(2);
         self.pc = addr;
@@ -1206,7 +1230,7 @@ impl Cpu {
     fn push_val(&mut self, val: u8, memory: &mut MemoryMap) {
         self.pc += 1;
 
-        *memory.get_mut(self.sp as u16 + 0x100) = val;
+        memory.set(self.sp as u16 + 0x100, val);
         self.sp = self.sp.wrapping_sub(1);
     }
 
@@ -1290,9 +1314,9 @@ impl Cpu {
 
     fn debug_exec_opcode(&mut self, opc: [u8; 3], memory: &mut MemoryMap) -> u8 {
         if cfg!(debug_assertions) {
-            *memory.get_mut(self.pc) = opc[0];
-            *memory.get_mut(self.pc + 1) = opc[1];
-            *memory.get_mut(self.pc + 2) = opc[2];
+            *memory._get_mut(self.pc) = opc[0];
+            *memory._get_mut(self.pc + 1) = opc[1];
+            *memory._get_mut(self.pc + 2) = opc[2];
 
             self.exec_instruction(memory)
         } else {
@@ -1346,9 +1370,9 @@ fn test_adc() {
     assert_eq!(cpu.p, 0x27);
 
     let mut memory = MemoryMap::new();
-    *memory.get_mut(0x80) = 00;
-    *memory.get_mut(0x81) = 02;
-    *memory.get_mut(0x200) = 0x69;
+    *memory._get_mut(0x80) = 00;
+    *memory._get_mut(0x81) = 02;
+    *memory._get_mut(0x200) = 0x69;
     cpu.a = 0;
     cpu.p = 0x66;
     // ADC ($80, X) (indexed indirect)
@@ -1358,10 +1382,10 @@ fn test_adc() {
     assert_eq!(cpu.a, 0x69);
     assert_eq!(cpu.p, 0x24);
 
-    *memory.get_mut(0x80) = 0;
-    *memory.get_mut(0x81) = 0;
-    *memory.get_mut(0x200) = 0;
-    *memory.get_mut(0x78) = 0x69;
+    *memory._get_mut(0x80) = 0;
+    *memory._get_mut(0x81) = 0;
+    *memory._get_mut(0x200) = 0;
+    *memory._get_mut(0x78) = 0x69;
     cpu.a = 0;
     cpu.p = 0x66;
     // ADC $78 (zero page)
@@ -1371,8 +1395,8 @@ fn test_adc() {
     assert_eq!(cpu.a, 0x69);
     assert_eq!(cpu.p, 0x24);
 
-    *memory.get_mut(0x78) = 0;
-    *memory.get_mut(0x678) = 0x69;
+    *memory._get_mut(0x78) = 0;
+    *memory._get_mut(0x678) = 0x69;
     cpu.a = 0;
     cpu.p = 0x66;
     let cyc = cpu.debug_exec_opcode([0x6d, 0x78, 0x06], &mut memory);
@@ -1394,9 +1418,9 @@ fn test_and() {
     assert_eq!(cpu.p, 2); // zero-flag should be set
 
     let mut memory = MemoryMap::new();
-    *memory.get_mut(0x80) = 00;
-    *memory.get_mut(0x81) = 02;
-    *memory.get_mut(0x200) = 0xaa;
+    *memory._get_mut(0x80) = 00;
+    *memory._get_mut(0x81) = 02;
+    *memory._get_mut(0x200) = 0xaa;
     cpu.a = 0x55;
     cpu.p = 0;
     // AND ($80, X)
@@ -1422,22 +1446,22 @@ fn test_asl() {
 
     cpu.a = 0;
     cpu.p = 0xe5;
-    *memory.get_mut(0x78) = 0x80;
+    *memory._get_mut(0x78) = 0x80;
     // ASL $78
     let cyc = cpu.debug_exec_opcode([0x06, 0x78, 00], &mut memory);
 
     assert_eq!(cyc, 5);
-    assert_eq!(memory.get(0x78), 0);
+    assert_eq!(memory.get(0x78u8), 0);
     assert_eq!(cpu.p, 0x67);
 
     cpu.p = 0xa5;
-    *memory.get_mut(0x78) = 0;
-    *memory.get_mut(0x678) = 0x55;
+    *memory._get_mut(0x78) = 0;
+    *memory._get_mut(0x678) = 0x55;
     // ASL $0678
     let cyc = cpu.debug_exec_opcode([0x0e, 0x78, 0x06], &mut memory);
 
     assert_eq!(cyc, 6);
-    assert_eq!(memory.get(0x678), 0xaa);
+    assert_eq!(memory.get(0x678u16), 0xaa);
     assert_eq!(cpu.p, 0xa4);
 }
 
@@ -1480,7 +1504,7 @@ fn test_bit() {
     cpu.p = 0xa4;
     cpu.a = 0xff;
     cpu.pc = 0x40;
-    *memory.get_mut(1) = 0xff;
+    *memory._get_mut(1) = 0xff;
     // BIT $01
     let cyc = cpu.debug_exec_opcode([0x24, 0x01, 00], &mut memory);
 
@@ -1502,7 +1526,7 @@ fn test_dec_inc() {
     let mut cpu = Cpu::default();
     let mut memory = MemoryMap::new();
 
-    *memory.get_mut(0x78) = 0x80;
+    *memory._get_mut(0x78) = 0x80;
     cpu.p = 0xa4;
     // DEC $78
     let cyc = cpu.debug_exec_opcode([0xc6, 0x78, 00], &mut memory);
@@ -1525,9 +1549,9 @@ fn test_eor() {
     assert_eq!(cpu.pc, 2);
     assert_eq!(cpu.p, 0xec);
 
-    *memory.get_mut(0x80) = 00;
-    *memory.get_mut(0x81) = 02;
-    *memory.get_mut(0x200) = 0xaa;
+    *memory._get_mut(0x80) = 00;
+    *memory._get_mut(0x81) = 02;
+    *memory._get_mut(0x200) = 0xaa;
     cpu.p = 0x64;
     cpu.a = 0x5f;
     cpu.x = 0;
@@ -1547,8 +1571,8 @@ fn test_jmp() {
 
     assert_eq!(cpu.pc, 0xc5f5);
 
-    *memory.get_mut(0x2ff) = 0x00;
-    *memory.get_mut(0x200) = 0x03;
+    *memory._get_mut(0x2ff) = 0x00;
+    *memory._get_mut(0x200) = 0x03;
     // JMP ($02ff)
     cpu.debug_exec_opcode([0x6c, 0xff, 0x02], &mut memory);
 
@@ -1608,9 +1632,9 @@ fn test_ld() {
     let mut cpu = Cpu::default();
     let mut memory = MemoryMap::new();
 
-    *memory.get_mut(0x89) = 0x00;
-    *memory.get_mut(0x8a) = 0x03;
-    *memory.get_mut(0x300) = 0x89;
+    *memory._get_mut(0x89) = 0x00;
+    *memory._get_mut(0x8a) = 0x03;
+    *memory._get_mut(0x300) = 0x89;
     cpu.y = 0;
     cpu.p = 0x27;
     // LDA ($89), Y (indirect indexed)
@@ -1620,7 +1644,7 @@ fn test_ld() {
     assert_eq!(cpu.pc, 2);
     assert_eq!(cpu.p, 0xa5);
 
-    *memory.get_mut(0x633) = 0xaa;
+    *memory._get_mut(0x633) = 0xaa;
     cpu.y = 0;
     cpu.p = 0x67;
     // LDY ($0633, X) (indexed indirect)
@@ -1684,23 +1708,23 @@ fn test_rol_ror() {
 
     cpu.x = 0x55;
     cpu.p = 0x24;
-    *memory.get_mut(0x655) = 0x55;
+    *memory._get_mut(0x655) = 0x55;
     // ROL $0600, X (absolute indexed)
     let cyc = cpu.debug_exec_opcode([0x3e, 00, 06], &mut memory);
 
     assert_eq!(cyc, 7);
     assert_eq!(cpu.p, 0xa4);
-    assert_eq!(memory.get(0x655), 0xaa);
+    assert_eq!(memory.get(0x655u16), 0xaa);
 
     cpu.x = 0x55;
     cpu.p = 0x65;
-    *memory.get_mut(0x55) = 1;
+    *memory._get_mut(0x55) = 1;
     // ROR $00, X (zero page indexed)
     let cyc = cpu.debug_exec_opcode([0x76, 00, 00], &mut memory);
 
     assert_eq!(cyc, 6);
     assert_eq!(cpu.p, 0xe5);
-    assert_eq!(memory.get(0x55), 0x80);
+    assert_eq!(memory.get(0x55u8), 0x80);
 }
 
 fn test_rti() {
@@ -1803,7 +1827,7 @@ fn main() {
     let rom = std::fs::read("nestest.nes").unwrap();
     let info = RomInfo::new(&rom).unwrap();
 
-    if false {
+    if true {
         println!("{}", std::str::from_utf8(&rom[0..=3]).unwrap());
         println!("is nes 2.0: {}", info.is_nes_2_format());
         println!("has trainer: {}", info.has_trainer());
@@ -1813,14 +1837,50 @@ fn main() {
         println!("chr rom size: {}KB", info.get_chr_size() as u32 * 8);
     }
 
+    match (info.get_mapper_num(), info.get_prg_size()) {
+        (0, 1) => {
+            // nrom-128
+        }
+        (0, 2) => {
+            // nrom-256
+        }
+        _ => (),
+    }
+
     let mut cpu = Cpu::new_nestest();
     let mut memory = MemoryMap::new();
 
-    let prg_size = 16384 * (info.get_prg_size() as usize);
-    memory.memory[0xc000..0xc000 + prg_size - 1].copy_from_slice(&rom[16..prg_size + 15]);
+    if false {
+        let prg_size = 16384 * (info.get_prg_size() as usize);
+        memory.memory[0xc000..0xc000 + prg_size - 1].copy_from_slice(&rom[16..prg_size + 15]);
 
-    loop {
-        cpu.nestest_print_registers();
-        cpu.exec_instruction(&mut memory);
+        loop {
+            cpu.nestest_print_registers();
+            cpu.exec_instruction(&mut memory);
+        }
     }
+
+    // let program = [
+    //     0x20, 0x09, 0x00, 0x20, 0x0c, 0x00, 0x20, 0x12, 0x00, 0xa2, 0x00, 0x60, 0xe8, 0xe0, 0x05,
+    //     0xd0, 0xfb, 0x60, 0x00,
+    // ];
+
+    // memory.memory[0..19].copy_from_slice(&program);
+    // memory.memory[0xfffe] = 0x44;
+    // memory.memory[0xffff] = 0x44;
+
+    // cpu.pc = 0x0;
+    // cpu.sp = 0xff;
+    // cpu.p = 0b00110000;
+
+    // loop {
+    //     cpu.nestest_print_registers();
+    //     cpu.cycle_count += cpu.exec_instruction(&mut memory) as u32;
+
+    //     if cpu.pc > 0x13 {
+    //         break;
+    //     }
+    // }
+
+    // println!("{}", cpu.cycle_count);
 }
