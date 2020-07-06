@@ -20,12 +20,14 @@ impl SmallInt for u16 {
     }
 }
 
+// trait to represent operations on the cpu memory map/address space. allows implementing
+// custom memory read/write behavior for the various 'mappers' used by nes games/cartridges
 pub trait MemoryMap {
     fn read<I: SmallInt>(&self, addr: I) -> u8;
     fn write<I: SmallInt>(&mut self, addr: I, val: u8);
 }
 
-// the memory map for games that use the 'NROM' cartridge/mapper
+// the cpu memory map for games that use the 'NROM' cartridge/mapper (ines mapper 0)
 pub struct Nrom128MemoryMap {
     pub memory: [u8; 0x10000],
 }
