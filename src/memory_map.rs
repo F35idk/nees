@@ -1,14 +1,13 @@
 #[macro_use]
 use super::log;
 
-// helper trait needed so that the read and write functions belonging to the
-// 'MemoryMap' trait can be generic over u16s and u8s. these ints are small
-// enough that unchecked indexing is safe (they can't hold values larger
-// than the highest address in the address space represented by a 'MemoryMap').
+// helper trait needed so that the read and write functions of the
+// 'MemoryMap' trait can be generic over u16s and u8s. these ints
+// are small enough that unchecked indexing is safe.
 // NOTE: though the above holds true for the cpu address space, u16::MAX is
-// still out of range of the ppu address space. when ppu memory maps are
+// still way out of range of the ppu address space. when ppu memory maps are
 // implemented in the future, this needs to be taken into account
-pub trait AddrInt {
+pub trait AddrInt: Copy {
     fn to_usize(self) -> usize;
     fn to_u16(self) -> u16;
 }
@@ -40,14 +39,14 @@ impl AddrInt for u16 {
 // address spaces. allows implementing custom memory read/write
 // behavior for the various 'mappers' used by nes games/cartridges
 pub trait MemoryMap {
-    fn read_cpu<A: AddrInt + Copy>(&self, addr: A) -> u8;
-    fn write_cpu<A: AddrInt + Copy>(&mut self, addr: A, val: u8);
-    fn read_ppu<A: AddrInt + Copy>(&self, addr: A) -> u8;
-    fn write_ppu<A: AddrInt + Copy>(&mut self, addr: A, val: u8);
+    fn read_cpu<A: AddrInt>(&self, addr: A) -> u8;
+    fn write_cpu<A: AddrInt>(&mut self, addr: A, val: u8);
+    fn read_ppu<A: AddrInt>(&self, addr: A) -> u8;
+    fn write_ppu<A: AddrInt>(&mut self, addr: A, val: u8);
     // TODO: default methods for loading into rom/ram/etc.
 }
 
-// the cpu and memory map for games that use the 'NROM128' cartridge/mapper (ines mapper 0)
+// the cpu memory map for games that use the 'NROM128' cartridge/mapper (ines mapper 0)
 // TODO: implement ppu side of things
 pub struct Nrom128MemoryMap {
     memory: [u8; 0x5809],
@@ -132,20 +131,15 @@ impl Nrom128MemoryMap {
             return 0;
         }
 
-        // NOTE: the following function calls are all inlined by the compiler and
-        // the branches are replaced by cmovcc instructions and bitops, so
-        // performance should be fairly decent. i did try writing my own
-        // completely branchless version of this function but it performed worse
-        // than this, so i'm trusting the compiler on this one
+        // NOTE: the following function calls are all inlined by the compiler
+        // and the branches are replaced by cmovcc instructions and bitops,
+        // so performance should be fairly decent. i did try writing my own,
+        // completely branchless version of this function but it performed
+        // worse, so i'm trusting the compiler on this one
 
-        // set (or don't set) 'addr' equal to index into
-        // 'self.memory' corresponding to internal ram
         let (addr, is_internal_ram) = Self::calc_internal_ram_addr(addr);
-        // do the same for the ppu registers
         let (addr, is_ppu_register) = Self::calc_ppu_register_index(addr, is_internal_ram);
-        // and prg ram
         let (mut addr, is_prg_ram) = Self::calc_prg_ram_addr(addr);
-        // then determine whether address points to prg rom
         let is_prg_rom = Self::is_prg_rom(addr);
 
         if is_prg_rom {
@@ -183,7 +177,7 @@ impl MemoryMap for Nrom128MemoryMap {
         unsafe { *self.memory.get(addr.to_usize()).unwrap() }
     }
 
-    fn write_cpu<A: AddrInt + Copy>(&mut self, _addr: A, val: u8) {
+    fn write_cpu<A: AddrInt>(&mut self, _addr: A, val: u8) {
         let addr = _addr.to_u16();
 
         if addr < 0x6000 && addr >= 0x4000 {
@@ -268,6 +262,6 @@ fn test_calc_addr() {
 
     // attempt to write to rom
     memory.write_cpu(0xcfffu16, 0xff);
-    // assert that it ends up at index 0
+    // should end up at 0
     assert_eq!(memory.memory[0], 0xff);
 }
