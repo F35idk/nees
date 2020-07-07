@@ -1,3 +1,6 @@
+#[macro_use]
+use super::log;
+
 // helper trait needed so that the read and write functions belonging to the
 // 'MemoryMap' trait can be generic over u16s and u8s. these ints are small
 // enough that unchecked indexing is safe (they can't hold values larger
@@ -37,10 +40,10 @@ impl AddrInt for u16 {
 // address spaces. allows implementing custom memory read/write
 // behavior for the various 'mappers' used by nes games/cartridges
 pub trait MemoryMap {
-    fn read_cpu<A: AddrInt>(&self, addr: A) -> u8;
-    fn write_cpu<A: AddrInt>(&mut self, addr: A, val: u8);
-    fn read_ppu<A: AddrInt>(&self, addr: A) -> u8;
-    fn write_ppu<A: AddrInt>(&mut self, addr: A, val: u8);
+    fn read_cpu<A: AddrInt + Copy>(&self, addr: A) -> u8;
+    fn write_cpu<A: AddrInt + Copy>(&mut self, addr: A, val: u8);
+    fn read_ppu<A: AddrInt + Copy>(&self, addr: A) -> u8;
+    fn write_ppu<A: AddrInt + Copy>(&mut self, addr: A, val: u8);
     // TODO: default methods for loading into rom/ram/etc.
 }
 
@@ -180,7 +183,7 @@ impl MemoryMap for Nrom128MemoryMap {
         unsafe { *self.memory.get(addr.to_usize()).unwrap() }
     }
 
-    fn write_cpu<A: AddrInt>(&mut self, _addr: A, val: u8) {
+    fn write_cpu<A: AddrInt + Copy>(&mut self, _addr: A, val: u8) {
         let addr = _addr.to_u16();
 
         if addr < 0x6000 && addr >= 0x4000 {
@@ -206,6 +209,12 @@ impl MemoryMap for Nrom128MemoryMap {
             // redirect writes to rom to dummy index 0
             addr = 0;
         }
+
+        logln!(
+            "writing to address {:x}, corresponding to index {:x} in memory",
+            _addr.to_usize(),
+            addr
+        );
 
         // TODO: use unchecked indexing
         unsafe {

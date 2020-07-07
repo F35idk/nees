@@ -1,3 +1,5 @@
+#[macro_use]
+mod log;
 mod memory_map;
 mod parse;
 
@@ -28,8 +30,6 @@ impl Cpu {
 
     fn exec_instruction(&mut self, memory: &mut Nrom128MemoryMap) -> u8 {
         // FIXME: handle out of bounds????
-        // FIXME: need to subtract from clock cycles if last cycle wasn't a write?? (in these
-        // cases, the 6502 will fetch the next instruction while the current one is executing)
         match [
             memory.read_cpu(self.pc),
             memory.read_cpu(self.pc + 1),
@@ -914,11 +914,12 @@ impl Cpu {
 
         // add index to address while keeping track of whether a page boundary was crossed
         let (indexed_addr_low, carry) = dest_addr[0].overflowing_add(self.y);
-        let (indexed_addr_hi, debug_carry) = dest_addr[1].overflowing_add(carry as u8);
-        // let indexed_addr_hi = dest_addr[1] + carry as u8;
+        let (indexed_addr_hi, _debug_carry) = dest_addr[1].overflowing_add(carry as u8);
 
-        if debug_carry {
-            println!("went past highest address??")
+        if cfg!(feature = "logging") {
+            if _debug_carry {
+                logln!("went past highest address??")
+            }
         }
 
         let indexed_addr = u16::from_le_bytes([indexed_addr_low, indexed_addr_hi]);
@@ -1246,7 +1247,7 @@ impl Cpu {
     }
 
     fn debug_exec_opcode(&mut self, opc: [u8; 3], memory: &mut Nrom128MemoryMap) -> u8 {
-        if cfg!(debug_assertions) {
+        if cfg!(feature = "logging") {
             memory.write_cpu(self.pc, opc[0]);
             memory.write_cpu(self.pc + 1, opc[1]);
             memory.write_cpu(self.pc + 2, opc[2]);
@@ -1257,25 +1258,12 @@ impl Cpu {
         }
     }
 
-    fn debug_print_registers(&self) {
-        if cfg!(debug_assertions) {
-            print!("A: {:x} ", self.a);
-            print!("X: {:x} ", self.x);
-            print!("Y: {:x} ", self.y);
-            print!("P: {:x} ", self.p);
-            print!("SP: {:x} ", self.sp);
-            print!("PC: {:x}\n", self.pc);
-        }
-    }
-
-    fn nestest_print_registers(&self) {
-        if cfg!(debug_assertions) {
-            print!("A:{:0>2X} ", self.a);
-            print!("X:{:0>2X} ", self.x);
-            print!("Y:{:0>2X} ", self.y);
-            print!("P:{:0>2X} ", self.p);
-            print!("SP:{:0>2X}\n", self.sp);
-        }
+    fn log_register_values(&self) {
+        log!("A:{:0>2X} ", self.a);
+        log!("X:{:0>2X} ", self.x);
+        log!("Y:{:0>2X} ", self.y);
+        log!("P:{:0>2X} ", self.p);
+        log!("SP:{:0>2X}\n", self.sp);
     }
 }
 
@@ -1761,14 +1749,14 @@ fn main() {
     let info = RomInfo::new(&rom).unwrap();
 
     if false {
-        println!("{}", std::str::from_utf8(&rom[0..=3]).unwrap());
-        println!("is nes 2.0: {}", info.is_nes_2_format());
-        println!("has trainer: {}", info.has_trainer());
-        println!("mirroring type: {:?}", info.get_mirroring_type());
-        println!("mapper number: {}", info.get_mapper_num());
-        println!("prg rom size: {}KB", info.get_prg_size() as u32 * 16);
-        println!("chr rom size: {}KB", info.get_chr_size() as u32 * 8);
-        println!("has battery-backed RAM: {}", info.has_persistent_mem());
+        logln!("{}", std::str::from_utf8(&rom[0..=3]).unwrap());
+        logln!("is nes 2.0: {}", info.is_nes_2_format());
+        logln!("has trainer: {}", info.has_trainer());
+        logln!("mirroring type: {:?}", info.get_mirroring_type());
+        logln!("mapper number: {}", info.get_mapper_num());
+        logln!("prg rom size: {}KB", info.get_prg_size() as u32 * 16);
+        logln!("chr rom size: {}KB", info.get_chr_size() as u32 * 8);
+        logln!("has battery-backed RAM: {}", info.has_persistent_mem());
     }
 
     match (info.get_mapper_num(), info.get_prg_size()) {
@@ -1789,7 +1777,7 @@ fn main() {
         memory.load_prg_rom(&rom[0x10..=prg_size + 0xf]);
 
         loop {
-            cpu.nestest_print_registers();
+            cpu.log_register_values();
             cpu.exec_instruction(&mut memory);
         }
     }
