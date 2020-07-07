@@ -1247,9 +1247,9 @@ impl Cpu {
 
     fn debug_exec_opcode(&mut self, opc: [u8; 3], memory: &mut Nrom128MemoryMap) -> u8 {
         if cfg!(debug_assertions) {
-            *memory._get_mut(self.pc) = opc[0];
-            *memory._get_mut(self.pc + 1) = opc[1];
-            *memory._get_mut(self.pc + 2) = opc[2];
+            memory.write_cpu(self.pc, opc[0]);
+            memory.write_cpu(self.pc + 1, opc[1]);
+            memory.write_cpu(self.pc + 2, opc[2]);
 
             self.exec_instruction(memory)
         } else {
@@ -1303,9 +1303,9 @@ fn test_adc() {
     assert_eq!(cpu.p, 0x27);
 
     let mut memory = Nrom128MemoryMap::new();
-    *memory._get_mut(0x80) = 00;
-    *memory._get_mut(0x81) = 02;
-    *memory._get_mut(0x200) = 0x69;
+    memory.write_cpu(0x80u16, 00);
+    memory.write_cpu(0x81u16, 02);
+    memory.write_cpu(0x200u16, 0x69u8);
     cpu.a = 0;
     cpu.p = 0x66;
     // ADC ($80, X) (indexed indirect)
@@ -1315,10 +1315,10 @@ fn test_adc() {
     assert_eq!(cpu.a, 0x69);
     assert_eq!(cpu.p, 0x24);
 
-    *memory._get_mut(0x80) = 0;
-    *memory._get_mut(0x81) = 0;
-    *memory._get_mut(0x200) = 0;
-    *memory._get_mut(0x78) = 0x69;
+    memory.write_cpu(0x80u16, 0);
+    memory.write_cpu(0x81u16, 0);
+    memory.write_cpu(0x200u16, 0);
+    memory.write_cpu(0x78u16, 0x69);
     cpu.a = 0;
     cpu.p = 0x66;
     // ADC $78 (zero page)
@@ -1328,8 +1328,8 @@ fn test_adc() {
     assert_eq!(cpu.a, 0x69);
     assert_eq!(cpu.p, 0x24);
 
-    *memory._get_mut(0x78) = 0;
-    *memory._get_mut(0x678) = 0x69;
+    memory.write_cpu(0x78u16, 0);
+    memory.write_cpu(0x678u16, 0x69);
     cpu.a = 0;
     cpu.p = 0x66;
     let cyc = cpu.debug_exec_opcode([0x6d, 0x78, 0x06], &mut memory);
@@ -1351,9 +1351,9 @@ fn test_and() {
     assert_eq!(cpu.p, 2); // zero-flag should be set
 
     let mut memory = Nrom128MemoryMap::new();
-    *memory._get_mut(0x80) = 00;
-    *memory._get_mut(0x81) = 02;
-    *memory._get_mut(0x200) = 0xaa;
+    memory.write_cpu(0x80u16, 0);
+    memory.write_cpu(0x81u16, 0);
+    memory.write_cpu(0x200u16, 0xaa);
     cpu.a = 0x55;
     cpu.p = 0;
     // AND ($80, X)
@@ -1379,7 +1379,7 @@ fn test_asl() {
 
     cpu.a = 0;
     cpu.p = 0xe5;
-    *memory._get_mut(0x78) = 0x80;
+    memory.write_cpu(0x78u16, 0x80);
     // ASL $78
     let cyc = cpu.debug_exec_opcode([0x06, 0x78, 00], &mut memory);
 
@@ -1388,8 +1388,8 @@ fn test_asl() {
     assert_eq!(cpu.p, 0x67);
 
     cpu.p = 0xa5;
-    *memory._get_mut(0x78) = 0;
-    *memory._get_mut(0x678) = 0x55;
+    memory.write_cpu(0x78u16, 0);
+    memory.write_cpu(0x678u16, 0x55);
     // ASL $0678
     let cyc = cpu.debug_exec_opcode([0x0e, 0x78, 0x06], &mut memory);
 
@@ -1437,7 +1437,7 @@ fn test_bit() {
     cpu.p = 0xa4;
     cpu.a = 0xff;
     cpu.pc = 0x40;
-    *memory._get_mut(1) = 0xff;
+    memory.write_cpu(1u16, 0xff);
     // BIT $01
     let cyc = cpu.debug_exec_opcode([0x24, 0x01, 00], &mut memory);
 
@@ -1459,7 +1459,7 @@ fn test_dec_inc() {
     let mut cpu = Cpu::default();
     let mut memory = Nrom128MemoryMap::new();
 
-    *memory._get_mut(0x78) = 0x80;
+    memory.write_cpu(0x78u16, 0x80);
     cpu.p = 0xa4;
     // DEC $78
     let cyc = cpu.debug_exec_opcode([0xc6, 0x78, 00], &mut memory);
@@ -1482,9 +1482,9 @@ fn test_eor() {
     assert_eq!(cpu.pc, 2);
     assert_eq!(cpu.p, 0xec);
 
-    *memory._get_mut(0x80) = 00;
-    *memory._get_mut(0x81) = 02;
-    *memory._get_mut(0x200) = 0xaa;
+    memory.write_cpu(0x80u16, 00);
+    memory.write_cpu(0x81u16, 02);
+    memory.write_cpu(0x200u16, 0xaa);
     cpu.p = 0x64;
     cpu.a = 0x5f;
     cpu.x = 0;
@@ -1497,16 +1497,18 @@ fn test_eor() {
 }
 
 fn test_jmp() {
-    let mut cpu = Cpu::new_nestest();
+    let mut cpu = Cpu::default();
     let mut memory = Nrom128MemoryMap::new();
 
+    // JMP $c5f5
     cpu.debug_exec_opcode([0x4c, 0xf5, 0xc5], &mut memory);
 
     assert_eq!(cpu.pc, 0xc5f5);
 
-    *memory._get_mut(0x2ff) = 0x00;
-    *memory._get_mut(0x200) = 0x03;
-    // JMP ($02ff)
+    cpu.pc = 0;
+    memory.write_cpu(0x2ffu16, 0x00);
+    memory.write_cpu(0x200u16, 0x03);
+    // JMP ($02ff) (@2ff = 0, @200 = 03)
     cpu.debug_exec_opcode([0x6c, 0xff, 0x02], &mut memory);
 
     assert_eq!(cpu.pc, 0x300);
@@ -1534,7 +1536,7 @@ fn test_jsr() {
     assert_eq!(memory.read_cpu(cpu.sp.wrapping_add(1) as u16 + 0x100), 0x02);
     assert_eq!(memory.read_cpu(cpu.sp.wrapping_add(2) as u16 + 0x100), 0x03);
 
-    cpu.pc = 0xc5fd;
+    cpu.pc = 0x65fd;
     cpu.sp = 0xfd;
     cpu.debug_exec_opcode([0x20, 0xe5, 0xf7], &mut memory);
 
@@ -1544,14 +1546,14 @@ fn test_jsr() {
         memory.read_cpu(cpu.sp.wrapping_add(1) as u16 + 0x100),
         0xfd + 2
     );
-    assert_eq!(memory.read_cpu(cpu.sp.wrapping_add(2) as u16 + 0x100), 0xc5);
+    assert_eq!(memory.read_cpu(cpu.sp.wrapping_add(2) as u16 + 0x100), 0x65);
 }
 
 fn test_jsr_2() {
     let mut cpu = Cpu::default();
     let mut memory = Nrom128MemoryMap::new();
 
-    cpu.pc = 0xd620;
+    cpu.pc = 0x1620;
     cpu.sp = 0xfb;
     cpu.x = 0x33;
     cpu.y = 0xba;
@@ -1564,16 +1566,16 @@ fn test_jsr_2() {
         memory.read_cpu(cpu.sp.wrapping_add(1) as u16 + 0x100),
         0x20 + 2
     );
-    assert_eq!(memory.read_cpu(cpu.sp.wrapping_add(2) as u16 + 0x100), 0xd6);
+    assert_eq!(memory.read_cpu(cpu.sp.wrapping_add(2) as u16 + 0x100), 0x16);
 }
 
 fn test_ld() {
     let mut cpu = Cpu::default();
     let mut memory = Nrom128MemoryMap::new();
 
-    *memory._get_mut(0x89) = 0x00;
-    *memory._get_mut(0x8a) = 0x03;
-    *memory._get_mut(0x300) = 0x89;
+    memory.write_cpu(0x89u16, 0x00);
+    memory.write_cpu(0x8au16, 0x03);
+    memory.write_cpu(0x300u16, 0x89);
     cpu.y = 0;
     cpu.p = 0x27;
     // LDA ($89), Y (indirect indexed)
@@ -1583,7 +1585,7 @@ fn test_ld() {
     assert_eq!(cpu.pc, 2);
     assert_eq!(cpu.p, 0xa5);
 
-    *memory._get_mut(0x633) = 0xaa;
+    memory.write_cpu(0x633u16, 0xaa);
     cpu.y = 0;
     cpu.p = 0x67;
     // LDY ($0633, X) (indexed indirect)
@@ -1647,7 +1649,7 @@ fn test_rol_ror() {
 
     cpu.x = 0x55;
     cpu.p = 0x24;
-    *memory._get_mut(0x655) = 0x55;
+    memory.write_cpu(0x655u16, 0x55);
     // ROL $0600, X (absolute indexed)
     let cyc = cpu.debug_exec_opcode([0x3e, 00, 06], &mut memory);
 
@@ -1657,7 +1659,7 @@ fn test_rol_ror() {
 
     cpu.x = 0x55;
     cpu.p = 0x65;
-    *memory._get_mut(0x55) = 1;
+    memory.write_cpu(0x55u16, 1);
     // ROR $00, X (zero page indexed)
     let cyc = cpu.debug_exec_opcode([0x76, 00, 00], &mut memory);
 
@@ -1747,17 +1749,6 @@ fn test() {
     test_rol_ror();
     test_rts();
     test_sbc();
-
-    let memory = Nrom128MemoryMap::new();
-    memory.test_calc_addr(0x800);
-    memory.test_calc_addr(0xfff);
-    memory.test_calc_addr(0x80f);
-    memory.test_calc_addr(0xa0e);
-    memory.test_calc_addr(0x1000);
-    memory.test_calc_addr(0x18f0);
-    memory.test_calc_addr(0x48f0);
-    memory.test_calc_addr(0x3fff);
-    memory.test_calc_addr(0x2001);
 }
 
 fn test_brk() {
@@ -1782,7 +1773,7 @@ fn main() {
 
     match (info.get_mapper_num(), info.get_prg_size()) {
         (0, 1) => {
-            // nrom-128
+            // nrom-128 (maybe?)
         }
         (0, 2) => {
             // nrom-256
@@ -1793,9 +1784,9 @@ fn main() {
     let mut cpu = Cpu::new_nestest();
     let mut memory = Nrom128MemoryMap::new();
 
-    if false {
+    if true {
         let prg_size = 16384 * (info.get_prg_size() as usize);
-        memory.memory[0xc000..0xc000 + prg_size - 1].copy_from_slice(&rom[16..prg_size + 15]);
+        memory.load_prg_rom(&rom[0x10..=prg_size + 0xf]);
 
         loop {
             cpu.nestest_print_registers();
