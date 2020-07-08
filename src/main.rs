@@ -1247,15 +1247,11 @@ impl Cpu {
     }
 
     fn debug_exec_opcode(&mut self, opc: [u8; 3], memory: &mut Nrom128MemoryMap) -> u8 {
-        if cfg!(feature = "logging") {
-            memory.write_cpu(self.pc, opc[0]);
-            memory.write_cpu(self.pc + 1, opc[1]);
-            memory.write_cpu(self.pc + 2, opc[2]);
+        memory.write_cpu(self.pc, opc[0]);
+        memory.write_cpu(self.pc + 1, opc[1]);
+        memory.write_cpu(self.pc + 2, opc[2]);
 
-            self.exec_instruction(memory)
-        } else {
-            0
-        }
+        self.exec_instruction(memory)
     }
 
     fn log_register_values(&self) {
@@ -1777,7 +1773,7 @@ fn main() {
         memory.load_prg_rom(&rom[0x10..=prg_size + 0xf]);
 
         loop {
-            cpu.log_register_values();
+            // cpu.log_register_values();
             cpu.exec_instruction(&mut memory);
         }
     }
