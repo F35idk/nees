@@ -137,30 +137,34 @@ impl Cpu {
             }
             // ASL $byte_1 (zero page)
             [0x06, byte_1, _] => {
+                let res = self.asl(memory.read_cpu(ppu, apu, byte_1), 2);
                 memory.write_cpu(
                     ppu,
                     apu,
                     byte_1,
-                    self.asl(memory.read_cpu(ppu, apu, byte_1), 2),
+                    res,
                 );
                 5
             }
             // ASL $byte_1, X (zero page indexed)
             [0x16, byte_1, _] => {
                 let addr = byte_1.wrapping_add(self.x);
-                memory.write_cpu(ppu, apu, addr, self.asl(memory.read_cpu(ppu, apu, addr), 2));
+                let res = self.asl(memory.read_cpu(ppu, apu, addr), 2);
+                memory.write_cpu(ppu, apu, addr, res);
                 6
             }
             // ASL $bytes (absolute)
             [0x0e, bytes @ ..] => {
                 let addr = u16::from_le_bytes(bytes);
-                memory.write_cpu(ppu, apu, addr, self.asl(memory.read_cpu(ppu, apu, addr), 3));
+                let res = self.asl(memory.read_cpu(ppu, apu, addr), 3);
+                memory.write_cpu(ppu, apu, addr, res);
                 6
             }
             // ASL $bytes, X (absolute indexed)
             [0x1e, bytes @ ..] => {
                 let (addr, _) = self.get_absolute_indexed(bytes, self.x);
-                memory.write_cpu(ppu, apu, addr, self.asl(memory.read_cpu(ppu, apu, addr), 3));
+                let res = self.asl(memory.read_cpu(ppu, apu, addr), 3);
+                memory.write_cpu(ppu, apu, addr, res);
                 7
             }
             // BCC $byte_1
@@ -299,30 +303,34 @@ impl Cpu {
             }
             // DEC $byte_1 (zero page)
             [0xc6, byte_1, _] => {
+                let res = self.dec(memory.read_cpu(ppu, apu, byte_1), 2);
                 memory.write_cpu(
                     ppu,
                     apu,
                     byte_1,
-                    self.dec(memory.read_cpu(ppu, apu, byte_1), 2),
+                    res,
                 );
                 5
             }
             // DEC $byte_1, X (zero page indexed)
             [0xd6, byte_1, _] => {
                 let addr = byte_1.wrapping_add(self.x);
-                memory.write_cpu(ppu, apu, addr, self.dec(memory.read_cpu(ppu, apu, addr), 2));
+                let res = self.dec(memory.read_cpu(ppu, apu, addr), 2);
+                memory.write_cpu(ppu, apu, addr, res);
                 6
             }
             // DEC $bytes (absolute)
             [0xce, bytes @ ..] => {
                 let addr = u16::from_le_bytes(bytes);
-                memory.write_cpu(ppu, apu, addr, self.dec(memory.read_cpu(ppu, apu, addr), 3));
+                let res = self.dec(memory.read_cpu(ppu, apu, addr), 3);
+                memory.write_cpu(ppu, apu, addr, res);
                 6
             }
             // DEC $bytes, X (absolute indexed)
             [0xde, bytes @ ..] => {
                 let (addr, _) = self.get_absolute_indexed(bytes, self.x);
-                memory.write_cpu(ppu, apu, addr, self.dec(memory.read_cpu(ppu, apu, addr), 3));
+                let res = self.dec(memory.read_cpu(ppu, apu, addr), 3);
+                memory.write_cpu(ppu, apu, addr, res);
                 7
             }
             // DEX
@@ -382,30 +390,34 @@ impl Cpu {
             }
             // INC $byte_1 (zero page)
             [0xe6, byte_1, _] => {
+                let res = self.inc(memory.read_cpu(ppu, apu, byte_1), 2);
                 memory.write_cpu(
                     ppu,
                     apu,
                     byte_1,
-                    self.inc(memory.read_cpu(ppu, apu, byte_1), 2),
+                    res,
                 );
                 5
             }
             // INC $byte_1, X (zero page indexed)
             [0xf6, byte_1, _] => {
                 let addr = byte_1.wrapping_add(self.x);
-                memory.write_cpu(ppu, apu, addr, self.inc(memory.read_cpu(ppu, apu, addr), 2));
+                let res = self.inc(memory.read_cpu(ppu, apu, addr), 2);
+                memory.write_cpu(ppu, apu, addr, res);
                 6
             }
             // INC $bytes (absolute)
             [0xee, bytes @ ..] => {
                 let addr = u16::from_le_bytes(bytes);
-                memory.write_cpu(ppu, apu, addr, self.inc(memory.read_cpu(ppu, apu, addr), 3));
+                let res = self.inc(memory.read_cpu(ppu, apu, addr), 3);
+                memory.write_cpu(ppu, apu, addr, res);
                 6
             }
             // INC $bytes, X (absolute indexed)
             [0xfe, bytes @ ..] => {
                 let (addr, _) = self.get_absolute_indexed(bytes, self.x);
-                memory.write_cpu(ppu, apu, addr, self.inc(memory.read_cpu(ppu, apu, addr), 3));
+                let res = self.inc(memory.read_cpu(ppu, apu, addr), 3);
+                memory.write_cpu(ppu, apu, addr, res);
                 7
             }
             // INX
@@ -543,35 +555,89 @@ impl Cpu {
             }
             // LSR $byte_1 (zero page)
             [0x46, byte_1, _] => {
+                let res = self.lsr(memory.read_cpu(ppu, apu, byte_1), 2);
                 memory.write_cpu(
                     ppu,
                     apu,
                     byte_1,
-                    self.lsr(memory.read_cpu(ppu, apu, byte_1), 2),
+                    res,
                 );
                 5
             }
             // LSR $byte_1, X (zero page indexed)
             [0x56, byte_1, _] => {
                 let addr = byte_1.wrapping_add(self.x);
-                memory.write_cpu(ppu, apu, addr, self.lsr(memory.read_cpu(ppu, apu, addr), 2));
+                let res = self.lsr(memory.read_cpu(ppu, apu, addr), 2);
+                memory.write_cpu(ppu, apu, addr, res);
                 6
             }
             // LSR $bytes (absolute)
             [0x4e, bytes @ ..] => {
                 let addr = u16::from_le_bytes(bytes);
-                memory.write_cpu(ppu, apu, addr, self.lsr(memory.read_cpu(ppu, apu, addr), 3));
+                let res = self.lsr(memory.read_cpu(ppu, apu, addr), 3);
+                memory.write_cpu(ppu, apu, addr, res);
                 6
             }
             // LSR $bytes, X (absolute indexed)
             [0x5e, bytes @ ..] => {
                 let (addr, _) = self.get_absolute_indexed(bytes, self.x);
-                memory.write_cpu(ppu, apu, addr, self.lsr(memory.read_cpu(ppu, apu, addr), 3));
+                let res = self.lsr(memory.read_cpu(ppu, apu, addr), 3);
+                memory.write_cpu(ppu, apu, addr, res);
                 7
             }
             // NOP
-            [0xea, ..] => {
+            [0xea, ..]
+            // NOP (undocumented)
+            | [0x1a, ..]
+            | [0x3a, ..]
+            | [0x5a, ..]
+            | [0x7a, ..]
+            | [0xda, ..]
+            | [0xfa, ..] => {
                 self.pc += 1;
+                2
+            }
+            // NOP/IGN (zero-page) (undocumented)
+            [0x04, ..] | [0x44, ..] | [0x64, ..] => {
+                // NOTE: no need to call 'read_cpu()' here, as the nop won't have any side
+                // effects when the address of its operand is restricted to the zero page
+                self.pc += 2;
+                3
+            }
+            // NOP/IGN (absolute) (undocumented)
+            [0x0c, bytes @ ..] => {
+                // read from address and ignore result (the redundant read
+                // must be performed, as it may have side effects)
+                let _ = memory.read_cpu(ppu, apu, u16::from_le_bytes(bytes));
+                self.pc += 3;
+                4
+            }
+            // NOP/IGN (zero page indexed) (undocumented)
+            [0x14, byte_1, _]
+            | [0x34, byte_1, _]
+            | [0x54, byte_1, _]
+            | [0x74, byte_1, _]
+            | [0xd4, byte_1, _]
+            | [0xf4, byte_1, _] => {
+                let _ = memory.read_cpu(ppu, apu, byte_1.wrapping_add(self.x));
+                self.pc += 2;
+                4
+            }
+            // NOP/IGN (absolute indexed) (undocumented)
+            [0x1c, bytes @ ..]
+            | [0x3c, bytes @ ..]
+            | [0x5c, bytes @ ..]
+            | [0x7c, bytes @ ..]
+            | [0xdc, bytes @ ..]
+            | [0xfc, bytes @ ..] => {
+                let (addr, carry) = self.get_absolute_indexed(bytes, self.x);
+                let _ = memory.read_cpu(ppu, apu, addr);
+                self.pc += 3;
+                4 + carry as u8
+            }
+            // NOP/SKB (undocumented)
+            [0x80, ..] | [0x82, ..] | [0x89, ..] | [0xc2, ..] | [0xe2, ..] => {
+                self.pc += 2;
                 2
             }
             // ORA #byte_1 (immediate)
@@ -651,30 +717,34 @@ impl Cpu {
             }
             // ROL $byte_1 (zero page)
             [0x26, byte_1, _] => {
+                let res = self.rol(memory.read_cpu(ppu, apu, byte_1), 2);
                 memory.write_cpu(
                     ppu,
                     apu,
                     byte_1,
-                    self.rol(memory.read_cpu(ppu, apu, byte_1), 2),
+                    res,
                 );
                 5
             }
             // ROL $byte_1, X (zero page indexed)
             [0x36, byte_1, _] => {
                 let addr = byte_1.wrapping_add(self.x);
-                memory.write_cpu(ppu, apu, addr, self.rol(memory.read_cpu(ppu, apu, addr), 2));
+                let res = self.rol(memory.read_cpu(ppu, apu, addr), 2);
+                memory.write_cpu(ppu, apu, addr, res);
                 6
             }
             // ROL $bytes (absolute)
             [0x2e, bytes @ ..] => {
                 let addr = u16::from_le_bytes(bytes);
-                memory.write_cpu(ppu, apu, addr, self.rol(memory.read_cpu(ppu, apu, addr), 3));
+                let res = self.rol(memory.read_cpu(ppu, apu, addr), 3);
+                memory.write_cpu(ppu, apu, addr, res);
                 6
             }
             // ROL $bytes, X (absolute indexed)
             [0x3e, bytes @ ..] => {
                 let (addr, _) = self.get_absolute_indexed(bytes, self.x);
-                memory.write_cpu(ppu, apu, addr, self.rol(memory.read_cpu(ppu, apu, addr), 3));
+                let res = self.rol(memory.read_cpu(ppu, apu, addr), 3);
+                memory.write_cpu(ppu, apu, addr, res);
                 7
             }
             // ROR A (accumulator)
@@ -684,30 +754,34 @@ impl Cpu {
             }
             // ROR $byte_1 (zero page)
             [0x66, byte_1, _] => {
+                let res = self.ror(memory.read_cpu(ppu, apu, byte_1), 2);
                 memory.write_cpu(
                     ppu,
                     apu,
                     byte_1,
-                    self.ror(memory.read_cpu(ppu, apu, byte_1), 2),
+                    res,
                 );
                 5
             }
             // ROR $byte_1, X (zero page indexed)
             [0x76, byte_1, _] => {
                 let addr = byte_1.wrapping_add(self.x);
-                memory.write_cpu(ppu, apu, addr, self.ror(memory.read_cpu(ppu, apu, addr), 2));
+                let res = self.ror(memory.read_cpu(ppu, apu, addr), 2);
+                memory.write_cpu(ppu, apu, addr, res);
                 6
             }
             // ROR $bytes (absolute)
             [0x6e, bytes @ ..] => {
                 let addr = u16::from_le_bytes(bytes);
-                memory.write_cpu(ppu, apu, addr, self.ror(memory.read_cpu(ppu, apu, addr), 3));
+                let res = self.ror(memory.read_cpu(ppu, apu, addr), 3);
+                memory.write_cpu(ppu, apu, addr, res);
                 6
             }
             // ROR $bytes, X (absolute indexed)
             [0x7e, bytes @ ..] => {
                 let (addr, _) = self.get_absolute_indexed(bytes, self.x);
-                memory.write_cpu(ppu, apu, addr, self.ror(memory.read_cpu(ppu, apu, addr), 3));
+                let res = self.ror(memory.read_cpu(ppu, apu, addr), 3);
+                memory.write_cpu(ppu, apu, addr, res);
                 7
             }
             // RTI

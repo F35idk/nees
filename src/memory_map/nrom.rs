@@ -32,8 +32,8 @@ impl Nrom128MemoryMap {
 impl MemoryMap for Nrom128MemoryMap {
     fn read_cpu<A: AddrInt>(
         &self,
-        ppu: &ppu::Ppu,
-        apu: &apu::Apu,
+        ppu: &mut ppu::Ppu,
+        apu: &mut apu::Apu,
         _addr: A, //
     ) -> u8 {
         let mut addr = _addr.to_u16();
@@ -87,11 +87,11 @@ impl MemoryMap for Nrom128MemoryMap {
     ) {
         let addr = _addr.to_u16();
 
-        logln!(
-            "writing to address {:x}, corresponding to index {:x} in memory",
-            _addr.to_usize(),
-            addr
-        );
+        // logln!(
+        //     "writing to address {:x}, corresponding to index {:x} in memory",
+        //     _addr.to_usize(),
+        //     addr
+        // );
 
         // NOTE: see 'calc_cpu_read_addr()' for comments explaining the address calculation
         if (addr >> 13) == 0 {
