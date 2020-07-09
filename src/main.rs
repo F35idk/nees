@@ -5,7 +5,6 @@ mod parse;
 
 // TODO: don't import, use full paths in code
 use memory_map::{MemoryMap, Nrom128MemoryMap};
-use parse::RomInfo;
 
 #[derive(Default)]
 struct Cpu {
@@ -1742,20 +1741,23 @@ fn test_brk() {
 
 fn main() {
     let rom = std::fs::read("nestest.nes").unwrap();
-    let info = RomInfo::new(&rom).unwrap();
+    assert!(parse::is_valid(&rom));
 
     if false {
         logln!("{}", std::str::from_utf8(&rom[0..=3]).unwrap());
-        logln!("is nes 2.0: {}", info.is_nes_2_format());
-        logln!("has trainer: {}", info.has_trainer());
-        logln!("mirroring type: {:?}", info.get_mirroring_type());
-        logln!("mapper number: {}", info.get_mapper_num());
-        logln!("prg rom size: {}KB", info.get_prg_size() as u32 * 16);
-        logln!("chr rom size: {}KB", info.get_chr_size() as u32 * 8);
-        logln!("has battery-backed RAM: {}", info.has_persistent_mem());
+        logln!("is nes 2.0: {}", parse::is_nes_2_format(&rom));
+        logln!("has trainer: {}", parse::has_trainer(&rom));
+        logln!("mirroring type: {:?}", parse::get_mirroring_type(&rom));
+        logln!("mapper number: {}", parse::get_mapper_num(&rom));
+        logln!("prg rom size: {}KB", parse::get_prg_size(&rom) as u32 * 16);
+        logln!("chr rom size: {}KB", parse::get_chr_size(&rom) as u32 * 8);
+        logln!(
+            "has battery-backed RAM: {}",
+            parse::has_persistent_mem(&rom)
+        );
     }
 
-    match (info.get_mapper_num(), info.get_prg_size()) {
+    match (parse::get_mapper_num(&rom), parse::get_prg_size(&rom)) {
         (0, 1) => {
             // nrom-128 (maybe?)
         }
@@ -1769,7 +1771,7 @@ fn main() {
     let mut memory = Nrom128MemoryMap::new();
 
     if true {
-        let prg_size = 16384 * (info.get_prg_size() as usize);
+        let prg_size = 16384 * (parse::get_prg_size(&rom) as usize);
         memory.load_prg_rom(&rom[0x10..=prg_size + 0xf]);
 
         loop {
