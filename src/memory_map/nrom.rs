@@ -3,7 +3,7 @@ use super::super::log;
 use super::{apu, ppu};
 use super::{AddrInt, MemoryMap};
 
-// the cpu memory map for games that use the 'NROM128' cartridge/mapper (ines mapper 0)
+// the cpu memory map for games that use the 'NROM-128' cartridge/mapper (ines mapper 0)
 // TODO: implement ppu side of things
 pub struct Nrom128MemoryMap {
     memory: [u8; 0x5808],
@@ -13,6 +13,16 @@ pub struct Nrom128MemoryMap {
     // [0x800..=0x47ff] = prg rom
     // [0x4800..=0x57ff] = prg ram
     // [0x5800..=0x5807] = ppu registers
+    // TODO: 0x2000 * chr rom/possibly ram
+}
+
+// NROM-256 (also ines mapper 0)
+pub struct Nrom256MemoryMap {
+    memory: [u8; 0x9808],
+    // [0..=0x7ff] = internal ram
+    // [0x800..=0x87ff] = prg rom
+    // [0x8800..=0x97ff] = prg ram
+    // [0x9800..=0x9807] = ppu registers
     // TODO: 0x2000 * chr rom/possibly ram
 }
 
@@ -26,6 +36,19 @@ impl Nrom128MemoryMap {
     pub fn load_prg_rom(&mut self, rom: &[u8]) {
         assert!(rom.len() == 0x4000);
         self.memory[0x800..=0x47ff].copy_from_slice(rom);
+    }
+}
+
+impl Nrom256MemoryMap {
+    pub fn new() -> Self {
+        Nrom256MemoryMap {
+            memory: [0; 0x9808],
+        }
+    }
+
+    pub fn load_prg_rom(&mut self, rom: &[u8]) {
+        assert!(rom.len() == 0x8000);
+        self.memory[0x800..=0x87ff].copy_from_slice(rom);
     }
 }
 
@@ -87,12 +110,6 @@ impl MemoryMap for Nrom128MemoryMap {
     ) {
         let addr = _addr.to_u16();
 
-        // logln!(
-        //     "writing to address {:x}, corresponding to index {:x} in memory",
-        //     _addr.to_usize(),
-        //     addr
-        // );
-
         // NOTE: see 'calc_cpu_read_addr()' for comments explaining the address calculation
         if (addr >> 13) == 0 {
             unsafe {
@@ -131,20 +148,101 @@ impl MemoryMap for Nrom128MemoryMap {
         return;
     }
 
-    #[inline]
     fn read_ppu<A: AddrInt>(&self, addr: A) -> u8 {
         // TODO: implement
         0
     }
 
-    #[inline]
     fn write_ppu<A: AddrInt>(&mut self, addr: A, val: u8) {
         // TODO: implement
     }
 }
 
+impl MemoryMap for Nrom256MemoryMap {
+    fn read_cpu<A: AddrInt>(
+        &self,
+        ppu: &mut ppu::Ppu,
+        apu: &mut apu::Apu,
+        _addr: A, //
+    ) -> u8 {
+        let mut addr = _addr.to_u16();
+
+        if (addr >> 13) == 0 {
+            addr &= !0b1100000000000;
+            return unsafe { *self.memory.get(addr.to_usize()).unwrap() };
+        }
+
+        if (addr >> 13) == 1 {
+            addr &= 0b111;
+            addr |= 0x9800;
+            return unsafe { *self.memory.get(addr.to_usize()).unwrap() };
+        }
+
+        if (addr >> 13) == 3 {
+            addr &= !0b1000000000000;
+            addr += 0x2800;
+            return unsafe { *self.memory.get(addr.to_usize()).unwrap() };
+        }
+
+        if (addr & 0x8000) != 0 {
+            addr -= 0x7800;
+            return unsafe { *self.memory.get(addr.to_usize()).unwrap() };
+        }
+
+        return 0;
+    }
+
+    fn write_cpu<A: AddrInt>(
+        &mut self,
+        ppu: &mut ppu::Ppu,
+        apu: &mut apu::Apu,
+        _addr: A,
+        val: u8, //
+    ) {
+        let addr = _addr.to_u16();
+
+        if (addr >> 13) == 0 {
+            unsafe {
+                *self
+                    .memory
+                    .get_mut((addr & !0b1100000000000).to_usize())
+                    .unwrap() = val;
+            }
+            return;
+        }
+
+        if (addr >> 13) == 1 {
+            unsafe {
+                *self
+                    .memory
+                    .get_mut(((addr & 0b111) | 0x9800).to_usize())
+                    .unwrap() = val;
+            }
+
+            return;
+        }
+
+        if (addr >> 13) == 3 {
+            unsafe {
+                *self
+                    .memory
+                    .get_mut(((addr & !0b1000000000000) + 0x2800).to_usize())
+                    .unwrap() = val;
+            }
+            return;
+        }
+
+        return;
+    }
+
+    fn read_ppu<A: AddrInt>(&self, addr: A) -> u8 {
+        0
+    }
+
+    fn write_ppu<A: AddrInt>(&mut self, addr: A, val: u8) {}
+}
 #[test]
-fn test_calc_addr() {
+fn test_calc_addr_128() {
     fn calc_cpu_read_addr(addr: u16) -> u16 {
         if (addr >> 13) == 0 {
             return addr & !0b1100000000000;
