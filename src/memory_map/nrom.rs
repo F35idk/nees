@@ -1,5 +1,6 @@
 #[macro_use]
 use super::super::log;
+use super::{apu, ppu};
 use super::{AddrInt, MemoryMap};
 
 // the cpu memory map for games that use the 'NROM128' cartridge/mapper (ines mapper 0)
@@ -29,7 +30,12 @@ impl Nrom128MemoryMap {
 }
 
 impl MemoryMap for Nrom128MemoryMap {
-    fn read_cpu<A: AddrInt>(&self, _addr: A) -> u8 {
+    fn read_cpu<A: AddrInt>(
+        &self,
+        ppu: &ppu::Ppu,
+        apu: &apu::Apu,
+        _addr: A, //
+    ) -> u8 {
         let mut addr = _addr.to_u16();
 
         // address lines a13-a15 = 000 (0-0x1fff) => internal ram
@@ -72,7 +78,13 @@ impl MemoryMap for Nrom128MemoryMap {
         return 0;
     }
 
-    fn write_cpu<A: AddrInt>(&mut self, _addr: A, val: u8) {
+    fn write_cpu<A: AddrInt>(
+        &mut self,
+        ppu: &mut ppu::Ppu,
+        apu: &mut apu::Apu,
+        _addr: A,
+        val: u8, //
+    ) {
         let addr = _addr.to_u16();
 
         logln!(
@@ -154,6 +166,8 @@ fn test_calc_addr() {
     }
 
     let mut memory = Nrom128MemoryMap::new();
+    let mut ppu = ppu::Ppu {};
+    let mut apu = apu::Apu {};
 
     // internal ram reads
     assert_eq!(calc_cpu_read_addr(0xa0e), 0x20e);
@@ -165,14 +179,14 @@ fn test_calc_addr() {
     assert_eq!(calc_cpu_read_addr(0x5000), 0);
 
     // ppu register writes
-    memory.write_cpu(0x3fffu16, 0x0f);
-    memory.write_cpu(0x2001u16, 0xbf);
+    memory.write_cpu(&mut ppu, &mut apu, 0x3fffu16, 0x0f);
+    memory.write_cpu(&mut ppu, &mut apu, 0x2001u16, 0xbf);
     assert_eq!(memory.memory[0x5807], 0x0f);
     assert_eq!(memory.memory[0x5801], 0xbf);
 
     // prg ram writes
-    memory.write_cpu(0x7fffu16, 0xfe);
-    memory.write_cpu(0x6000u16, 0xce);
+    memory.write_cpu(&mut ppu, &mut apu, 0x7fffu16, 0xfe);
+    memory.write_cpu(&mut ppu, &mut apu, 0x6000u16, 0xce);
     assert_eq!(memory.memory[0x57ff], 0xfe);
     assert_eq!(memory.memory[0x4800], 0xce);
 
@@ -184,7 +198,7 @@ fn test_calc_addr() {
     assert_eq!(calc_cpu_read_addr(0xffff), 0x47ff);
 
     // prg rom writes
-    memory.write_cpu(0xcfffu16, 0xff);
+    memory.write_cpu(&mut ppu, &mut apu, 0xcfffu16, 0xff);
     // should not take effect
-    assert!(memory.read_cpu(0xcfffu16) != 0xff);
+    assert!(memory.read_cpu(&mut ppu, &mut apu, 0xcfffu16) != 0xff);
 }

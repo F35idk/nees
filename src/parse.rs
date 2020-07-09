@@ -25,7 +25,7 @@ pub fn get_prg_size(rom_header: &[u8]) -> u8 {
     rom_header[4]
 }
 
-// NOTE: if zero, game uses chr /ram/, not chr rom_header
+// NOTE: if zero, game uses chr /ram/, not chr rom
 pub fn get_chr_size(rom_header: &[u8]) -> u8 {
     rom_header[5]
 }

@@ -1,8 +1,10 @@
 #[macro_use]
 mod log;
+mod apu;
 mod cpu;
 mod memory_map;
 mod parse;
+mod ppu;
 
 use memory_map as mmap;
 
@@ -35,6 +37,8 @@ fn main() {
     }
 
     let mut cpu = cpu::Cpu::new_nestest();
+    let mut ppu = ppu::Ppu {};
+    let mut apu = apu::Apu {};
     let mut memory = mmap::Nrom128MemoryMap::new();
 
     if true {
@@ -42,8 +46,8 @@ fn main() {
         memory.load_prg_rom(&rom[0x10..=prg_size + 0xf]);
 
         loop {
-            // cpu.log_register_values();
-            cpu.exec_instruction(&mut memory);
+            cpu.log_register_values();
+            cpu.exec_instruction(&mut memory, &mut ppu, &mut apu);
         }
     }
 }
