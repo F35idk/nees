@@ -37,9 +37,10 @@ fn main() {
     }
 
     let mut cpu = cpu::Cpu::new_nestest();
-    let mut ppu = ppu::Ppu {};
-    let mut apu = apu::Apu {};
     let mut memory = mmap::Nrom128MemoryMap::new();
+    let ref mut ppu = ppu::Ppu {};
+    let ref mut apu = apu::Apu {};
+    let ref ptrs = mmap::MemoryMapPtrs { ppu, apu };
 
     if true {
         let prg_size = 16384 * (parse::get_prg_size(&rom) as usize);
@@ -47,7 +48,7 @@ fn main() {
 
         loop {
             cpu.log_register_values();
-            cpu.exec_instruction(&mut memory, &mut ppu, &mut apu);
+            cpu.exec_instruction(&mut memory, ptrs);
         }
     }
 }

@@ -9,6 +9,7 @@ pub struct Nrom128MemoryMap {
     memory: [u8; 0x5808],
     // the addresses passed to the read/write calls translate
     // to these ranges in the 'memory' array:
+    // TODO: make these separate fields instead
     // [0..=0x7ff] = internal ram
     // [0x800..=0x47ff] = prg rom
     // [0x4800..=0x57ff] = prg ram
@@ -55,8 +56,7 @@ impl Nrom256MemoryMap {
 impl MemoryMap for Nrom128MemoryMap {
     fn read_cpu<A: AddrInt>(
         &self,
-        ppu: &mut ppu::Ppu,
-        apu: &mut apu::Apu,
+        ptrs: &super::MemoryMapPtrs,
         _addr: A, //
     ) -> u8 {
         let mut addr = _addr.to_u16();
@@ -103,8 +103,7 @@ impl MemoryMap for Nrom128MemoryMap {
 
     fn write_cpu<A: AddrInt>(
         &mut self,
-        ppu: &mut ppu::Ppu,
-        apu: &mut apu::Apu,
+        ptrs: &super::MemoryMapPtrs,
         _addr: A,
         val: u8, //
     ) {
@@ -161,8 +160,7 @@ impl MemoryMap for Nrom128MemoryMap {
 impl MemoryMap for Nrom256MemoryMap {
     fn read_cpu<A: AddrInt>(
         &self,
-        ppu: &mut ppu::Ppu,
-        apu: &mut apu::Apu,
+        ptrs: &super::MemoryMapPtrs,
         _addr: A, //
     ) -> u8 {
         let mut addr = _addr.to_u16();
@@ -194,8 +192,7 @@ impl MemoryMap for Nrom256MemoryMap {
 
     fn write_cpu<A: AddrInt>(
         &mut self,
-        ppu: &mut ppu::Ppu,
-        apu: &mut apu::Apu,
+        ptrs: &super::MemoryMapPtrs,
         _addr: A,
         val: u8, //
     ) {
@@ -264,8 +261,9 @@ fn test_calc_addr_128() {
     }
 
     let mut memory = Nrom128MemoryMap::new();
-    let mut ppu = ppu::Ppu {};
-    let mut apu = apu::Apu {};
+    let ref mut ppu = ppu::Ppu {};
+    let ref mut apu = apu::Apu {};
+    let ptrs = &super::MemoryMapPtrs { ppu, apu };
 
     // internal ram reads
     assert_eq!(calc_cpu_read_addr(0xa0e), 0x20e);
@@ -277,14 +275,14 @@ fn test_calc_addr_128() {
     assert_eq!(calc_cpu_read_addr(0x5000), 0);
 
     // ppu register writes
-    memory.write_cpu(&mut ppu, &mut apu, 0x3fffu16, 0x0f);
-    memory.write_cpu(&mut ppu, &mut apu, 0x2001u16, 0xbf);
+    memory.write_cpu(ptrs, 0x3fffu16, 0x0f);
+    memory.write_cpu(ptrs, 0x2001u16, 0xbf);
     assert_eq!(memory.memory[0x5807], 0x0f);
     assert_eq!(memory.memory[0x5801], 0xbf);
 
     // prg ram writes
-    memory.write_cpu(&mut ppu, &mut apu, 0x7fffu16, 0xfe);
-    memory.write_cpu(&mut ppu, &mut apu, 0x6000u16, 0xce);
+    memory.write_cpu(ptrs, 0x7fffu16, 0xfe);
+    memory.write_cpu(ptrs, 0x6000u16, 0xce);
     assert_eq!(memory.memory[0x57ff], 0xfe);
     assert_eq!(memory.memory[0x4800], 0xce);
 
@@ -296,7 +294,12 @@ fn test_calc_addr_128() {
     assert_eq!(calc_cpu_read_addr(0xffff), 0x47ff);
 
     // prg rom writes
-    memory.write_cpu(&mut ppu, &mut apu, 0xcfffu16, 0xff);
+    memory.write_cpu(ptrs, 0xcfffu16, 0xff);
     // should not take effect
-    assert!(memory.read_cpu(&mut ppu, &mut apu, 0xcfffu16) != 0xff);
+    assert!(memory.read_cpu(ptrs, 0xcfffu16) != 0xff);
+}
+
+#[test]
+fn test_calc_addr_256() {
+    // TODO: ..
 }
