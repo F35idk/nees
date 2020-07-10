@@ -36,6 +36,7 @@ impl Cpu {
         ptrs: &mut mmap::MemoryMapPtrs,
     ) {
         match memory.read_cpu(ptrs, self.pc) {
+            // ADC
             0x69 => self.adc_imm(memory, ptrs),
             0x65 => self.adc_zero_page(memory, ptrs),
             0x75 => self.adc_zero_page_indexed(self.x, memory, ptrs),
@@ -44,6 +45,30 @@ impl Cpu {
             0x79 => self.adc_abs_indexed(self.y, memory, ptrs),
             0x61 => self.adc_indexed_indirect(memory, ptrs),
             0x71 => self.adc_indirect_indexed(memory, ptrs),
+            // AND
+            0x29 => self.and_imm(memory, ptrs),
+            0x25 => self.and_zero_page(memory, ptrs),
+            0x35 => self.and_zero_page_indexed(self.x, memory, ptrs),
+            0x2d => self.and_abs(memory, ptrs),
+            0x3d => self.and_abs_indexed(self.x, memory, ptrs),
+            0x39 => self.and_abs_indexed(self.y, memory, ptrs),
+            0x21 => self.and_indexed_indirect(memory, ptrs),
+            0x31 => self.and_indirect_indexed(memory, ptrs),
+            // ASL
+            0x0a => self.asl_a(),
+            0x06 => self.asl_zero_page(memory, ptrs),
+            0x16 => self.asl_zero_page_indexed(memory, ptrs),
+            0x0e => self.asl_abs(memory, ptrs),
+            0x1e => self.asl_abs_indexed(memory, ptrs),
+            // branch instructions
+            0x90 => self.branch_if_((self.p & 1) == 0, memory, ptrs),
+            0xb0 => self.branch_if_((self.p & 1) != 0, memory, ptrs),
+            0xf0 => self.branch_if_((self.p & 2) != 0, memory, ptrs),
+            0x30 => self.branch_if_((self.p as i8) < 0, memory, ptrs),
+            0xd0 => self.branch_if_((self.p & 2) == 0, memory, ptrs),
+            0x10 => self.branch_if_((self.p as i8) > 0, memory, ptrs),
+            0x50 => self.branch_if_((self.p & 0b01000000) == 0, memory, ptrs),
+            0x70 => self.branch_if_((self.p & 0b01000000) != 0, memory, ptrs),
             _ => (),
         }
     }
@@ -1290,6 +1315,26 @@ impl Cpu {
         self.cycle_count += 4 + page_crossed as u32;
     }
 
+    fn and_indexed_indirect(
+        &mut self,
+        memory: &mmap::Nrom128MemoryMap,
+        ptrs: &mut mmap::MemoryMapPtrs,
+    ) {
+        let val = addressing::read_indexed_indirect(self, memory, ptrs);
+        self.and_(val, OpcodeLen(2));
+        self.cycle_count += 6;
+    }
+
+    fn and_indirect_indexed(
+        &mut self,
+        memory: &mmap::Nrom128MemoryMap,
+        ptrs: &mut mmap::MemoryMapPtrs,
+    ) {
+        let (val, page_crossed) = addressing::read_indirect_indexed(self, memory, ptrs);
+        self.and_(val, OpcodeLen(2));
+        self.cycle_count += 5 + page_crossed as u32;
+    }
+
     fn asl(&mut self, val: u8, pc_increment: u8) -> u8 {
         self.pc += pc_increment as u16;
 
@@ -1300,6 +1345,67 @@ impl Cpu {
         self.set_n_from_val(res);
 
         res
+    }
+
+    fn asl_(&mut self, val: u8, pc_increment: OpcodeLen) -> u8 {
+        self.pc += pc_increment.0 as u16;
+
+        self.set_c_from_bool((val >> 7) != 0);
+        let res = val << 1;
+
+        self.set_z_from_val(res);
+        self.set_n_from_val(res);
+
+        res
+    }
+
+    fn asl_a(&mut self) {
+        self.a = self.asl_(self.a, OpcodeLen(1));
+        self.cycle_count += 2;
+    }
+
+    fn asl_zero_page(
+        &mut self,
+        memory: &mut mmap::Nrom128MemoryMap,
+        ptrs: &mut mmap::MemoryMapPtrs,
+    ) {
+        addressing::read_write_zero_page(self, memory, ptrs, |cpu, val| {
+            cpu.asl_(val, OpcodeLen(2))
+        });
+
+        self.cycle_count += 2;
+    }
+
+    fn asl_zero_page_indexed(
+        &mut self,
+        memory: &mut mmap::Nrom128MemoryMap,
+        ptrs: &mut mmap::MemoryMapPtrs,
+    ) {
+        addressing::read_write_zero_page_indexed(self, self.x, memory, ptrs, |cpu, val| {
+            cpu.asl_(val, OpcodeLen(2))
+        });
+
+        self.cycle_count += 5;
+    }
+
+    fn asl_abs(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mut mmap::MemoryMapPtrs) {
+        addressing::read_write_abs(self, memory, ptrs, |cpu, val| {
+            //_
+            cpu.asl_(val, OpcodeLen(3))
+        });
+        self.cycle_count += 6;
+    }
+
+    fn asl_abs_indexed(
+        &mut self,
+        memory: &mut mmap::Nrom128MemoryMap,
+        ptrs: &mut mmap::MemoryMapPtrs,
+    ) {
+        addressing::read_write_abs_indexed(self, self.x, memory, ptrs, |cpu, val, _| {
+            cpu.asl_(val, OpcodeLen(3))
+        });
+
+        self.cycle_count += 6;
     }
 
     // used for bcc, bcs, beq, bmi, bne, bpl, bvc, bvs instructions.
@@ -1320,6 +1426,31 @@ impl Cpu {
             3 + boundary_crossed as u8
         } else {
             2
+        }
+    }
+
+    fn branch_if_(
+        &mut self,
+        condition: bool,
+        memory: &mut mmap::Nrom128MemoryMap,
+        ptrs: &mut mmap::MemoryMapPtrs,
+    ) {
+        let offset = self.get_operand_byte(memory, ptrs);
+        self.pc += 2;
+
+        if condition {
+            // sign extend 'offset' into an i16
+            let offset_sign_ext = (offset as i8) as i16;
+            // get the carry from adding the low bytes
+            let (_, carry) = (self.pc as u8).overflowing_add(offset as u8);
+            // perform the full addition
+            self.pc = (self.pc as i16 + offset_sign_ext) as u16;
+            // xor sign of 'offset' with 'carry' to determine whether a page boundary was crossed
+            let boundary_crossed = ((offset as i8) < 0) ^ carry;
+
+            self.cycle_count += 3 + boundary_crossed as u32
+        } else {
+            self.cycle_count += 2;
         }
     }
 
