@@ -56,7 +56,7 @@ impl Nrom256MemoryMap {
 impl MemoryMap for Nrom128MemoryMap {
     fn read_cpu<A: AddrInt>(
         &self,
-        ptrs: &super::MemoryMapPtrs,
+        ptrs: &mut super::MemoryMapPtrs,
         _addr: A, //
     ) -> u8 {
         let mut addr = _addr.to_u16();
@@ -103,7 +103,7 @@ impl MemoryMap for Nrom128MemoryMap {
 
     fn write_cpu<A: AddrInt>(
         &mut self,
-        ptrs: &super::MemoryMapPtrs,
+        ptrs: &mut super::MemoryMapPtrs,
         _addr: A,
         val: u8, //
     ) {
@@ -160,7 +160,7 @@ impl MemoryMap for Nrom128MemoryMap {
 impl MemoryMap for Nrom256MemoryMap {
     fn read_cpu<A: AddrInt>(
         &self,
-        ptrs: &super::MemoryMapPtrs,
+        ptrs: &mut super::MemoryMapPtrs,
         _addr: A, //
     ) -> u8 {
         let mut addr = _addr.to_u16();
@@ -192,7 +192,7 @@ impl MemoryMap for Nrom256MemoryMap {
 
     fn write_cpu<A: AddrInt>(
         &mut self,
-        ptrs: &super::MemoryMapPtrs,
+        ptrs: &mut super::MemoryMapPtrs,
         _addr: A,
         val: u8, //
     ) {
@@ -263,7 +263,7 @@ fn test_calc_addr_128() {
     let mut memory = Nrom128MemoryMap::new();
     let ref mut ppu = ppu::Ppu {};
     let ref mut apu = apu::Apu {};
-    let ptrs = &super::MemoryMapPtrs { ppu, apu };
+    let ref mut ptrs = super::MemoryMapPtrs { ppu, apu };
 
     // internal ram reads
     assert_eq!(calc_cpu_read_addr(0xa0e), 0x20e);

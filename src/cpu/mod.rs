@@ -1,7 +1,10 @@
+use super::memory_map as mmap;
 use super::memory_map::MemoryMap;
-use super::{apu, memory_map as mmap, ppu};
 
+mod addressing;
 mod test;
+
+use addressing as addr;
 
 #[derive(Default)]
 pub struct Cpu {
@@ -14,6 +17,9 @@ pub struct Cpu {
     pub cycle_count: u32,
 }
 
+struct Cyc(u8);
+struct OpcodeLen(u8);
+
 impl Cpu {
     pub fn new_nestest() -> Self {
         Self {
@@ -24,10 +30,28 @@ impl Cpu {
         }
     }
 
+    pub fn exec_instruction_2(
+        &mut self,
+        memory: &mut mmap::Nrom128MemoryMap,
+        ptrs: &mut mmap::MemoryMapPtrs,
+    ) {
+        match memory.read_cpu(ptrs, self.pc) {
+            0x69 => self.adc_imm(memory, ptrs),
+            0x65 => self.adc_zero_page(memory, ptrs),
+            0x75 => self.adc_zero_page_indexed(self.x, memory, ptrs),
+            0x6d => self.adc_abs(memory, ptrs),
+            0x7d => self.adc_abs_indexed(self.x, memory, ptrs),
+            0x79 => self.adc_abs_indexed(self.y, memory, ptrs),
+            0x61 => self.adc_indexed_indirect(memory, ptrs),
+            0x71 => self.adc_indirect_indexed(memory, ptrs),
+            _ => (),
+        }
+    }
+
     pub fn exec_instruction(
         &mut self,
         memory: &mut mmap::Nrom128MemoryMap,
-        ptrs: &mmap::MemoryMapPtrs,
+        ptrs: &mut mmap::MemoryMapPtrs,
     ) -> u8 {
         match [
             memory.read_cpu(ptrs, self.pc),
@@ -985,6 +1009,36 @@ impl Cpu {
         }
     }
 
+    pub fn get_operand_byte(
+        &self,
+        memory: &mmap::Nrom128MemoryMap,
+        ptrs: &mut mmap::MemoryMapPtrs,
+    ) -> u8 {
+        memory.read_cpu(ptrs, self.pc + 1)
+    }
+
+    pub fn get_operand_u16(
+        &self,
+        memory: &mmap::Nrom128MemoryMap,
+        ptrs: &mut mmap::MemoryMapPtrs,
+    ) -> u16 {
+        u16::from_le_bytes([
+            memory.read_cpu(ptrs, self.pc + 1),
+            memory.read_cpu(ptrs, self.pc + 2),
+        ])
+    }
+
+    pub fn get_operand_bytes(
+        &self,
+        memory: &mmap::Nrom128MemoryMap,
+        ptrs: &mut mmap::MemoryMapPtrs,
+    ) -> [u8; 2] {
+        [
+            memory.read_cpu(ptrs, self.pc + 1),
+            memory.read_cpu(ptrs, self.pc + 2),
+        ]
+    }
+
     // computes the result address from 'addr_bytes' and 'index'.
     // also returns whether a page boundary was crossed
     fn calc_absolute_indexed(&self, addr_bytes: [u8; 2], index: u8) -> (u16, bool) {
@@ -999,7 +1053,7 @@ impl Cpu {
         &self,
         addr: u8,
         memory: &mmap::Nrom128MemoryMap,
-        ptrs: &mmap::MemoryMapPtrs,
+        ptrs: &mut mmap::MemoryMapPtrs,
     ) -> u16 {
         let addr_indexed = addr.wrapping_add(self.x);
         let dest_addr = u16::from_le_bytes([
@@ -1014,7 +1068,7 @@ impl Cpu {
         &self,
         addr: u8,
         memory: &mmap::Nrom128MemoryMap,
-        ptrs: &mmap::MemoryMapPtrs,
+        ptrs: &mut mmap::MemoryMapPtrs,
     ) -> (u16, bool) {
         // get address at memory[addr]
         let dest_addr = [
@@ -1102,12 +1156,138 @@ impl Cpu {
         self.set_n_from_val(res_2);
     }
 
+    fn adc_(&mut self, val: u8, pc_increment: OpcodeLen) {
+        self.pc += pc_increment.0 as u16;
+
+        // add 'val' to the accumulator first
+        let (res_1, carry_1) = val.overflowing_add(self.a);
+        let (_, overflow_1) = (val as i8).overflowing_add(self.a as i8);
+
+        // then add the carry from the status flag to the accumulator
+        let (res_2, carry_2) = res_1.overflowing_add(self.p & 1);
+        let (_, overflow_2) = (res_1 as i8).overflowing_add((self.p & 1) as i8);
+
+        self.a = res_2;
+        self.set_c_from_bool(carry_1 | carry_2);
+        self.set_v_from_bool(overflow_1 | overflow_2);
+        self.set_z_from_val(res_2);
+        self.set_n_from_val(res_2);
+    }
+
+    fn adc_imm(&mut self, memory: &mmap::Nrom128MemoryMap, ptrs: &mut mmap::MemoryMapPtrs) {
+        let val = self.get_operand_byte(memory, ptrs);
+        self.adc_(val, OpcodeLen(2));
+        self.cycle_count += 2;
+    }
+
+    fn adc_zero_page(&mut self, memory: &mmap::Nrom128MemoryMap, ptrs: &mut mmap::MemoryMapPtrs) {
+        let val = addressing::read_zero_page(self, memory, ptrs);
+        self.adc_(val, OpcodeLen(2));
+        self.cycle_count += 3;
+    }
+
+    fn adc_zero_page_indexed(
+        &mut self,
+        index: u8,
+        memory: &mmap::Nrom128MemoryMap,
+        ptrs: &mut mmap::MemoryMapPtrs,
+    ) {
+        let val = addressing::read_zero_page_indexed(self, index, memory, ptrs);
+        self.adc_(val, OpcodeLen(2));
+        self.cycle_count += 4;
+    }
+
+    fn adc_abs(&mut self, memory: &mmap::Nrom128MemoryMap, ptrs: &mut mmap::MemoryMapPtrs) {
+        let val = addressing::read_abs(self, memory, ptrs);
+        self.adc_(val, OpcodeLen(3));
+        self.cycle_count += 4;
+    }
+
+    fn adc_abs_indexed(
+        &mut self,
+        index: u8,
+        memory: &mmap::Nrom128MemoryMap,
+        ptrs: &mut mmap::MemoryMapPtrs,
+    ) {
+        let (val, page_crossed) = addressing::read_abs_indexed(self, index, memory, ptrs);
+        self.adc_(val, OpcodeLen(3));
+        self.cycle_count += 4 + page_crossed as u32;
+    }
+
+    fn adc_indexed_indirect(
+        &mut self,
+        memory: &mmap::Nrom128MemoryMap,
+        ptrs: &mut mmap::MemoryMapPtrs,
+    ) {
+        let val = addressing::read_indexed_indirect(self, memory, ptrs);
+        self.adc_(val, OpcodeLen(2));
+        self.cycle_count += 6;
+    }
+
+    fn adc_indirect_indexed(
+        &mut self,
+        memory: &mmap::Nrom128MemoryMap,
+        ptrs: &mut mmap::MemoryMapPtrs,
+    ) {
+        let (val, page_crossed) = addressing::read_indirect_indexed(self, memory, ptrs);
+        self.adc_(val, OpcodeLen(2));
+        self.cycle_count += 5 + page_crossed as u32;
+    }
+
     fn and(&mut self, val: u8, pc_increment: u8) {
         self.pc += pc_increment as u16;
 
         self.a &= val;
         self.set_n_from_val(self.a);
         self.set_z_from_val(self.a);
+    }
+
+    fn and_(&mut self, val: u8, pc_increment: OpcodeLen) {
+        self.pc += pc_increment.0 as u16;
+
+        self.a &= val;
+        self.set_n_from_val(self.a);
+        self.set_z_from_val(self.a);
+    }
+
+    fn and_imm(&mut self, memory: &mmap::Nrom128MemoryMap, ptrs: &mut mmap::MemoryMapPtrs) {
+        let val = self.get_operand_byte(memory, ptrs);
+        self.and_(val, OpcodeLen(2));
+        self.cycle_count += 2;
+    }
+
+    fn and_zero_page(&mut self, memory: &mmap::Nrom128MemoryMap, ptrs: &mut mmap::MemoryMapPtrs) {
+        let val = addressing::read_zero_page(self, memory, ptrs);
+        self.and_(val, OpcodeLen(2));
+        self.cycle_count += 3;
+    }
+
+    fn and_zero_page_indexed(
+        &mut self,
+        index: u8,
+        memory: &mmap::Nrom128MemoryMap,
+        ptrs: &mut mmap::MemoryMapPtrs,
+    ) {
+        let val = addressing::read_zero_page_indexed(self, index, memory, ptrs);
+        self.and_(val, OpcodeLen(2));
+        self.cycle_count += 4;
+    }
+
+    fn and_abs(&mut self, memory: &mmap::Nrom128MemoryMap, ptrs: &mut mmap::MemoryMapPtrs) {
+        let val = addressing::read_abs(self, memory, ptrs);
+        self.and_(val, OpcodeLen(3));
+        self.cycle_count += 4;
+    }
+
+    fn and_abs_indexed(
+        &mut self,
+        index: u8,
+        memory: &mmap::Nrom128MemoryMap,
+        ptrs: &mut mmap::MemoryMapPtrs,
+    ) {
+        let (val, page_crossed) = addressing::read_abs_indexed(self, index, memory, ptrs);
+        self.and_(val, OpcodeLen(3));
+        self.cycle_count += 4 + page_crossed as u32;
     }
 
     fn asl(&mut self, val: u8, pc_increment: u8) -> u8 {
@@ -1153,7 +1333,7 @@ impl Cpu {
         self.set_z_from_val(res);
     }
 
-    fn brk(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mmap::MemoryMapPtrs) {
+    fn brk(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mut mmap::MemoryMapPtrs) {
         // NOTE: pc + 2 is pushed, despite brk being a one byte instruction
         let pc_bytes = (self.pc + 2).to_le_bytes();
 
@@ -1217,7 +1397,12 @@ impl Cpu {
         res
     }
 
-    fn jsr(&mut self, addr: u16, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mmap::MemoryMapPtrs) {
+    fn jsr(
+        &mut self,
+        addr: u16,
+        memory: &mut mmap::Nrom128MemoryMap,
+        ptrs: &mut mmap::MemoryMapPtrs,
+    ) {
         // get return address (next instruction - 1)
         let ret_addr = (self.pc + 2).to_le_bytes();
         // push low bits of address to sp - 1
@@ -1277,7 +1462,7 @@ impl Cpu {
         &mut self,
         val: u8,
         memory: &mut mmap::Nrom128MemoryMap,
-        ptrs: &mmap::MemoryMapPtrs,
+        ptrs: &mut mmap::MemoryMapPtrs,
     ) {
         self.pc += 1;
 
@@ -1286,7 +1471,11 @@ impl Cpu {
     }
 
     // used for pla, plp instructions
-    fn pull_val(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mmap::MemoryMapPtrs) -> u8 {
+    fn pull_val(
+        &mut self,
+        memory: &mut mmap::Nrom128MemoryMap,
+        ptrs: &mut mmap::MemoryMapPtrs,
+    ) -> u8 {
         self.pc += 1;
 
         self.sp = self.sp.wrapping_add(1);
@@ -1319,7 +1508,7 @@ impl Cpu {
         res
     }
 
-    fn rti(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mmap::MemoryMapPtrs) {
+    fn rti(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mut mmap::MemoryMapPtrs) {
         // pull into status flags
         self.sp = self.sp.wrapping_add(1);
         // NOTE: bit 4 is cleared and bit 5 is set when pulling into status register
@@ -1335,7 +1524,7 @@ impl Cpu {
         self.pc = u16::from_le_bytes([pc_low, pc_hi]);
     }
 
-    fn rts(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mmap::MemoryMapPtrs) {
+    fn rts(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mut mmap::MemoryMapPtrs) {
         // pull into program counter
         self.sp = self.sp.wrapping_add(1);
         let pc_low = memory.read_cpu(ptrs, self.sp as u16 + 0x100);
@@ -1367,7 +1556,7 @@ impl Cpu {
         &mut self,
         opc: [u8; 3],
         memory: &mut mmap::Nrom128MemoryMap,
-        ptrs: &mmap::MemoryMapPtrs,
+        ptrs: &mut mmap::MemoryMapPtrs,
     ) -> u8 {
         memory.write_cpu(ptrs, self.pc, opc[0]);
         memory.write_cpu(ptrs, self.pc + 1, opc[1]);

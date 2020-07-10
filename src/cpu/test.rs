@@ -28,7 +28,7 @@ fn test_adc() {
     assert_eq!(cpu.p, 0x27);
 
     let ref mut memory = mmap::Nrom128MemoryMap::new();
-    let ref ptrs = mmap::MemoryMapPtrs { ppu, apu };
+    let ref mut ptrs = mmap::MemoryMapPtrs { ppu, apu };
     memory.write_cpu(ptrs, 0x80u16, 00);
     memory.write_cpu(ptrs, 0x81u16, 02);
     memory.write_cpu(ptrs, 0x200u16, 0x69u8);
@@ -79,7 +79,7 @@ fn test_and() {
     assert_eq!(cpu.p, 2); // zero-flag should be set
 
     let ref mut memory = mmap::Nrom128MemoryMap::new();
-    let ref ptrs = mmap::MemoryMapPtrs { ppu, apu };
+    let ref mut ptrs = mmap::MemoryMapPtrs { ppu, apu };
     memory.write_cpu(ptrs, 0x80u16, 0);
     memory.write_cpu(ptrs, 0x81u16, 0);
     memory.write_cpu(ptrs, 0x200u16, 0xaa);
@@ -98,7 +98,7 @@ fn test_asl() {
     let ref mut ppu = ppu::Ppu {};
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
-    let ref ptrs = mmap::MemoryMapPtrs { ppu, apu };
+    let ref mut ptrs = mmap::MemoryMapPtrs { ppu, apu };
 
     cpu.a = 0x80;
     cpu.p = 0xe5;
@@ -135,7 +135,7 @@ fn test_branch_instrs() {
     let ref mut ppu = ppu::Ppu {};
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
-    let ref ptrs = mmap::MemoryMapPtrs { ppu, apu };
+    let ref mut ptrs = mmap::MemoryMapPtrs { ppu, apu };
     cpu.p = 0;
     cpu.pc = 0x100;
     let cyc = cpu.debug_exec_opcode([0x90, 0x80, 00], memory, ptrs);
@@ -170,7 +170,7 @@ fn test_bit() {
     let ref mut ppu = ppu::Ppu {};
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
-    let ref ptrs = mmap::MemoryMapPtrs { ppu, apu };
+    let ref mut ptrs = mmap::MemoryMapPtrs { ppu, apu };
 
     cpu.p = 0xa4;
     cpu.a = 0xff;
@@ -200,7 +200,7 @@ fn test_dec_inc() {
     let ref mut ppu = ppu::Ppu {};
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
-    let ref ptrs = mmap::MemoryMapPtrs { ppu, apu };
+    let ref mut ptrs = mmap::MemoryMapPtrs { ppu, apu };
 
     memory.write_cpu(ptrs, 0x78u16, 0x80);
     cpu.p = 0xa4;
@@ -217,7 +217,7 @@ fn test_eor() {
     let ref mut ppu = ppu::Ppu {};
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
-    let ref ptrs = mmap::MemoryMapPtrs { ppu, apu };
+    let ref mut ptrs = mmap::MemoryMapPtrs { ppu, apu };
 
     cpu.p = 0x6c;
     cpu.a = 0x5f;
@@ -247,7 +247,7 @@ fn test_jmp() {
     let ref mut ppu = ppu::Ppu {};
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
-    let ref ptrs = mmap::MemoryMapPtrs { ppu, apu };
+    let ref mut ptrs = mmap::MemoryMapPtrs { ppu, apu };
 
     // JMP $c5f5
     cpu.debug_exec_opcode([0x4c, 0xf5, 0xc5], memory, ptrs);
@@ -268,7 +268,7 @@ fn test_jsr() {
     let ref mut ppu = ppu::Ppu {};
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
-    let ref ptrs = mmap::MemoryMapPtrs { ppu, apu };
+    let ref mut ptrs = mmap::MemoryMapPtrs { ppu, apu };
 
     cpu.pc = 0x300;
     cpu.sp = 0xff;
@@ -321,7 +321,7 @@ fn test_jsr_2() {
     let ref mut ppu = ppu::Ppu {};
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
-    let ref ptrs = mmap::MemoryMapPtrs { ppu, apu };
+    let ref mut ptrs = mmap::MemoryMapPtrs { ppu, apu };
 
     cpu.pc = 0x1620;
     cpu.sp = 0xfb;
@@ -347,7 +347,7 @@ fn test_ld() {
     let ref mut ppu = ppu::Ppu {};
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
-    let ref ptrs = mmap::MemoryMapPtrs { ppu, apu };
+    let ref mut ptrs = mmap::MemoryMapPtrs { ppu, apu };
 
     memory.write_cpu(ptrs, 0x89u16, 0x00);
     memory.write_cpu(ptrs, 0x8au16, 0x03);
@@ -385,7 +385,7 @@ fn test_push_pull() {
     let ref mut ppu = ppu::Ppu {};
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
-    let ref ptrs = mmap::MemoryMapPtrs { ppu, apu };
+    let ref mut ptrs = mmap::MemoryMapPtrs { ppu, apu };
 
     cpu.a = 0xff;
     cpu.sp = 0xfb;
@@ -419,7 +419,7 @@ fn test_rol_ror() {
     let ref mut ppu = ppu::Ppu {};
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
-    let ref ptrs = mmap::MemoryMapPtrs { ppu, apu };
+    let ref mut ptrs = mmap::MemoryMapPtrs { ppu, apu };
 
     cpu.a = 0x55;
     cpu.p = 0x24;
@@ -459,7 +459,7 @@ fn test_rts() {
     let ref mut ppu = ppu::Ppu {};
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
-    let ref ptrs = mmap::MemoryMapPtrs { ppu, apu };
+    let ref mut ptrs = mmap::MemoryMapPtrs { ppu, apu };
 
     cpu.pc = 0x0401;
     cpu.sp = 0xf0;
@@ -522,6 +522,77 @@ fn test_sta_stx_sty() {
 fn test_brk() {
     // FIXME: ..
     // TODO: ..
+}
+
+#[test]
+fn test_adc_2() {
+    let mut cpu = Cpu::default();
+    let ref mut ppu = ppu::Ppu {};
+    let ref mut apu = apu::Apu {};
+    let ref mut memory = mmap::Nrom128MemoryMap::new();
+    let ref mut ptrs = mmap::MemoryMapPtrs { ppu, apu };
+
+    memory.write_cpu(ptrs, 0x80u16, 00);
+    memory.write_cpu(ptrs, 0x81u16, 02);
+    memory.write_cpu(ptrs, 0x200u16, 0x69u8);
+    cpu.a = 0;
+    cpu.p = 0x66;
+    // ADC ($80, X) (indexed indirect)
+    let cyc = cpu.debug_exec_opcode([0x61, 0x80, 0x00], memory, ptrs);
+
+    assert_eq!(cyc, 6);
+    assert_eq!(cpu.a, 0x69);
+    assert_eq!(cpu.p, 0x24);
+    assert_eq!(cpu.pc, 2);
+
+    memory.write_cpu(ptrs, 0x80u16, 0);
+    memory.write_cpu(ptrs, 0x81u16, 0);
+    memory.write_cpu(ptrs, 0x200u16, 0);
+    memory.write_cpu(ptrs, 0x78u16, 0x69);
+    cpu.a = 0;
+    cpu.p = 0x66;
+    // ADC $78 (zero page)
+    let cyc = cpu.debug_exec_opcode([0x65, 0x78, 0x00], memory, ptrs);
+
+    assert_eq!(cyc, 3);
+    assert_eq!(cpu.a, 0x69);
+    assert_eq!(cpu.p, 0x24);
+    assert_eq!(cpu.pc, 4);
+
+    memory.write_cpu(ptrs, 0x78u16, 0);
+    memory.write_cpu(ptrs, 0x678u16, 0x69);
+    cpu.a = 0;
+    cpu.p = 0x66;
+    // ADC $0678 (absolute)
+    let cyc = cpu.debug_exec_opcode([0x6d, 0x78, 0x06], memory, ptrs);
+
+    assert_eq!(cyc, 4);
+    assert_eq!(cpu.a, 0x69);
+    assert_eq!(cpu.p, 0x24);
+    assert_eq!(cpu.pc, 7);
+}
+
+#[test]
+fn test_and_2() {
+    let mut cpu = Cpu::default();
+    let ref mut ppu = ppu::Ppu {};
+    let ref mut apu = apu::Apu {};
+    let ref mut memory = mmap::Nrom128MemoryMap::new();
+    let ref mut ptrs = mmap::MemoryMapPtrs { ppu, apu };
+
+    memory.write_cpu(ptrs, 0x80u16, 0);
+    memory.write_cpu(ptrs, 0x81u16, 0);
+    memory.write_cpu(ptrs, 0x200u16, 0xaa);
+    cpu.a = 0x55;
+    cpu.p = 0;
+    // set pc higher so as to not interfere with location of operand
+    cpu.pc += 0x10;
+    // AND ($80, X) (0x80+0=0x80 @ 0)
+    let cyc = cpu.debug_exec_opcode_2([0x21, 0x80, 00], memory, ptrs);
+
+    assert_eq!(cyc, 6);
+    assert_eq!(cpu.a, 0);
+    assert_eq!(cpu.p, 2); // zero-flag should be set
 }
 
 #[test]

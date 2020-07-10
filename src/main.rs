@@ -40,7 +40,7 @@ fn main() {
     let mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut ppu = ppu::Ppu {};
     let ref mut apu = apu::Apu {};
-    let ref ptrs = mmap::MemoryMapPtrs { ppu, apu };
+    let ref mut ptrs = mmap::MemoryMapPtrs { ppu, apu };
 
     if true {
         let prg_size = 16384 * (parse::get_prg_size(&rom) as usize);
