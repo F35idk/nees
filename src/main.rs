@@ -37,6 +37,7 @@ fn main() {
     }
 
     let mut cpu = cpu::Cpu::new_nestest();
+    cpu.cycle_count = 7; // for whatever reason
     let mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut ppu = ppu::Ppu {};
     let ref mut apu = apu::Apu {};
@@ -48,7 +49,7 @@ fn main() {
 
         loop {
             cpu.log_register_values();
-            cpu.exec_instruction(&mut memory, ptrs);
+            cpu.exec_instruction_2(&mut memory, ptrs);
         }
     }
 }

@@ -1,5 +1,6 @@
 use super::super::{apu, memory_map as mmap, ppu};
 use super::Cpu;
+use super::OpcodeLen;
 use mmap::MemoryMap;
 
 fn test_adc() {
@@ -8,21 +9,21 @@ fn test_adc() {
     let ref mut apu = apu::Apu {};
 
     cpu.p = 0x6e;
-    cpu.adc(0x69, 2);
+    cpu.adc(0x69, OpcodeLen(2));
 
     assert_eq!(cpu.a, 0x69);
     assert_eq!(cpu.p, 0x2c);
 
     cpu.a = 1;
     cpu.p = 0x6d;
-    cpu.adc(0x69, 2);
+    cpu.adc(0x69, OpcodeLen(2));
 
     assert_eq!(cpu.a, 0x6b);
     assert_eq!(cpu.p, 0x2c);
 
     cpu.a = 0x7f;
     cpu.p = 0x25;
-    cpu.adc(0x80, 2);
+    cpu.adc(0x80, OpcodeLen(2));
 
     assert_eq!(cpu.a, 0);
     assert_eq!(cpu.p, 0x27);
@@ -72,7 +73,7 @@ fn test_and() {
 
     cpu.a = 0x55;
     cpu.p = 0;
-    let _ = cpu.and(0xaa, 2);
+    let _ = cpu.and(0xaa, OpcodeLen(2));
 
     // assert_eq!(cyc, 2);
     assert_eq!(cpu.a, 0);
@@ -189,7 +190,7 @@ fn test_cmp() {
     let ref mut apu = apu::Apu {};
     cpu.a = 0x40;
     cpu.p = 0x25;
-    let _ = cpu.cmp_register_val(cpu.a, 0x41, 2);
+    let _ = cpu.compare_register_val(cpu.a, 0x41, OpcodeLen(2));
 
     // assert_eq!(cyc, 2);
     assert_eq!(cpu.p, 0xa4);
@@ -488,28 +489,28 @@ fn test_sbc() {
 
     cpu.a = 0x40;
     cpu.p = 0x65;
-    cpu.sbc(0x40, 2);
+    cpu.sbc(0x40, OpcodeLen(2));
 
     assert_eq!(cpu.a, 0);
     assert_eq!(cpu.p, 0x27);
 
     cpu.a = 0x40;
     cpu.p = 0x25;
-    cpu.sbc(0x3f, 2);
+    cpu.sbc(0x3f, OpcodeLen(2));
 
     assert_eq!(cpu.a, 1);
     assert_eq!(cpu.p, 0x25);
 
     cpu.a = 0x40;
     cpu.p = 0xe5;
-    cpu.sbc(0x41, 2);
+    cpu.sbc(0x41, OpcodeLen(2));
 
     assert_eq!(cpu.a, 0xff);
     assert_eq!(cpu.p, 0xa4);
 
     cpu.a = 0x81;
     cpu.p = 0xe5;
-    cpu.sbc(0x7f, 2);
+    cpu.sbc(0x7f, OpcodeLen(2));
 
     assert_eq!(cpu.a, 2);
     assert_eq!(cpu.p, 0x65);

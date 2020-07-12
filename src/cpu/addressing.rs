@@ -117,6 +117,9 @@ mod zero_page {
         ptrs: &mut mmap::MemoryMapPtrs,
     ) -> u8 {
         let addr = cpu.fetch_operand_byte(memory, ptrs);
+        cpu.cycle_count += 3;
+        cpu.pc += 2;
+
         memory.read_cpu(ptrs, addr)
     }
 
@@ -169,6 +172,9 @@ mod zero_page_indexed {
     ) -> u8 {
         let addr = cpu.fetch_operand_byte(memory, ptrs);
         let addr_indexed = addr.wrapping_add(index);
+
+        cpu.pc += 2;
+        cpu.cycle_count += 4;
 
         memory.read_cpu(ptrs, addr_indexed)
     }
