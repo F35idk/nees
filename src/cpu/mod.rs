@@ -58,15 +58,22 @@ impl Cpu {
             0x16 => self.asl_zero_page_indexed(memory, ptrs),
             0x0e => self.asl_abs(memory, ptrs),
             0x1e => self.asl_abs_indexed(memory, ptrs),
-            // branch instructions FIXME: names of each
-            0x90 => self.branch_if_((self.p & 1) == 0, memory, ptrs),
-            0xb0 => self.branch_if_((self.p & 1) != 0, memory, ptrs),
-            0xf0 => self.branch_if_((self.p & 2) != 0, memory, ptrs),
-            0x30 => self.branch_if_((self.p as i8) < 0, memory, ptrs),
-            0xd0 => self.branch_if_((self.p & 2) == 0, memory, ptrs),
-            0x10 => self.branch_if_((self.p as i8) > 0, memory, ptrs),
-            0x50 => self.branch_if_((self.p & 0b01000000) == 0, memory, ptrs),
-            0x70 => self.branch_if_((self.p & 0b01000000) != 0, memory, ptrs),
+            // BCC
+            0x90 => self.branch_if((self.p & 1) == 0, memory, ptrs),
+            // BCS
+            0xb0 => self.branch_if((self.p & 1) != 0, memory, ptrs),
+            // BEQ
+            0xf0 => self.branch_if((self.p & 2) != 0, memory, ptrs),
+            // BMI
+            0x30 => self.branch_if((self.p as i8) < 0, memory, ptrs),
+            // BNE
+            0xd0 => self.branch_if((self.p & 2) == 0, memory, ptrs),
+            // BPL
+            0x10 => self.branch_if((self.p as i8) > 0, memory, ptrs),
+            // BVC
+            0x50 => self.branch_if((self.p & 0b01000000) == 0, memory, ptrs),
+            // BVS
+            0x70 => self.branch_if((self.p & 0b01000000) != 0, memory, ptrs),
             // BIT
             0x24 => self.bit_zero_page(memory, ptrs),
             0x2c => self.bit_abs(memory, ptrs),
@@ -281,23 +288,23 @@ impl Cpu {
     }
 
     #[inline]
+    // sets the carry flag based on the 'carry' bool
     fn set_c_from_bool(&mut self, carry: bool) {
         self.p = (self.p & !1) | carry as u8;
     }
 
     #[inline]
+    // ors 'bit' directly with the carry flag
     fn set_c_from_bit(&mut self, bit: u8) {
         self.p = (self.p & !1) | bit;
     }
 
     #[inline]
-    // sets the overflow flag based on the 'overflow' bool
     fn set_v_from_bool(&mut self, overflow: bool) {
         self.p = (self.p & !0b01000000) | ((overflow as u8) << 6);
     }
 
     #[inline]
-    // ors 'bit' directly with the overflow flag
     fn set_v_from_bit(&mut self, bit: u8) {
         self.p = (self.p & !0b01000000) | bit;
     }
@@ -367,8 +374,7 @@ impl Cpu {
 
     fn adc_abs(&mut self, memory: &mmap::Nrom128MemoryMap, ptrs: &mut mmap::MemoryMapPtrs) {
         let val = addressing::read_abs(self, memory, ptrs);
-        self.adc(val, OpcodeLen(3));
-        self.cycle_count += 4;
+        self.adc(val, OpcodeLen(0));
     }
 
     fn adc_abs_indexed(
@@ -377,9 +383,8 @@ impl Cpu {
         memory: &mmap::Nrom128MemoryMap,
         ptrs: &mut mmap::MemoryMapPtrs,
     ) {
-        let (val, page_crossed) = addressing::read_abs_indexed(self, index, memory, ptrs);
-        self.adc(val, OpcodeLen(3));
-        self.cycle_count += 4 + page_crossed as u32;
+        let val = addressing::read_abs_indexed(self, index, memory, ptrs);
+        self.adc(val, OpcodeLen(0));
     }
 
     fn adc_indexed_indirect(
@@ -388,8 +393,7 @@ impl Cpu {
         ptrs: &mut mmap::MemoryMapPtrs,
     ) {
         let val = addressing::read_indexed_indirect(self, memory, ptrs);
-        self.adc(val, OpcodeLen(2));
-        self.cycle_count += 6;
+        self.adc(val, OpcodeLen(0));
     }
 
     fn adc_indirect_indexed(
@@ -397,9 +401,8 @@ impl Cpu {
         memory: &mmap::Nrom128MemoryMap,
         ptrs: &mut mmap::MemoryMapPtrs,
     ) {
-        let (val, page_crossed) = addressing::read_indirect_indexed(self, memory, ptrs);
-        self.adc(val, OpcodeLen(2));
-        self.cycle_count += 5 + page_crossed as u32;
+        let val = addressing::read_indirect_indexed(self, memory, ptrs);
+        self.adc(val, OpcodeLen(0));
     }
 
     fn and(&mut self, val: u8, pc_increment: OpcodeLen) {
@@ -432,8 +435,7 @@ impl Cpu {
 
     fn and_abs(&mut self, memory: &mmap::Nrom128MemoryMap, ptrs: &mut mmap::MemoryMapPtrs) {
         let val = addressing::read_abs(self, memory, ptrs);
-        self.and(val, OpcodeLen(3));
-        self.cycle_count += 4;
+        self.and(val, OpcodeLen(0));
     }
 
     fn and_abs_indexed(
@@ -442,9 +444,8 @@ impl Cpu {
         memory: &mmap::Nrom128MemoryMap,
         ptrs: &mut mmap::MemoryMapPtrs,
     ) {
-        let (val, page_crossed) = addressing::read_abs_indexed(self, index, memory, ptrs);
-        self.and(val, OpcodeLen(3));
-        self.cycle_count += 4 + page_crossed as u32;
+        let val = addressing::read_abs_indexed(self, index, memory, ptrs);
+        self.and(val, OpcodeLen(0));
     }
 
     fn and_indexed_indirect(
@@ -453,8 +454,7 @@ impl Cpu {
         ptrs: &mut mmap::MemoryMapPtrs,
     ) {
         let val = addressing::read_indexed_indirect(self, memory, ptrs);
-        self.and(val, OpcodeLen(2));
-        self.cycle_count += 6;
+        self.and(val, OpcodeLen(0));
     }
 
     fn and_indirect_indexed(
@@ -462,9 +462,8 @@ impl Cpu {
         memory: &mmap::Nrom128MemoryMap,
         ptrs: &mut mmap::MemoryMapPtrs,
     ) {
-        let (val, page_crossed) = addressing::read_indirect_indexed(self, memory, ptrs);
-        self.and(val, OpcodeLen(2));
-        self.cycle_count += 5 + page_crossed as u32;
+        let val = addressing::read_indirect_indexed(self, memory, ptrs);
+        self.and(val, OpcodeLen(0));
     }
 
     fn asl(&mut self, val: u8, pc_increment: OpcodeLen) -> u8 {
@@ -526,7 +525,7 @@ impl Cpu {
         self.cycle_count += 7;
     }
 
-    fn branch_if_(
+    fn branch_if(
         &mut self,
         condition: bool,
         memory: &mut mmap::Nrom128MemoryMap,
@@ -572,8 +571,7 @@ impl Cpu {
 
     fn bit_abs(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mut mmap::MemoryMapPtrs) {
         let val = addressing::read_abs(self, memory, ptrs);
-        self.bit(val, OpcodeLen(3));
-        self.cycle_count += 4;
+        self.bit(val, OpcodeLen(0));
     }
 
     fn brk(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mut mmap::MemoryMapPtrs) {
@@ -677,8 +675,7 @@ impl Cpu {
         ptrs: &mut mmap::MemoryMapPtrs,
     ) {
         let val = addressing::read_abs(self, memory, ptrs);
-        self.compare_register_val(register, val, OpcodeLen(3));
-        self.cycle_count += 4;
+        self.compare_register_val(register, val, OpcodeLen(0));
     }
 
     fn compare_register_abs_indexed(
@@ -688,9 +685,8 @@ impl Cpu {
         memory: &mmap::Nrom128MemoryMap,
         ptrs: &mut mmap::MemoryMapPtrs,
     ) {
-        let (val, page_crossed) = addressing::read_abs_indexed(self, index, memory, ptrs);
-        self.compare_register_val(register, val, OpcodeLen(3));
-        self.cycle_count += 4 + page_crossed as u32;
+        let val = addressing::read_abs_indexed(self, index, memory, ptrs);
+        self.compare_register_val(register, val, OpcodeLen(0));
     }
 
     fn compare_register_indexed_indirect(
@@ -700,8 +696,7 @@ impl Cpu {
         ptrs: &mut mmap::MemoryMapPtrs,
     ) {
         let val = addressing::read_indexed_indirect(self, memory, ptrs);
-        self.compare_register_val(register, val, OpcodeLen(2));
-        self.cycle_count += 6;
+        self.compare_register_val(register, val, OpcodeLen(0));
     }
 
     fn compare_register_indirect_indexed(
@@ -710,9 +705,8 @@ impl Cpu {
         memory: &mmap::Nrom128MemoryMap,
         ptrs: &mut mmap::MemoryMapPtrs,
     ) {
-        let (val, page_crossed) = addressing::read_indirect_indexed(self, memory, ptrs);
-        self.compare_register_val(register, val, OpcodeLen(2));
-        self.cycle_count += 5 + page_crossed as u32;
+        let val = addressing::read_indirect_indexed(self, memory, ptrs);
+        self.compare_register_val(register, val, OpcodeLen(0));
     }
 
     fn decrement_val(&mut self, val: u8, pc_increment: OpcodeLen) -> u8 {
@@ -808,8 +802,7 @@ impl Cpu {
 
     fn eor_abs(&mut self, memory: &mmap::Nrom128MemoryMap, ptrs: &mut mmap::MemoryMapPtrs) {
         let val = addressing::read_abs(self, memory, ptrs);
-        self.eor(val, OpcodeLen(3));
-        self.cycle_count += 4;
+        self.eor(val, OpcodeLen(0));
     }
 
     fn eor_abs_indexed(
@@ -818,9 +811,8 @@ impl Cpu {
         memory: &mmap::Nrom128MemoryMap,
         ptrs: &mut mmap::MemoryMapPtrs,
     ) {
-        let (val, page_crossed) = addressing::read_abs_indexed(self, index, memory, ptrs);
-        self.eor(val, OpcodeLen(3));
-        self.cycle_count += 4 + page_crossed as u32;
+        let val = addressing::read_abs_indexed(self, index, memory, ptrs);
+        self.eor(val, OpcodeLen(0));
     }
 
     fn eor_indexed_indirect(
@@ -829,8 +821,7 @@ impl Cpu {
         ptrs: &mut mmap::MemoryMapPtrs,
     ) {
         let val = addressing::read_indexed_indirect(self, memory, ptrs);
-        self.eor(val, OpcodeLen(2));
-        self.cycle_count += 6;
+        self.eor(val, OpcodeLen(0));
     }
 
     fn eor_indirect_indexed(
@@ -838,9 +829,8 @@ impl Cpu {
         memory: &mmap::Nrom128MemoryMap,
         ptrs: &mut mmap::MemoryMapPtrs,
     ) {
-        let (val, page_crossed) = addressing::read_indirect_indexed(self, memory, ptrs);
-        self.eor(val, OpcodeLen(2));
-        self.cycle_count += 5 + page_crossed as u32;
+        let val = addressing::read_indirect_indexed(self, memory, ptrs);
+        self.eor(val, OpcodeLen(0));
     }
 
     fn increment_val(&mut self, val: u8, pc_increment: OpcodeLen) -> u8 {
@@ -971,8 +961,7 @@ impl Cpu {
 
     fn lda_abs(&mut self, memory: &mmap::Nrom128MemoryMap, ptrs: &mut mmap::MemoryMapPtrs) {
         let val = addressing::read_abs(self, memory, ptrs);
-        self.lda(val, OpcodeLen(3));
-        self.cycle_count += 4;
+        self.lda(val, OpcodeLen(0));
     }
 
     fn lda_abs_indexed(
@@ -981,9 +970,8 @@ impl Cpu {
         memory: &mmap::Nrom128MemoryMap,
         ptrs: &mut mmap::MemoryMapPtrs,
     ) {
-        let (val, page_crossed) = addressing::read_abs_indexed(self, index, memory, ptrs);
-        self.lda(val, OpcodeLen(3));
-        self.cycle_count += 4 + page_crossed as u32;
+        let val = addressing::read_abs_indexed(self, index, memory, ptrs);
+        self.lda(val, OpcodeLen(0));
     }
 
     fn lda_indexed_indirect(
@@ -992,8 +980,7 @@ impl Cpu {
         ptrs: &mut mmap::MemoryMapPtrs,
     ) {
         let val = addressing::read_indexed_indirect(self, memory, ptrs);
-        self.lda(val, OpcodeLen(2));
-        self.cycle_count += 6;
+        self.lda(val, OpcodeLen(0));
     }
 
     fn lda_indirect_indexed(
@@ -1001,9 +988,8 @@ impl Cpu {
         memory: &mmap::Nrom128MemoryMap,
         ptrs: &mut mmap::MemoryMapPtrs,
     ) {
-        let (val, page_crossed) = addressing::read_indirect_indexed(self, memory, ptrs);
-        self.lda(val, OpcodeLen(2));
-        self.cycle_count += 5 + page_crossed as u32;
+        let val = addressing::read_indirect_indexed(self, memory, ptrs);
+        self.lda(val, OpcodeLen(0));
     }
 
     fn ldx(&mut self, val: u8, pc_increment: OpcodeLen) {
@@ -1036,8 +1022,7 @@ impl Cpu {
 
     fn ldx_abs(&mut self, memory: &mmap::Nrom128MemoryMap, ptrs: &mut mmap::MemoryMapPtrs) {
         let val = addressing::read_abs(self, memory, ptrs);
-        self.ldx(val, OpcodeLen(3));
-        self.cycle_count += 4;
+        self.ldx(val, OpcodeLen(0));
     }
 
     fn ldx_abs_indexed(
@@ -1046,9 +1031,8 @@ impl Cpu {
         memory: &mmap::Nrom128MemoryMap,
         ptrs: &mut mmap::MemoryMapPtrs,
     ) {
-        let (val, page_crossed) = addressing::read_abs_indexed(self, index, memory, ptrs);
-        self.ldx(val, OpcodeLen(3));
-        self.cycle_count += 4 + page_crossed as u32;
+        let val = addressing::read_abs_indexed(self, index, memory, ptrs);
+        self.ldx(val, OpcodeLen(0));
     }
 
     fn ldy(&mut self, val: u8, pc_increment: OpcodeLen) {
@@ -1081,8 +1065,7 @@ impl Cpu {
 
     fn ldy_abs(&mut self, memory: &mmap::Nrom128MemoryMap, ptrs: &mut mmap::MemoryMapPtrs) {
         let val = addressing::read_abs(self, memory, ptrs);
-        self.ldy(val, OpcodeLen(3));
-        self.cycle_count += 4;
+        self.ldy(val, OpcodeLen(0));
     }
 
     fn ldy_abs_indexed(
@@ -1091,9 +1074,8 @@ impl Cpu {
         memory: &mmap::Nrom128MemoryMap,
         ptrs: &mut mmap::MemoryMapPtrs,
     ) {
-        let (val, page_crossed) = addressing::read_abs_indexed(self, index, memory, ptrs);
-        self.ldy(val, OpcodeLen(3));
-        self.cycle_count += 4 + page_crossed as u32;
+        let val = addressing::read_abs_indexed(self, index, memory, ptrs);
+        self.ldy(val, OpcodeLen(0));
     }
 
     fn lsr_(&mut self, val: u8, pc_increment: OpcodeLen) -> u8 {
@@ -1181,8 +1163,6 @@ impl Cpu {
         // read from address and ignore result (the redundant read
         // must be performed, as it may have side effects)
         let _ = addressing::read_abs(self, memory, ptrs);
-        self.pc += 3;
-        self.cycle_count += 4;
     }
 
     fn nop_abs_indexed(
@@ -1191,9 +1171,7 @@ impl Cpu {
         memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut mmap::MemoryMapPtrs,
     ) {
-        let (_, page_crossed) = addressing::read_abs_indexed(self, index, memory, ptrs);
-        self.pc += 3;
-        self.cycle_count += 4 + page_crossed as u32;
+        let _ = addressing::read_abs_indexed(self, index, memory, ptrs);
     }
 
     fn ora(&mut self, val: u8, pc_increment: OpcodeLen) {
@@ -1226,8 +1204,7 @@ impl Cpu {
 
     fn ora_abs(&mut self, memory: &mmap::Nrom128MemoryMap, ptrs: &mut mmap::MemoryMapPtrs) {
         let val = addressing::read_abs(self, memory, ptrs);
-        self.ora(val, OpcodeLen(3));
-        self.cycle_count += 4;
+        self.ora(val, OpcodeLen(0));
     }
 
     fn ora_abs_indexed(
@@ -1236,9 +1213,8 @@ impl Cpu {
         memory: &mmap::Nrom128MemoryMap,
         ptrs: &mut mmap::MemoryMapPtrs,
     ) {
-        let (val, page_crossed) = addressing::read_abs_indexed(self, index, memory, ptrs);
-        self.ora(val, OpcodeLen(3));
-        self.cycle_count += 4 + page_crossed as u32;
+        let val = addressing::read_abs_indexed(self, index, memory, ptrs);
+        self.ora(val, OpcodeLen(0));
     }
 
     fn ora_indexed_indirect(
@@ -1247,8 +1223,7 @@ impl Cpu {
         ptrs: &mut mmap::MemoryMapPtrs,
     ) {
         let val = addressing::read_indexed_indirect(self, memory, ptrs);
-        self.ora(val, OpcodeLen(2));
-        self.cycle_count += 6;
+        self.ora(val, OpcodeLen(0));
     }
 
     fn ora_indirect_indexed(
@@ -1256,9 +1231,8 @@ impl Cpu {
         memory: &mmap::Nrom128MemoryMap,
         ptrs: &mut mmap::MemoryMapPtrs,
     ) {
-        let (val, page_crossed) = addressing::read_indirect_indexed(self, memory, ptrs);
-        self.ora(val, OpcodeLen(2));
-        self.cycle_count += 5 + page_crossed as u32;
+        let val = addressing::read_indirect_indexed(self, memory, ptrs);
+        self.ora(val, OpcodeLen(0));
     }
 
     // used for pha, php instructions
@@ -1488,8 +1462,7 @@ impl Cpu {
 
     fn sbc_abs(&mut self, memory: &mmap::Nrom128MemoryMap, ptrs: &mut mmap::MemoryMapPtrs) {
         let val = addressing::read_abs(self, memory, ptrs);
-        self.sbc(val, OpcodeLen(3));
-        self.cycle_count += 4;
+        self.sbc(val, OpcodeLen(0));
     }
 
     fn sbc_abs_indexed(
@@ -1498,9 +1471,8 @@ impl Cpu {
         memory: &mmap::Nrom128MemoryMap,
         ptrs: &mut mmap::MemoryMapPtrs,
     ) {
-        let (val, page_crossed) = addressing::read_abs_indexed(self, index, memory, ptrs);
-        self.sbc(val, OpcodeLen(3));
-        self.cycle_count += 4 + page_crossed as u32;
+        let val = addressing::read_abs_indexed(self, index, memory, ptrs);
+        self.sbc(val, OpcodeLen(0));
     }
 
     fn sbc_indexed_indirect(
@@ -1509,8 +1481,7 @@ impl Cpu {
         ptrs: &mut mmap::MemoryMapPtrs,
     ) {
         let val = addressing::read_indexed_indirect(self, memory, ptrs);
-        self.sbc(val, OpcodeLen(2));
-        self.cycle_count += 6;
+        self.sbc(val, OpcodeLen(0));
     }
 
     fn sbc_indirect_indexed(
@@ -1518,9 +1489,8 @@ impl Cpu {
         memory: &mmap::Nrom128MemoryMap,
         ptrs: &mut mmap::MemoryMapPtrs,
     ) {
-        let (val, page_crossed) = addressing::read_indirect_indexed(self, memory, ptrs);
-        self.sbc(val, OpcodeLen(2));
-        self.cycle_count += 5 + page_crossed as u32;
+        let val = addressing::read_indirect_indexed(self, memory, ptrs);
+        self.sbc(val, OpcodeLen(0));
     }
 
     fn sec(&mut self) {
