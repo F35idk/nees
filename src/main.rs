@@ -49,7 +49,7 @@ fn main() {
 
         loop {
             cpu.log_register_values();
-            cpu.exec_instruction_2(&mut memory, ptrs);
+            cpu.exec_instruction(&mut memory, ptrs);
         }
     }
 }

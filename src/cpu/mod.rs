@@ -28,7 +28,7 @@ impl Cpu {
         }
     }
 
-    pub fn exec_instruction_2(
+    pub fn exec_instruction(
         &mut self,
         memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut mmap::MemoryMapPtrs,
@@ -1679,8 +1679,7 @@ impl Cpu {
         memory.write_cpu(ptrs, self.pc + 2, opc[2]);
 
         let prev_cycles = self.cycle_count;
-        // self.exec_instruction(memory, ptrs)
-        self.exec_instruction_2(memory, ptrs);
+        self.exec_instruction(memory, ptrs);
         (self.cycle_count - prev_cycles) as u8
     }
 
