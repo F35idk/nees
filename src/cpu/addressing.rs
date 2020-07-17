@@ -4,12 +4,30 @@ use super::Cpu;
 
 pub use abs::*;
 pub use abs_indexed::*;
+pub use imm::*;
 pub use indexed_indirect::*;
 pub use indirect_indexed::*;
 pub use zero_page::*;
 pub use zero_page_indexed::*;
 
 // TODO: implement dummy reads and writes
+
+// immediate addressing
+mod imm {
+    use super::*;
+
+    pub fn read_imm(
+        cpu: &mut Cpu,
+        memory: &mmap::Nrom128MemoryMap,
+        ptrs: &mut mmap::MemoryMapPtrs,
+    ) -> u8 {
+        let val = cpu.fetch_operand_byte(memory, ptrs);
+        cpu.pc += 2;
+        cpu.cycle_count += 2;
+
+        val
+    }
+}
 
 // absolute addressing
 mod abs {

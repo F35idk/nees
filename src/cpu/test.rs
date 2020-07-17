@@ -9,21 +9,21 @@ fn test_adc() {
     let ref mut apu = apu::Apu {};
 
     cpu.p = 0x6e;
-    cpu.adc(0x69, OpcodeLen(2));
+    cpu.adc(0x69);
 
     assert_eq!(cpu.a, 0x69);
     assert_eq!(cpu.p, 0x2c);
 
     cpu.a = 1;
     cpu.p = 0x6d;
-    cpu.adc(0x69, OpcodeLen(2));
+    cpu.adc(0x69);
 
     assert_eq!(cpu.a, 0x6b);
     assert_eq!(cpu.p, 0x2c);
 
     cpu.a = 0x7f;
     cpu.p = 0x25;
-    cpu.adc(0x80, OpcodeLen(2));
+    cpu.adc(0x80);
 
     assert_eq!(cpu.a, 0);
     assert_eq!(cpu.p, 0x27);
@@ -73,7 +73,7 @@ fn test_and() {
 
     cpu.a = 0x55;
     cpu.p = 0;
-    let _ = cpu.and(0xaa, OpcodeLen(2));
+    let _ = cpu.and(0xaa);
 
     // assert_eq!(cyc, 2);
     assert_eq!(cpu.a, 0);
@@ -82,11 +82,11 @@ fn test_and() {
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut ptrs = mmap::MemoryMapPtrs { ppu, apu };
     memory.write_cpu(ptrs, 0x80u16, 0);
-    memory.write_cpu(ptrs, 0x81u16, 0);
+    memory.write_cpu(ptrs, 0x81u16, 02);
     memory.write_cpu(ptrs, 0x200u16, 0xaa);
     cpu.a = 0x55;
     cpu.p = 0;
-    // AND ($80, X)
+    // AND ($80, X) @ 80 = 0x200 = 0xaa
     let cyc = cpu.debug_exec_opcode([0x21, 0x80, 00], memory, ptrs);
 
     assert_eq!(cyc, 6);
@@ -186,11 +186,9 @@ fn test_bit() {
 
 fn test_cmp() {
     let mut cpu = Cpu::default();
-    let ref mut ppu = ppu::Ppu {};
-    let ref mut apu = apu::Apu {};
     cpu.a = 0x40;
     cpu.p = 0x25;
-    let _ = cpu.compare_register_val(cpu.a, 0x41, OpcodeLen(2));
+    let _ = cpu.compare_register_val(cpu.a, 0x41);
 
     // assert_eq!(cyc, 2);
     assert_eq!(cpu.p, 0xa4);
@@ -489,28 +487,28 @@ fn test_sbc() {
 
     cpu.a = 0x40;
     cpu.p = 0x65;
-    cpu.sbc(0x40, OpcodeLen(2));
+    cpu.sbc(0x40);
 
     assert_eq!(cpu.a, 0);
     assert_eq!(cpu.p, 0x27);
 
     cpu.a = 0x40;
     cpu.p = 0x25;
-    cpu.sbc(0x3f, OpcodeLen(2));
+    cpu.sbc(0x3f);
 
     assert_eq!(cpu.a, 1);
     assert_eq!(cpu.p, 0x25);
 
     cpu.a = 0x40;
     cpu.p = 0xe5;
-    cpu.sbc(0x41, OpcodeLen(2));
+    cpu.sbc(0x41);
 
     assert_eq!(cpu.a, 0xff);
     assert_eq!(cpu.p, 0xa4);
 
     cpu.a = 0x81;
     cpu.p = 0xe5;
-    cpu.sbc(0x7f, OpcodeLen(2));
+    cpu.sbc(0x7f);
 
     assert_eq!(cpu.a, 2);
     assert_eq!(cpu.p, 0x65);
