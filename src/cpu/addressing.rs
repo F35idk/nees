@@ -57,14 +57,12 @@ mod abs {
 
     // fetches the absolute address at pc+1, performs 'operation' on the
     // value at the address and stores it back
-    pub fn read_write_abs<F>(
+    pub fn read_write_abs(
         cpu: &mut Cpu,
         memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut mmap::MemoryMapPtrs,
-        mut operation: F,
-    ) where
-        F: FnMut(&mut Cpu, u8) -> u8,
-    {
+        operation: fn(&mut Cpu, u8) -> u8,
+    ) {
         let addr = cpu.fetch_operand_u16(memory, ptrs);
         let val = memory.read_cpu(ptrs, addr);
 
@@ -112,15 +110,13 @@ mod abs_indexed {
         memory.read_cpu(ptrs, addr_indexed)
     }
 
-    pub fn read_write_abs_indexed<F>(
+    pub fn read_write_abs_indexed(
         cpu: &mut Cpu,
         index: u8,
         memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut mmap::MemoryMapPtrs,
-        mut operation: F,
-    ) where
-        F: FnMut(&mut Cpu, u8) -> u8,
-    {
+        operation: fn(&mut Cpu, u8) -> u8,
+    ) {
         let addr = cpu.fetch_operand_u16(memory, ptrs);
         let addr_indexed = addr.wrapping_add(index as u16);
         // TODO: dummy reads (read from carry-less address first, etc.)
@@ -169,14 +165,12 @@ mod zero_page {
         memory.write_cpu(ptrs, addr, val);
     }
 
-    pub fn read_write_zero_page<F>(
+    pub fn read_write_zero_page(
         cpu: &mut Cpu,
         memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut mmap::MemoryMapPtrs,
-        mut operation: F,
-    ) where
-        F: FnMut(&mut Cpu, u8) -> u8,
-    {
+        operation: fn(&mut Cpu, u8) -> u8,
+    ) {
         let addr = cpu.fetch_operand_byte(memory, ptrs);
         let val = memory.read_cpu(ptrs, addr);
 
@@ -220,15 +214,13 @@ mod zero_page_indexed {
         memory.read_cpu(ptrs, addr_indexed)
     }
 
-    pub fn read_write_zero_page_indexed<F>(
+    pub fn read_write_zero_page_indexed(
         cpu: &mut Cpu,
         index: u8,
         memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut mmap::MemoryMapPtrs,
-        mut operation: F,
-    ) where
-        F: FnMut(&mut Cpu, u8) -> u8,
-    {
+        operation: fn(&mut Cpu, u8) -> u8,
+    ) {
         let addr = cpu.fetch_operand_byte(memory, ptrs);
         let addr_indexed = addr.wrapping_add(index);
 
