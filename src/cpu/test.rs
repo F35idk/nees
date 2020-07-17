@@ -1,6 +1,5 @@
 use super::super::{apu, memory_map as mmap, ppu};
 use super::Cpu;
-use super::OpcodeLen;
 use mmap::MemoryMap;
 
 fn test_adc() {

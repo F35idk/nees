@@ -24,7 +24,6 @@ mod imm {
         let val = cpu.fetch_operand_byte(memory, ptrs);
         cpu.pc += 2;
         cpu.cycle_count += 2;
-
         val
     }
 }
@@ -41,7 +40,6 @@ mod abs {
         let addr = cpu.fetch_operand_u16(memory, ptrs);
         cpu.pc += 3;
         cpu.cycle_count += 4;
-
         memory.read_cpu(ptrs, addr)
     }
 
@@ -52,6 +50,8 @@ mod abs {
         ptrs: &mut mmap::MemoryMapPtrs,
     ) {
         let addr = cpu.fetch_operand_u16(memory, ptrs);
+        cpu.pc += 3;
+        cpu.cycle_count += 4;
         memory.write_cpu(ptrs, addr, val);
     }
 
@@ -67,8 +67,11 @@ mod abs {
     {
         let addr = cpu.fetch_operand_u16(memory, ptrs);
         let val = memory.read_cpu(ptrs, addr);
-        let res = operation(cpu, val);
 
+        cpu.pc += 3;
+        cpu.cycle_count += 6;
+
+        let res = operation(cpu, val);
         memory.write_cpu(ptrs, addr, res);
     }
 }
@@ -83,11 +86,15 @@ mod abs_indexed {
         index: u8,
         memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut mmap::MemoryMapPtrs,
-    ) -> bool {
-        let addr_bytes = cpu.fetch_operand_bytes(memory, ptrs);
-        let (addr_indexed, carry) = self::calc_abs_indexed(addr_bytes, index);
-        memory.write_cpu(ptrs, addr_indexed, val); // FIXME: dummy reads/writes
-        carry // whether a page boundary was crossed
+    ) {
+        let addr = cpu.fetch_operand_u16(memory, ptrs);
+        let addr_indexed = addr.wrapping_add(index as u16);
+
+        cpu.pc += 3;
+        cpu.cycle_count += 5;
+
+        // FIXME: dummy writes
+        memory.write_cpu(ptrs, addr_indexed, val);
     }
 
     pub fn read_abs_indexed(
@@ -112,15 +119,17 @@ mod abs_indexed {
         ptrs: &mut mmap::MemoryMapPtrs,
         mut operation: F,
     ) where
-        // NOTE: 'operation' takes a bool indicating if a page boundary was crossed
-        F: FnMut(&mut Cpu, u8, bool) -> u8,
+        F: FnMut(&mut Cpu, u8) -> u8,
     {
-        let addr_bytes = cpu.fetch_operand_bytes(memory, ptrs);
-        let (addr_indexed, carry) = self::calc_abs_indexed(addr_bytes, index);
-
+        let addr = cpu.fetch_operand_u16(memory, ptrs);
+        let addr_indexed = addr.wrapping_add(index as u16);
+        // TODO: dummy reads (read from carry-less address first, etc.)
         let val = memory.read_cpu(ptrs, addr_indexed);
-        let res = operation(cpu, val, carry);
 
+        cpu.pc += 3;
+        cpu.cycle_count += 7;
+
+        let res = operation(cpu, val);
         memory.write_cpu(ptrs, addr_indexed, res);
     }
 
@@ -155,6 +164,8 @@ mod zero_page {
         ptrs: &mut mmap::MemoryMapPtrs,
     ) {
         let addr = cpu.fetch_operand_byte(memory, ptrs);
+        cpu.pc += 2;
+        cpu.cycle_count += 3;
         memory.write_cpu(ptrs, addr, val);
     }
 
@@ -168,6 +179,9 @@ mod zero_page {
     {
         let addr = cpu.fetch_operand_byte(memory, ptrs);
         let val = memory.read_cpu(ptrs, addr);
+
+        cpu.pc += 2;
+        cpu.cycle_count += 5;
 
         let res = operation(cpu, val);
         memory.write_cpu(ptrs, addr, res);
@@ -186,6 +200,8 @@ mod zero_page_indexed {
     ) {
         let addr = cpu.fetch_operand_byte(memory, ptrs);
         let addr_indexed = addr.wrapping_add(index);
+        cpu.pc += 2;
+        cpu.cycle_count += 4;
         memory.write_cpu(ptrs, addr_indexed, val);
     }
 
@@ -215,6 +231,9 @@ mod zero_page_indexed {
     {
         let addr = cpu.fetch_operand_byte(memory, ptrs);
         let addr_indexed = addr.wrapping_add(index);
+
+        cpu.pc += 2;
+        cpu.cycle_count += 6;
 
         let val = memory.read_cpu(ptrs, addr_indexed);
         let res = operation(cpu, val);
@@ -248,24 +267,11 @@ mod indexed_indirect {
     ) {
         let addr = cpu.fetch_operand_byte(memory, ptrs);
         let final_addr = self::calc_indexed_indirect(cpu, addr, memory, ptrs);
+
+        cpu.pc += 2;
+        cpu.cycle_count += 6;
+
         memory.write_cpu(ptrs, final_addr, val);
-    }
-
-    pub fn read_write_indexed_indirect<F>(
-        cpu: &mut Cpu,
-        memory: &mut mmap::Nrom128MemoryMap,
-        ptrs: &mut mmap::MemoryMapPtrs,
-        mut operation: F,
-    ) where
-        F: FnMut(&mut Cpu, u8) -> u8,
-    {
-        let addr = cpu.fetch_operand_byte(memory, ptrs);
-        let final_addr = self::calc_indexed_indirect(cpu, addr, memory, ptrs);
-
-        let val = memory.read_cpu(ptrs, final_addr);
-        let res = operation(cpu, val);
-
-        memory.write_cpu(ptrs, final_addr, res);
     }
 
     fn calc_indexed_indirect(
@@ -304,28 +310,16 @@ mod indirect_indexed {
         val: u8,
         memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut mmap::MemoryMapPtrs,
-    ) -> bool {
+    ) {
         let addr = cpu.fetch_operand_byte(memory, ptrs);
-        let (final_addr, page_crossed) = self::calc_indirect_indexed(cpu, addr, memory, ptrs);
+        // OPTIMIZE: don't use 'calc_indirect_indexed()', since carry doesn't matter
+        let (final_addr, _) = self::calc_indirect_indexed(cpu, addr, memory, ptrs);
+        // TODO: dummy writes
+
+        cpu.pc += 2;
+        cpu.cycle_count += 6;
+
         memory.write_cpu(ptrs, final_addr, val);
-        page_crossed
-    }
-
-    pub fn read_write_indirect_indexed<F>(
-        cpu: &mut Cpu,
-        memory: &mut mmap::Nrom128MemoryMap,
-        ptrs: &mut mmap::MemoryMapPtrs,
-        mut operation: F,
-    ) where
-        F: FnMut(&mut Cpu, u8, bool) -> u8,
-    {
-        let addr = cpu.fetch_operand_byte(memory, ptrs);
-        let (final_addr, page_crossed) = self::calc_indirect_indexed(cpu, addr, memory, ptrs);
-
-        let val = memory.read_cpu(ptrs, final_addr);
-        let res = operation(cpu, val, page_crossed);
-
-        memory.write_cpu(ptrs, final_addr, res);
     }
 
     fn calc_indirect_indexed(
