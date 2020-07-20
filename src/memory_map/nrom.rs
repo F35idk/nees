@@ -261,7 +261,7 @@ fn test_calc_addr_128() {
     }
 
     let mut memory = Nrom128MemoryMap::new();
-    let ref mut ppu = ppu::Ppu {};
+    let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
     let ref mut ptrs = super::MemoryMapPtrs { ppu, apu };
 
@@ -296,7 +296,7 @@ fn test_calc_addr_128() {
     // prg rom writes
     memory.write_cpu(ptrs, 0xcfffu16, 0xff);
     // should not take effect
-    assert!(memory.read_cpu(ptrs, 0xcfffu16) != 0xff);
+    assert_ne!(memory.read_cpu(ptrs, 0xcfffu16), 0xff);
 }
 
 #[test]

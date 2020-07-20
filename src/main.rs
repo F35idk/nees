@@ -37,14 +37,13 @@ fn main() {
     }
 
     let mut cpu = cpu::Cpu::new_nestest();
-    cpu.cycle_count = 7; // for whatever reason
     let mut memory = mmap::Nrom128MemoryMap::new();
-    let ref mut ppu = ppu::Ppu {};
+    let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
     let ref mut ptrs = mmap::MemoryMapPtrs { ppu, apu };
 
     if true {
-        let prg_size = 16384 * (parse::get_prg_size(&rom) as usize);
+        let prg_size = 0x4000 * (parse::get_prg_size(&rom) as usize);
         memory.load_prg_rom(&rom[0x10..=prg_size + 0xf]);
 
         loop {

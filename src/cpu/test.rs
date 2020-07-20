@@ -4,7 +4,7 @@ use mmap::MemoryMap;
 
 fn test_adc() {
     let mut cpu = Cpu::default();
-    let ref mut ppu = ppu::Ppu {};
+    let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
 
     cpu.p = 0x6e;
@@ -67,7 +67,7 @@ fn test_adc() {
 
 fn test_and() {
     let mut cpu = Cpu::default();
-    let ref mut ppu = ppu::Ppu {};
+    let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
 
     cpu.a = 0x55;
@@ -95,7 +95,7 @@ fn test_and() {
 
 fn test_asl() {
     let mut cpu = Cpu::default();
-    let ref mut ppu = ppu::Ppu {};
+    let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut ptrs = mmap::MemoryMapPtrs { ppu, apu };
@@ -132,7 +132,7 @@ fn test_asl() {
 
 fn test_branch_instrs() {
     let mut cpu = Cpu::default();
-    let ref mut ppu = ppu::Ppu {};
+    let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut ptrs = mmap::MemoryMapPtrs { ppu, apu };
@@ -167,7 +167,7 @@ fn test_branch_instrs() {
 
 fn test_bit() {
     let mut cpu = Cpu::default();
-    let ref mut ppu = ppu::Ppu {};
+    let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut ptrs = mmap::MemoryMapPtrs { ppu, apu };
@@ -195,7 +195,7 @@ fn test_cmp() {
 
 fn test_dec_inc() {
     let mut cpu = Cpu::default();
-    let ref mut ppu = ppu::Ppu {};
+    let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut ptrs = mmap::MemoryMapPtrs { ppu, apu };
@@ -212,7 +212,7 @@ fn test_dec_inc() {
 
 fn test_eor() {
     let mut cpu = Cpu::default();
-    let ref mut ppu = ppu::Ppu {};
+    let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut ptrs = mmap::MemoryMapPtrs { ppu, apu };
@@ -242,7 +242,7 @@ fn test_eor() {
 
 fn test_jmp() {
     let mut cpu = Cpu::default();
-    let ref mut ppu = ppu::Ppu {};
+    let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut ptrs = mmap::MemoryMapPtrs { ppu, apu };
@@ -263,7 +263,7 @@ fn test_jmp() {
 
 fn test_jsr() {
     let mut cpu = Cpu::default();
-    let ref mut ppu = ppu::Ppu {};
+    let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut ptrs = mmap::MemoryMapPtrs { ppu, apu };
@@ -316,7 +316,7 @@ fn test_jsr() {
 
 fn test_jsr_2() {
     let mut cpu = Cpu::default();
-    let ref mut ppu = ppu::Ppu {};
+    let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut ptrs = mmap::MemoryMapPtrs { ppu, apu };
@@ -342,7 +342,7 @@ fn test_jsr_2() {
 
 fn test_ld() {
     let mut cpu = Cpu::default();
-    let ref mut ppu = ppu::Ppu {};
+    let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut ptrs = mmap::MemoryMapPtrs { ppu, apu };
@@ -380,7 +380,7 @@ fn test_ora() {
 
 fn test_push_pull() {
     let mut cpu = Cpu::default();
-    let ref mut ppu = ppu::Ppu {};
+    let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut ptrs = mmap::MemoryMapPtrs { ppu, apu };
@@ -414,7 +414,7 @@ fn test_push_pull() {
 
 fn test_rol_ror() {
     let mut cpu = Cpu::default();
-    let ref mut ppu = ppu::Ppu {};
+    let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut ptrs = mmap::MemoryMapPtrs { ppu, apu };
@@ -454,7 +454,7 @@ fn test_rti() {
 
 fn test_rts() {
     let mut cpu = Cpu::default();
-    let ref mut ppu = ppu::Ppu {};
+    let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut ptrs = mmap::MemoryMapPtrs { ppu, apu };
