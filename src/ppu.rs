@@ -5,7 +5,7 @@ use mmap::MemoryMap;
 
 pub struct Ppu {
     // object attribute memory
-    oam: [OamEntry; 64],
+    oam: Oam,
     // registers
     ppuctrl: u8,
     ppumask: u8,
@@ -29,6 +29,9 @@ pub struct Ppu {
     // address of the current tile to be fetched and drawn. points
     // to a byte in one of the nametables in vram. referred to
     // as 'v' in the nesdev.com 'ppu scrolling' article
+    // NOTE: instead of the fine y scroll being stored in the upper
+    // 3 bits of this value (as is the case on the actual ppu), they
+    // are stored in 'fine_xy_scroll'
     current_vram_addr: u16,
     // temporary address, same as above but minus 0x2000 and
     // doesn't get incremented while drawing. this register is
@@ -38,11 +41,18 @@ pub struct Ppu {
     temp_vram_addr: u16,
     // low 3 bits consist of fine x scroll value, high 3 bits
     // consist of fine y scroll
-    // FIXME: use high 4 and low 4 for carry bits as well??
     fine_xy_scroll: u8,
+    // TODO: add two separate, whole 8-bit fields to hold the entire
+    // x and y coordinates. should simplify a lot of calculations
+}
+
+union Oam {
+    entries: [OamEntry; 64],
+    bytes: [u8; 64 * 4],
 }
 
 #[derive(Copy, Clone, Default)]
+#[repr(C)]
 struct OamEntry {
     y_coord: u8,
     x_coord: u8,
@@ -56,7 +66,9 @@ struct OamEntry {
 impl Default for Ppu {
     fn default() -> Self {
         Ppu {
-            oam: [OamEntry::default(); 64],
+            oam: Oam {
+                entries: [OamEntry::default(); 64],
+            },
             ppuctrl: 0,
             ppumask: 0,
             ppustatus: 0,
@@ -74,7 +86,7 @@ impl Default for Ppu {
 
 impl Ppu {
     // used for reading the registers located in the cpu memory map at 0x2000-0x2007
-    pub fn read_register_by_index(&mut self, index: u8) -> u8 {
+    pub fn read_register_by_index(&mut self, index: u8, memory: &mmap::Nrom128MemoryMap) -> u8 {
         match index {
             // ppuctrl
             0 => 0,
@@ -87,14 +99,31 @@ impl Ppu {
                 self.ppustatus
             }
             // oamaddr
-            3 => self.oamaddr,
+            3 => 0,
             // oamdata
-            4 => self.oamdata, // FIXME:NOTE:TODO: what to read from ppudata???
+            // TODO: special values when rendering
+            4 => unsafe { *self.oam.bytes.get_unchecked(self.oamaddr as usize) },
             // ppuscroll / ppuaddr
-            5 | 6 => 0,
+            5 | 6 => 0, // FIXME: should these reset the high bits toggle as well??
             // ppudata
-            7 => self.ppudata,
-            // FIXME: should ppuscroll and ppuaddr reads reset the high bits toggle as well??
+            7 => {
+                // FIXME::::::::::::: post-fetch read buffer thing
+                let val = memory.read_ppu(self.current_vram_addr);
+
+                // increment 'current_vram_addr'
+                if !self.is_rendering() {
+                    // if not currently rendering, increment normally
+                    self.increment_vram_addr();
+                } else {
+                    // if currently rendering, increment the bits of the address
+                    // corresponding to the y position and coarse x position (this
+                    // is afaik unintended behavior)
+                    self.increment_vram_addr_coarse_x();
+                    self.increment_vram_addr_y();
+                }
+
+                val
+            }
             _ => 0,
         }
     }
@@ -123,7 +152,12 @@ impl Ppu {
             3 => self.oamaddr = val,
             // oamdata
             4 => {
-                // TODO: if not vblank, ignore attempts to write to oamdata
+                if !self.is_rendering() {
+                    // ignore attemps to write when rendering
+                    return;
+                }
+
+                // TODO: implement
             }
             // ppuscroll
             5 => {
@@ -166,66 +200,69 @@ impl Ppu {
                 self.ppudata = val;
                 memory.write_ppu(self.current_vram_addr, val);
 
-                if self.is_vblank() || (!self.is_sprites_enable() && !self.is_background_enable()) {
-                    // if not currently rendering, increment normally
-                    let increment = if self.get_vram_addr_increment() {
-                        32
-                    } else {
-                        1
-                    };
-                    self.current_vram_addr = self
-                        .current_vram_addr //
-                        .wrapping_add(increment);
+                // increment 'current_vram_addr' (same as when reading ppudata)
+                if !self.is_rendering() {
+                    self.increment_vram_addr();
                 } else {
-                    // if currently rendering, increment the bits of the address
-                    // corresponding to the y position and coarse x position (this
-                    // is afaik unintended behavior)
-
-                    // increment coarse x
-                    if (self.current_vram_addr & 0b11111) == 0b11111 {
-                        // if coarse x component of 'current_vram_addr' is the highest
-                        // possible value it can be (31), clear all coarse x bits and
-                        // overflow into bit 10 (move to next nametable horizontally)
-                        self.current_vram_addr &= !0b11111;
-                        self.current_vram_addr ^= 0b10000000000;
-                    } else {
-                        // if not highest value, increment normally
-                        self.current_vram_addr += 1;
-                    }
-
-                    // increment fine y bits
-                    let (res, carry) = self.fine_xy_scroll.overflowing_add(1 << 5);
-                    self.fine_xy_scroll = res;
-
-                    if carry {
-                        if (self.current_vram_addr & 0b1111100000) == 29 << 5 {
-                            // if carry from fine y bits = 1 and coarse y bits
-                            // = 29 (there are 29 rows of tiles in a frame),
-                            // clear all coarse y bits and overflow into bit
-                            // 11 to move to next nametable vertically
-                            self.current_vram_addr &= !0b1111100000;
-                            self.current_vram_addr ^= 0b100000000000;
-                        } else if (self.current_vram_addr & 0b1111100000) == 0b1111100000 {
-                            // if coarse y = maximum, wrap the value without
-                            // overflowing into bit 11 and switching nametables
-                            self.current_vram_addr &= !0b111110000;
-                        } else {
-                            self.current_vram_addr += 1;
-                        }
-                    }
+                    self.increment_vram_addr_coarse_x();
+                    self.increment_vram_addr_y();
                 }
             }
             _ => (),
         }
     }
 
-    fn increment_vram_addr() {
-        // NOTE: this has to be able to be done in steps
+    // increments 'current_vram_addr' by 1 or 32, depending on the third bit of ppuctrl
+    fn increment_vram_addr(&mut self) {
+        let increment = if self.get_vram_addr_increment() {
+            32
+        } else {
+            1
+        };
+        self.current_vram_addr = self.current_vram_addr.wrapping_add(increment);
+    }
+
+    // increments the fine y scroll bits in 'fine_xy_scroll', potentially
+    // overflowing into the coarse y scroll bits in 'current_vram_addr'
+    fn increment_vram_addr_y(&mut self) {
+        // increment fine y bits
+        let (res, carry) = self.fine_xy_scroll.overflowing_add(1 << 5);
+        self.fine_xy_scroll = res;
+
+        if carry {
+            if (self.current_vram_addr & 0b1111100000) == 29 << 5 {
+                // if carry from fine y bits = 1 and coarse y bits
+                // = 29 (there are 29 rows of tiles in a frame),
+                // clear all coarse y bits and overflow into bit
+                // 11 to move to next nametable vertically
+                self.current_vram_addr &= !0b1111100000;
+                self.current_vram_addr ^= 0b100000000000;
+            } else if (self.current_vram_addr & 0b1111100000) == 0b1111100000 {
+                // if coarse y = maximum, wrap the value without overflowing into
+                // bit 11 and switching nametables (unintended behavior afaik)
+                self.current_vram_addr &= !0b111110000;
+            } else {
+                self.current_vram_addr += 1;
+            }
+        }
+    }
+
+    fn increment_vram_addr_coarse_x(&mut self) {
+        if (self.current_vram_addr & 0b11111) == 0b11111 {
+            // if the coarse x component of 'current_vram_addr' is the highest
+            // value it can be (31), clear all coarse x bits and overflow
+            // into bit 10 (move to next nametable horizontally)
+            self.current_vram_addr &= !0b11111;
+            self.current_vram_addr ^= 0b10000000000;
+        } else {
+            // if not highest value, increment normally
+            self.current_vram_addr += 1;
+        }
     }
 
     pub fn render(&mut self) {
         // TODO: ..
-        // calculate nametable fetch addr ('v') (base nametable addr and 'temp_vram_addr register')
+        // calculate nametable fetch addr ('v') (base nametable addr and 'temp_vram_addr' register)
         // increment fetch addr x for each tile
         // increment fetch addr y for each scanline
         // fetch from addr
@@ -335,6 +372,10 @@ impl Ppu {
     fn set_vblank(&mut self, vblank: bool) {
         self.ppustatus |= (vblank as u8) << 7;
     }
+
+    fn is_rendering(&self) -> bool {
+        !self.is_vblank() && (self.is_sprites_enable() || self.is_background_enable())
+    }
 }
 
 #[test]
@@ -346,7 +387,7 @@ fn test_registers() {
     assert_eq!(ppu.get_base_nametable_addr(), 0x2c00);
 
     ppu.ppudata = 0xff;
-    assert_eq!(ppu.read_register_by_index(7), 0xff);
+    assert_eq!(ppu.read_register_by_index(7, memory), 0xff);
 
     ppu.ppuctrl = 0b00001000;
     assert_eq!(ppu.get_8x8_sprite_pattern_table_addr(), 0x1000);
@@ -531,4 +572,9 @@ fn test_write_2006() {
     assert_eq!(ptrs.ppu.high_bits_toggle, false);
     assert_eq!(ptrs.ppu.temp_vram_addr, 0b111101_11110000);
     assert_eq!(ptrs.ppu.temp_vram_addr, ptrs.ppu.current_vram_addr);
+}
+
+#[test]
+fn test_increment_xy() {
+    // TODO: implement
 }
