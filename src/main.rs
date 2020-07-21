@@ -7,6 +7,7 @@ mod parse;
 mod ppu;
 
 use memory_map as mmap;
+use mmap::MemoryMap;
 
 fn main() {
     let rom = std::fs::read("nestest.nes").unwrap();
@@ -36,13 +37,13 @@ fn main() {
         _ => (),
     }
 
-    let mut cpu = cpu::Cpu::new_nestest();
-    let mut memory = mmap::Nrom128MemoryMap::new();
-    let ref mut ppu = ppu::Ppu::default();
-    let ref mut apu = apu::Apu {};
-    let ref mut ptrs = mmap::MemoryMapPtrs { ppu, apu };
+    if false {
+        let mut cpu = cpu::Cpu::new_nestest();
+        let mut memory = mmap::Nrom128MemoryMap::new();
+        let ref mut ppu = ppu::Ppu::default();
+        let ref mut apu = apu::Apu {};
+        let ref mut ptrs = mmap::MemoryMapPtrs { ppu, apu };
 
-    if true {
         let prg_size = 0x4000 * (parse::get_prg_size(&rom) as usize);
         memory.load_prg_rom(&rom[0x10..=prg_size + 0xf]);
 
@@ -50,5 +51,24 @@ fn main() {
             cpu.log_register_values();
             cpu.exec_instruction(&mut memory, ptrs);
         }
+    }
+
+    let mut cpu = cpu::Cpu::default();
+    let ref mut memory = mmap::Nrom128MemoryMap::new();
+    let ref mut ppu = ppu::Ppu::default();
+    let ref mut apu = apu::Apu {};
+    let ref mut ptrs = mmap::MemoryMapPtrs { ppu, apu };
+
+    // LDA #ff
+    memory.write_cpu(ptrs, 0u16, 0xa9);
+    memory.write_cpu(ptrs, 1u16, 0xff);
+    // STA $2000
+    memory.write_cpu(ptrs, 2u16, 0x8d);
+    memory.write_cpu(ptrs, 3u16, 00);
+    memory.write_cpu(ptrs, 4u16, 0x20);
+
+    cpu.pc = 0;
+    for _ in 0..2 {
+        cpu.exec_instruction(memory, ptrs);
     }
 }
