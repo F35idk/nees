@@ -461,10 +461,10 @@ fn test_rts() {
 
     cpu.pc = 0x0401;
     cpu.sp = 0xf0;
-    // JSR $2013
-    let cyc_1 = cpu.debug_exec_opcode([0x20, 0x13, 0x20], memory, ptrs);
+    // JSR $182e
+    let cyc_1 = cpu.debug_exec_opcode([0x20, 0x2e, 0x18], memory, ptrs);
     assert_eq!(cyc_1, 6);
-    assert_eq!(cpu.pc, 0x2013);
+    assert_eq!(cpu.pc, 0x182e);
     assert_eq!(
         memory.read_cpu(ptrs, 0x100 + cpu.sp.wrapping_add(1) as u16),
         01 + 2
