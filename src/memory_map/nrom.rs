@@ -67,10 +67,9 @@ impl MemoryMap for Nrom128MemoryMap {
 
         // address lines a13-a15 = 001 (0x2000-0x3fff) => ppu registers
         if (addr >> 13) == 1 {
-            // set to 0x5800-0x5807
+            // ignore all but low 3 bits
             addr &= 0b111;
-
-            return ptrs.ppu.read_register_by_index(addr as u8);
+            return ptrs.ppu.read_register_by_index(addr as u8, self);
         }
 
         // address lines a13-a15 = 011 (0x6000-0x7fff) => prg ram

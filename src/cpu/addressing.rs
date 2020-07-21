@@ -2,6 +2,8 @@ use super::super::memory_map as mmap;
 use super::super::memory_map::MemoryMap;
 use super::Cpu;
 
+// submodules used for improved readability inside of 'addressing'
+// (everything is re-exported, so these are not visible to the outside)
 pub use abs::*;
 pub use abs_indexed::*;
 pub use imm::*;
@@ -52,6 +54,7 @@ mod abs {
         let addr = cpu.fetch_operand_u16(memory, ptrs);
         cpu.pc += 3;
         cpu.cycle_count += 4;
+
         memory.write_cpu(ptrs, addr, val);
     }
 
