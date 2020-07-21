@@ -1,3 +1,5 @@
+use super::apu;
+use super::cpu;
 use super::memory_map as mmap;
 use mmap::MemoryMap;
 
@@ -72,18 +74,25 @@ impl Default for Ppu {
 
 impl Ppu {
     // used for reading the registers located in the cpu memory map at 0x2000-0x2007
-    // TODO: unsafe version with no bounds check
     pub fn read_register_by_index(&mut self, index: u8) -> u8 {
         match index {
+            // ppuctrl
+            0 => 0,
+            // ppumask
             1 => self.ppumask,
+            // ppustatus
             2 => {
                 // clear high bits toggle
                 self.high_bits_toggle = false;
                 self.ppustatus
             }
+            // oamaddr
             3 => self.oamaddr,
-            4 => self.oamdata,
-            // FIXME:NOTE:TODO: what to read from ppudata???
+            // oamdata
+            4 => self.oamdata, // FIXME:NOTE:TODO: what to read from ppudata???
+            // ppuscroll / ppuaddr
+            5 | 6 => 0,
+            // ppudata
             7 => self.ppudata,
             // FIXME: should ppuscroll and ppuaddr reads reset the high bits toggle as well??
             _ => 0,
@@ -159,7 +168,6 @@ impl Ppu {
 
                 if self.is_vblank() || (!self.is_sprites_enable() && !self.is_background_enable()) {
                     // if not currently rendering, increment normally
-
                     let increment = if self.get_vram_addr_increment() {
                         32
                     } else {
@@ -169,29 +177,46 @@ impl Ppu {
                         .current_vram_addr //
                         .wrapping_add(increment);
                 } else {
-                    // if currently rendering, increment the bits of the address corresponding to
-                    // the y position and coarse x position (this is afaik unintended behavior)
+                    // if currently rendering, increment the bits of the address
+                    // corresponding to the y position and coarse x position (this
+                    // is afaik unintended behavior)
 
                     // increment coarse x
                     if (self.current_vram_addr & 0b11111) == 0b11111 {
-                        self.current_vram_addr &= !0b11111;
+                        // if coarse x component of 'current_vram_addr' is the highest
+                        // possible value it can be (31), clear all coarse x bits and
                         // overflow into bit 10 (move to next nametable horizontally)
+                        self.current_vram_addr &= !0b11111;
                         self.current_vram_addr ^= 0b10000000000;
                     } else {
-                        self.current_vram_addr = self.current_vram_addr.wrapping_add(1);
+                        // if not highest value, increment normally
+                        self.current_vram_addr += 1;
                     }
 
-                    // FIXME:FIXME:FIXME:FIXME: need to skip attribute tables!!!!!
-                    // increment y
+                    // increment fine y bits
                     let (res, carry) = self.fine_xy_scroll.overflowing_add(1 << 5);
                     self.fine_xy_scroll = res;
-                    // add carry from fine y bits to coarse y bits
-                    self.current_vram_addr =
-                        self.current_vram_addr.wrapping_add((carry as u16) << 5);
+
+                    if carry {
+                        if (self.current_vram_addr & 0b1111100000) == 29 << 5 {
+                            // if carry from fine y bits = 1 and coarse y bits
+                            // = 29 (there are 29 rows of tiles in a frame),
+                            // clear all coarse y bits and overflow into bit
+                            // 11 to move to next nametable vertically
+                            self.current_vram_addr &= !0b1111100000;
+                            self.current_vram_addr ^= 0b100000000000;
+                        } else if (self.current_vram_addr & 0b1111100000) == 0b1111100000 {
+                            // if coarse y = maximum, wrap the value without
+                            // overflowing into bit 11 and switching nametables
+                            self.current_vram_addr &= !0b111110000;
+                        } else {
+                            self.current_vram_addr += 1;
+                        }
+                    }
                 }
             }
             _ => (),
-        };
+        }
     }
 
     fn increment_vram_addr() {
@@ -200,8 +225,7 @@ impl Ppu {
 
     pub fn render(&mut self) {
         // TODO: ..
-        // calculate nametable fetch addr ('v') (from base nametable
-        // addr and low 5 bits of x and y passed to ppuscrol)
+        // calculate nametable fetch addr ('v') (base nametable addr and 'temp_vram_addr register')
         // increment fetch addr x for each tile
         // increment fetch addr y for each scanline
         // fetch from addr
@@ -379,4 +403,132 @@ fn test_registers() {
 
     // address is mirrored down
     assert_eq!(ppu.current_vram_addr, 0x4fe8 % 0x4000);
+}
+
+#[test]
+fn test_write_2000() {
+    let mut cpu = cpu::Cpu::default();
+    let ref mut memory = mmap::Nrom128MemoryMap::new();
+    let ref mut ppu = Ppu::default();
+    let ref mut apu = apu::Apu {};
+    let ref mut ptrs = mmap::MemoryMapPtrs { ppu, apu };
+
+    // LDA #ff
+    memory.write_cpu(ptrs, 0u16, 0xa9);
+    memory.write_cpu(ptrs, 1u16, 0xff);
+    // STA $2000
+    memory.write_cpu(ptrs, 2u16, 0x8d);
+    memory.write_cpu(ptrs, 3u16, 00);
+    memory.write_cpu(ptrs, 4u16, 0x20);
+
+    cpu.pc = 0;
+    for _ in 0..2 {
+        cpu.exec_instruction(memory, ptrs);
+    }
+
+    assert_eq!(ppu.temp_vram_addr, 0b11_00000_00000)
+}
+
+#[test]
+fn test_read_2002() {
+    let mut cpu = cpu::Cpu::default();
+    let ref mut memory = mmap::Nrom128MemoryMap::new();
+    let ref mut ppu = Ppu::default();
+    let ref mut apu = apu::Apu {};
+    let ref mut ptrs = mmap::MemoryMapPtrs { ppu, apu };
+
+    // LDA $2002
+    memory.write_cpu(ptrs, 0u16, 0xad);
+    memory.write_cpu(ptrs, 1u16, 02);
+    memory.write_cpu(ptrs, 2u16, 0x20);
+
+    ptrs.ppu.high_bits_toggle = true;
+    cpu.pc = 0;
+    cpu.exec_instruction(memory, ptrs);
+
+    assert_eq!(ppu.high_bits_toggle, false);
+}
+
+#[test]
+fn test_write_2005() {
+    let mut cpu = cpu::Cpu::default();
+    let ref mut memory = mmap::Nrom128MemoryMap::new();
+    let ref mut ppu = Ppu::default();
+    let ref mut apu = apu::Apu {};
+    let ref mut ptrs = mmap::MemoryMapPtrs { ppu, apu };
+
+    // LDA #7d (0b01111_101)
+    memory.write_cpu(ptrs, 0u16, 0xa9);
+    memory.write_cpu(ptrs, 1u16, 0x7d);
+    // STA $2005
+    memory.write_cpu(ptrs, 2u16, 0x8d);
+    memory.write_cpu(ptrs, 3u16, 05);
+    memory.write_cpu(ptrs, 4u16, 0x20);
+
+    cpu.pc = 0;
+    for _ in 0..2 {
+        cpu.exec_instruction(memory, ptrs);
+    }
+
+    assert_eq!(ptrs.ppu.fine_xy_scroll, 0b101);
+    assert_eq!(ptrs.ppu.high_bits_toggle, true);
+    assert_eq!(ptrs.ppu.temp_vram_addr, 0b00_00000_01111);
+
+    // LDA #5e (0b01011_110)
+    memory.write_cpu(ptrs, 5u16, 0xa9);
+    memory.write_cpu(ptrs, 6u16, 0x5e);
+    // STA $2005
+    memory.write_cpu(ptrs, 7u16, 0x8d);
+    memory.write_cpu(ptrs, 8u16, 05);
+    memory.write_cpu(ptrs, 9u16, 0x20);
+
+    for _ in 0..2 {
+        cpu.exec_instruction(memory, ptrs);
+    }
+
+    assert_eq!(ptrs.ppu.fine_xy_scroll >> 5, 0b110);
+    assert_eq!(ptrs.ppu.high_bits_toggle, false);
+    assert_eq!(ptrs.ppu.temp_vram_addr, 0b00_01011_01111);
+}
+
+#[test]
+fn test_write_2006() {
+    let mut cpu = cpu::Cpu::default();
+    let ref mut memory = mmap::Nrom128MemoryMap::new();
+    let ref mut ppu = Ppu::default();
+    let ref mut apu = apu::Apu {};
+    let ref mut ptrs = mmap::MemoryMapPtrs { ppu, apu };
+
+    // LDA #3d (0b00111101)
+    memory.write_cpu(ptrs, 0u16, 0xa9);
+    memory.write_cpu(ptrs, 1u16, 0x3d);
+    // STA $2006
+    memory.write_cpu(ptrs, 2u16, 0x8d);
+    memory.write_cpu(ptrs, 3u16, 06);
+    memory.write_cpu(ptrs, 4u16, 0x20);
+
+    cpu.pc = 0;
+    for _ in 0..2 {
+        cpu.exec_instruction(memory, ptrs);
+    }
+
+    assert_eq!(ptrs.ppu.high_bits_toggle, true);
+    assert_eq!(ptrs.ppu.temp_vram_addr, 0b111101_00000000);
+
+    // LDA #f0 (0b11110000)
+    memory.write_cpu(ptrs, 0u16, 0xa9);
+    memory.write_cpu(ptrs, 1u16, 0xf0);
+    // STA $2006
+    memory.write_cpu(ptrs, 2u16, 0x8d);
+    memory.write_cpu(ptrs, 3u16, 06);
+    memory.write_cpu(ptrs, 4u16, 0x20);
+
+    cpu.pc = 0;
+    for _ in 0..2 {
+        cpu.exec_instruction(memory, ptrs);
+    }
+
+    assert_eq!(ptrs.ppu.high_bits_toggle, false);
+    assert_eq!(ptrs.ppu.temp_vram_addr, 0b111101_11110000);
+    assert_eq!(ptrs.ppu.temp_vram_addr, ptrs.ppu.current_vram_addr);
 }
