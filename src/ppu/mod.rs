@@ -9,9 +9,9 @@ pub struct Ppu {
     // registers
     ppuctrl: u8,
     ppumask: u8,
-    // NOTE: first 5 bits of this register contain the least
-    // significant bits of any value previously written into
-    // a ppu register. shouldn't need to emulate this, but
+    // NOTE: first 5 bits of this register contain the least significant
+    // significant bits of any value previously written into a ppu
+    // register. shouldn't need to emulate this, but may be worth noting
     ppustatus: u8,
     // NOTE: on some ppu chips, there are bugs relating to
     // writing to oamaddr. not sure if these need to be
@@ -57,7 +57,7 @@ struct OamEntry {
     attribute: u8,
 }
 
-// TODO: make associatvie array of colors in srgb format,
+// TODO: make lookup table of colors in srgb format,
 // where the index corresponds to the value or whatever
 
 impl Default for Ppu {
@@ -302,12 +302,12 @@ impl Ppu {
         // display contents
     }
 
-    // expects the fine x value to be in the low 3 bits of 'fine_x'
+    // NOTE: this expects the fine x value to be in the low 3 bits of 'fine_x'
     fn set_fine_x_scroll(&mut self, fine_x: u8) {
         self.fine_xy_scroll = (self.fine_xy_scroll & !0b111) | fine_x;
     }
 
-    // expects the fine y value to be in the high 3 bits of 'fine_y'
+    // NOTE: this expects the fine y value to be in the high 3 bits of 'fine_y'
     fn set_fine_y_scroll(&mut self, fine_y: u8) {
         self.fine_xy_scroll = (self.fine_xy_scroll & !0b11100000) | fine_y;
     }

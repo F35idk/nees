@@ -3,7 +3,7 @@ use super::super::memory_map::MemoryMap;
 use super::super::PtrsWrapper;
 use super::Cpu;
 
-// submodules used for improved readability inside of 'addressing'
+// submodules used for improved readability inside of this module.
 // (everything is re-exported, so these are not visible to the outside)
 pub use abs::*;
 pub use abs_indexed::*;
