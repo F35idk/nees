@@ -1,7 +1,7 @@
 #[macro_use]
 use super::super::log;
+use super::MemoryMap;
 use super::{apu, ppu};
-use super::{AddrInt, MemoryMap};
 
 // the cpu and ppu memory maps for games that use the 'NROM-128' cartridge/mapper (ines mapper 0)
 // TODO: implement ppu side of things
@@ -46,15 +46,13 @@ impl Nrom128MemoryMap {
 }
 
 impl MemoryMap for Nrom128MemoryMap {
-    fn read_cpu<A: AddrInt>(&self, ptrs: &mut super::MemoryMapPtrs, _addr: A) -> u8 {
-        let mut addr = _addr.to_u16();
-
+    fn read_cpu(&self, ptrs: &mut super::MemoryMapPtrs, mut addr: u16) -> u8 {
         // address lines a13-a15 = 000 (0-0x1fff) => internal ram
         if (addr >> 13) == 0 {
             // mask off bit 11 and 12 for mirroring
             addr &= !0b1100000000000;
             // TODO: revert to unchecked indexing
-            return unsafe { *self.cpu_memory.get(addr.to_usize()).unwrap() };
+            return unsafe { *self.cpu_memory.get(addr as usize).unwrap() };
         }
 
         // address lines a13-a15 = 001 (0x2000-0x3fff) => ppu registers
@@ -70,7 +68,7 @@ impl MemoryMap for Nrom128MemoryMap {
             addr &= !0b1000000000000;
             // subtract offset of 0x1800 to get index in range 0x4800-0x57ff
             addr -= 0x1800;
-            return unsafe { *self.cpu_memory.get(addr.to_usize()).unwrap() };
+            return unsafe { *self.cpu_memory.get(addr as usize).unwrap() };
         }
 
         // addres line a15 = 1 (0x8000-0xffff) => prg rom
@@ -79,7 +77,7 @@ impl MemoryMap for Nrom128MemoryMap {
             addr &= !0b100000000000000;
             // subtract offset
             addr -= 0x7800;
-            return unsafe { *self.cpu_memory.get(addr.to_usize()).unwrap() };
+            return unsafe { *self.cpu_memory.get(addr as usize).unwrap() };
         }
 
         // TODO: special apu/io stuff in the 0x4000-0x4017 range. the
@@ -88,15 +86,13 @@ impl MemoryMap for Nrom128MemoryMap {
         0
     }
 
-    fn write_cpu<A: AddrInt>(&mut self, ptrs: &mut super::MemoryMapPtrs, _addr: A, val: u8) {
-        let addr = _addr.to_u16();
-
+    fn write_cpu(&mut self, ptrs: &mut super::MemoryMapPtrs, mut addr: u16, val: u8) {
         // NOTE: see 'calc_cpu_read_addr()' for comments explaining the address calculation
         if (addr >> 13) == 0 {
             unsafe {
                 *self
                     .cpu_memory
-                    .get_mut((addr & !0b1100000000000).to_usize())
+                    .get_mut((addr & !0b1100000000000) as usize)
                     .unwrap() = val;
             }
             return;
@@ -112,7 +108,7 @@ impl MemoryMap for Nrom128MemoryMap {
             unsafe {
                 *self
                     .cpu_memory
-                    .get_mut(((addr & !0b1000000000000) - 0x1800).to_usize())
+                    .get_mut(((addr & !0b1000000000000) - 0x1800) as usize)
                     .unwrap() = val;
             }
             return;
@@ -124,9 +120,7 @@ impl MemoryMap for Nrom128MemoryMap {
         return;
     }
 
-    fn read_ppu<A: AddrInt>(&self, _addr: A) -> u8 {
-        let mut addr = _addr.to_u16();
-
+    fn read_ppu(&self, mut addr: u16) -> u8 {
         // if address points to palette indices
         if addr >= 0x3f00 {
             // ignore all but lowest 5 bits (32 palettes)
@@ -146,7 +140,7 @@ impl MemoryMap for Nrom128MemoryMap {
         unsafe { *self.chr_ram.get_unchecked(addr as usize) }
     }
 
-    fn write_ppu<A: AddrInt>(&mut self, addr: A, val: u8) {
+    fn write_ppu(&mut self, addr: u16, val: u8) {
         // TODO: implement
     }
 }
@@ -165,12 +159,10 @@ impl Nrom256MemoryMap {
 }
 
 impl MemoryMap for Nrom256MemoryMap {
-    fn read_cpu<A: AddrInt>(&self, ptrs: &mut super::MemoryMapPtrs, _addr: A) -> u8 {
-        let mut addr = _addr.to_u16();
-
+    fn read_cpu(&self, ptrs: &mut super::MemoryMapPtrs, mut addr: u16) -> u8 {
         if (addr >> 13) == 0 {
             addr &= !0b1100000000000;
-            return unsafe { *self.memory.get(addr.to_usize()).unwrap() };
+            return unsafe { *self.memory.get(addr as usize).unwrap() };
         }
 
         if (addr >> 13) == 1 {
@@ -182,25 +174,23 @@ impl MemoryMap for Nrom256MemoryMap {
         if (addr >> 13) == 3 {
             addr &= !0b1000000000000;
             addr += 0x2800;
-            return unsafe { *self.memory.get(addr.to_usize()).unwrap() };
+            return unsafe { *self.memory.get(addr as usize).unwrap() };
         }
 
         if (addr & 0x8000) != 0 {
             addr -= 0x7800;
-            return unsafe { *self.memory.get(addr.to_usize()).unwrap() };
+            return unsafe { *self.memory.get(addr as usize).unwrap() };
         }
 
         0
     }
 
-    fn write_cpu<A: AddrInt>(&mut self, ptrs: &mut super::MemoryMapPtrs, _addr: A, val: u8) {
-        let addr = _addr.to_u16();
-
+    fn write_cpu(&mut self, ptrs: &mut super::MemoryMapPtrs, addr: u16, val: u8) {
         if (addr >> 13) == 0 {
             unsafe {
                 *self
                     .memory
-                    .get_mut((addr & !0b1100000000000).to_usize())
+                    .get_mut((addr & !0b1100000000000) as usize)
                     .unwrap() = val;
             }
             return;
@@ -210,7 +200,7 @@ impl MemoryMap for Nrom256MemoryMap {
             unsafe {
                 *self
                     .memory
-                    .get_mut(((addr & 0b111) | 0x9800).to_usize())
+                    .get_mut(((addr & 0b111) | 0x9800) as usize)
                     .unwrap() = val;
             }
 
@@ -225,11 +215,11 @@ impl MemoryMap for Nrom256MemoryMap {
         return;
     }
 
-    fn read_ppu<A: AddrInt>(&self, addr: A) -> u8 {
+    fn read_ppu(&self, addr: u16) -> u8 {
         0
     }
 
-    fn write_ppu<A: AddrInt>(&mut self, addr: A, val: u8) {}
+    fn write_ppu(&mut self, addr: u16, val: u8) {}
 }
 #[test]
 fn test_calc_addr_128() {

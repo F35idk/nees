@@ -153,7 +153,7 @@ mod zero_page {
         cpu.cycle_count += 3;
         cpu.pc += 2;
 
-        memory.read_cpu(ptrs, addr)
+        memory.read_cpu(ptrs, addr as u16)
     }
 
     pub fn write_zero_page(
@@ -165,7 +165,7 @@ mod zero_page {
         let addr = cpu.fetch_operand_byte(memory, ptrs);
         cpu.pc += 2;
         cpu.cycle_count += 3;
-        memory.write_cpu(ptrs, addr, val);
+        memory.write_cpu(ptrs, addr as u16, val);
     }
 
     pub fn read_write_zero_page(
@@ -175,13 +175,13 @@ mod zero_page {
         operation: fn(&mut Cpu, u8) -> u8,
     ) {
         let addr = cpu.fetch_operand_byte(memory, ptrs);
-        let val = memory.read_cpu(ptrs, addr);
+        let val = memory.read_cpu(ptrs, addr as u16);
 
         cpu.pc += 2;
         cpu.cycle_count += 5;
 
         let res = operation(cpu, val);
-        memory.write_cpu(ptrs, addr, res);
+        memory.write_cpu(ptrs, addr as u16, res);
     }
 }
 
@@ -199,7 +199,7 @@ mod zero_page_indexed {
         let addr_indexed = addr.wrapping_add(index);
         cpu.pc += 2;
         cpu.cycle_count += 4;
-        memory.write_cpu(ptrs, addr_indexed, val);
+        memory.write_cpu(ptrs, addr_indexed as u16, val);
     }
 
     pub fn read_zero_page_indexed(
@@ -214,7 +214,7 @@ mod zero_page_indexed {
         cpu.pc += 2;
         cpu.cycle_count += 4;
 
-        memory.read_cpu(ptrs, addr_indexed)
+        memory.read_cpu(ptrs, addr_indexed as u16)
     }
 
     pub fn read_write_zero_page_indexed(
@@ -230,10 +230,10 @@ mod zero_page_indexed {
         cpu.pc += 2;
         cpu.cycle_count += 6;
 
-        let val = memory.read_cpu(ptrs, addr_indexed);
+        let val = memory.read_cpu(ptrs, addr_indexed as u16);
         let res = operation(cpu, val);
 
-        memory.write_cpu(ptrs, addr_indexed, res);
+        memory.write_cpu(ptrs, addr_indexed as u16, res);
     }
 }
 
@@ -277,8 +277,8 @@ mod indexed_indirect {
     ) -> u16 {
         let addr_indexed = addr.wrapping_add(cpu.x);
         u16::from_le_bytes([
-            memory.read_cpu(ptrs, addr_indexed),
-            memory.read_cpu(ptrs, addr_indexed.wrapping_add(1)),
+            memory.read_cpu(ptrs, addr_indexed as u16),
+            memory.read_cpu(ptrs, addr_indexed.wrapping_add(1) as u16),
         ])
     }
 }
@@ -325,8 +325,8 @@ mod indirect_indexed {
     ) -> (u16, bool) {
         // get address at memory[addr]
         let dest_addr = [
-            memory.read_cpu(ptrs, addr),
-            memory.read_cpu(ptrs, addr.wrapping_add(1)),
+            memory.read_cpu(ptrs, addr as u16),
+            memory.read_cpu(ptrs, addr.wrapping_add(1) as u16),
         ];
 
         // add index to address while keeping track of whether a page boundary was crossed

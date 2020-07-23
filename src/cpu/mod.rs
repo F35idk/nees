@@ -1151,7 +1151,7 @@ impl Cpu {
     }
 
     // used for pha, php instructions
-    fn push_val_(
+    fn push_val(
         &mut self,
         val: u8,
         memory: &mut mmap::Nrom128MemoryMap,
@@ -1165,17 +1165,17 @@ impl Cpu {
     }
 
     fn pha(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mut mmap::MemoryMapPtrs) {
-        self.push_val_(self.a, memory, ptrs)
+        self.push_val(self.a, memory, ptrs)
     }
 
     fn php(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mut mmap::MemoryMapPtrs) {
         // NOTE: the 'b-flag' bit is set when pushing
         // FIXME: may need to set bit 5 when pushing as well? it should be set by default, but
-        self.push_val_(self.p | 0b10000, memory, ptrs);
+        self.push_val(self.p | 0b10000, memory, ptrs);
     }
 
     // used for pla, plp instructions
-    fn pull_val_(
+    fn pull_val(
         &mut self,
         memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut mmap::MemoryMapPtrs,
@@ -1188,13 +1188,13 @@ impl Cpu {
     }
 
     fn pla(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mut mmap::MemoryMapPtrs) {
-        self.a = self.pull_val_(memory, ptrs);
+        self.a = self.pull_val(memory, ptrs);
         self.set_z_from_val(self.a);
         self.set_n_from_val(self.a);
     }
 
     fn plp(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mut mmap::MemoryMapPtrs) {
-        self.p = (self.pull_val_(memory, ptrs) & !0b10000) | 0b100000;
+        self.p = (self.pull_val(memory, ptrs) & !0b10000) | 0b100000;
     }
 
     fn rol(&mut self, val: u8) -> u8 {

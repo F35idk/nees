@@ -116,7 +116,7 @@ fn test_asl() {
     let cyc = cpu.debug_exec_opcode([0x06, 0x78, 00], memory, ptrs);
 
     assert_eq!(cyc, 5);
-    assert_eq!(memory.read_cpu(ptrs, 0x78u8), 0);
+    assert_eq!(memory.read_cpu(ptrs, 0x78u16), 0);
     assert_eq!(cpu.p, 0x67);
 
     cpu.p = 0xa5;
@@ -445,7 +445,7 @@ fn test_rol_ror() {
 
     assert_eq!(cyc, 6);
     assert_eq!(cpu.p, 0xe5);
-    assert_eq!(memory.read_cpu(ptrs, 0x55u8), 0x80);
+    assert_eq!(memory.read_cpu(ptrs, 0x55u16), 0x80);
 }
 
 fn test_rti() {
