@@ -1,5 +1,3 @@
-use super::apu;
-use super::cpu;
 use super::memory_map as mmap;
 use mmap::MemoryMap;
 
@@ -19,10 +17,8 @@ pub struct Ppu {
     // writing to oamaddr. not sure if these need to be
     // emulated either, but it may be worth keeping in mind
     oamaddr: u8,
-    oamdata: u8,
     ppudata: u8,
     ppudata_read_buffer: u8,
-    oamdma: u8,
     // internal registers
     // used to toggle whether reads and writes to 'ppuscroll'
     // and 'ppuaddr' access the high or low bits of the register.
@@ -74,10 +70,8 @@ impl Default for Ppu {
             ppumask: 0,
             ppustatus: 0,
             oamaddr: 0,
-            oamdata: 0,
             ppudata: 0,
             ppudata_read_buffer: 0,
-            oamdma: 0,
             high_bits_toggle: false,
             current_vram_addr: 0,
             temp_vram_addr: 0,
@@ -125,7 +119,6 @@ impl Ppu {
                     val
                 };
 
-                // increment 'current_vram_addr'
                 if !self.is_rendering() {
                     // if not currently rendering, increment normally
                     self.increment_vram_addr();
@@ -231,7 +224,7 @@ impl Ppu {
     pub fn write_oamdma(
         &mut self,
         val: u8,
-        cpu_cycle_count: &mut u32,
+        cpu_cycle_count: &mut u64,
         memory: &mut mmap::Nrom128MemoryMap,
     ) {
         // if 'val' is $XX, start address should be $XX00

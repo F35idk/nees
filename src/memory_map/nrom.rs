@@ -1,5 +1,6 @@
 #[macro_use]
 use super::super::log;
+use super::super::PtrsWrapper;
 use super::MemoryMap;
 use super::{apu, ppu};
 
@@ -45,7 +46,7 @@ impl Nrom128MemoryMap {
 }
 
 impl MemoryMap for Nrom128MemoryMap {
-    fn read_cpu(&self, ptrs: &mut super::MemoryMapPtrs, mut addr: u16) -> u8 {
+    fn read_cpu(&self, ptrs: &mut PtrsWrapper, mut addr: u16) -> u8 {
         // address lines a13-a15 = 000 (0-0x1fff) => internal ram
         if (addr >> 13) == 0 {
             // mask off bit 11 and 12 for mirroring
@@ -85,7 +86,7 @@ impl MemoryMap for Nrom128MemoryMap {
         0
     }
 
-    fn write_cpu(&mut self, ptrs: &mut super::MemoryMapPtrs, addr: u16, val: u8) {
+    fn write_cpu(&mut self, ptrs: &mut PtrsWrapper, addr: u16, val: u8) {
         // NOTE: see 'calc_cpu_read_addr()' for comments explaining address calculation
         if (addr >> 13) == 0 {
             unsafe {
@@ -115,7 +116,7 @@ impl MemoryMap for Nrom128MemoryMap {
 
         // ppu oamdma register
         if addr == 0x4014 {
-            ptrs.ppu.write_oamdma(val, &mut 0, self);
+            ptrs.ppu.write_oamdma(val, ptrs.cpu_cycles, self);
             return;
         }
 
@@ -123,6 +124,7 @@ impl MemoryMap for Nrom128MemoryMap {
         // necessary to explicitly ignore attempts to write to rom
     }
 
+    // NOTE: passing addresses higher than 0x3fff will read from palette ram
     fn read_ppu(&self, mut addr: u16) -> u8 {
         // if address points to palette indices
         if addr >= 0x3f00 {
@@ -144,6 +146,7 @@ impl MemoryMap for Nrom128MemoryMap {
         unsafe { *self.chr_ram.get_unchecked(addr as usize) }
     }
 
+    // NOTE: passing addresses higher than 0x3fff will write to palette ram
     fn write_ppu(&mut self, mut addr: u16, val: u8) {
         if addr >= 0x3f00 {
             addr &= 0b11111;
@@ -176,7 +179,7 @@ impl Nrom256MemoryMap {
 }
 
 impl MemoryMap for Nrom256MemoryMap {
-    fn read_cpu(&self, ptrs: &mut super::MemoryMapPtrs, mut addr: u16) -> u8 {
+    fn read_cpu(&self, ptrs: &mut PtrsWrapper, mut addr: u16) -> u8 {
         if (addr >> 13) == 0 {
             addr &= !0b1100000000000;
             return unsafe { *self.cpu_memory.get(addr as usize).unwrap() };
@@ -202,7 +205,7 @@ impl MemoryMap for Nrom256MemoryMap {
         0
     }
 
-    fn write_cpu(&mut self, ptrs: &mut super::MemoryMapPtrs, addr: u16, val: u8) {
+    fn write_cpu(&mut self, ptrs: &mut PtrsWrapper, addr: u16, val: u8) {
         if (addr >> 13) == 0 {
             unsafe {
                 *self
@@ -261,7 +264,12 @@ fn test_calc_addr_128() {
     let mut memory = Nrom128MemoryMap::new();
     let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
-    let ref mut ptrs = super::MemoryMapPtrs { ppu, apu };
+    let ref mut cpu_cycles = 0;
+    let ref mut ptrs = PtrsWrapper {
+        ppu,
+        apu,
+        cpu_cycles,
+    };
 
     // internal ram reads
     assert_eq!(calc_cpu_read_addr(0xa0e), 0x20e);
@@ -301,8 +309,20 @@ fn test_ppu_calc_addr_128() {
     let mut memory = Nrom128MemoryMap::new();
 
     // set mirroring mask to vertical
-    memory.nametable_mirroring_mask = 0x400;
-    let _ = memory.read_ppu(0x2fffu16);
+    memory.nametable_mirroring_mask = !0x800;
+    // test nametable writes
+    memory.write_ppu(0x2fff, 0xee);
+    assert_eq!(memory.nametables[0x27ff - 0x2000], 0xee);
+    memory.write_ppu(0x2bff, 0xcc);
+    assert_eq!(memory.nametables[0x23ff - 0x2000], 0xcc);
+
+    // palette ram reads/writes
+    memory.write_ppu(0x3f20, 0x30);
+    assert_eq!(memory.palettes[0], 0x30);
+    // write out of bounds
+    memory.write_ppu(0xffff, 0x20);
+    // should end up in palette ram
+    assert_eq!(memory.palettes[31], 0x20);
 
     // TODO: ..
 }

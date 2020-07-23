@@ -9,6 +9,14 @@ mod ppu;
 use memory_map as mmap;
 use mmap::MemoryMap;
 
+// convenience/helper struct for passing around important pointers,
+// to reduce amt. of function arguments everywhere etc.
+pub struct PtrsWrapper<'a, 'b, 'c> {
+    pub ppu: &'a mut ppu::Ppu,
+    pub apu: &'b mut apu::Apu,
+    pub cpu_cycles: &'c mut u64,
+}
+
 fn main() {
     let rom = std::fs::read("nestest.nes").unwrap();
     assert!(parse::is_valid(&rom));
@@ -42,13 +50,19 @@ fn main() {
         let mut memory = mmap::Nrom128MemoryMap::new();
         let ref mut ppu = ppu::Ppu::default();
         let ref mut apu = apu::Apu {};
-        let ref mut ptrs = mmap::MemoryMapPtrs { ppu, apu };
+        let ref mut cpu_cycles = 7; // for whatever reason
+
+        let ref mut ptrs = PtrsWrapper {
+            ppu,
+            apu,
+            cpu_cycles,
+        };
 
         let prg_size = 0x4000 * (parse::get_prg_size(&rom) as usize);
         memory.load_prg_rom(&rom[0x10..=prg_size + 0xf]);
 
         loop {
-            cpu.log_register_values();
+            cpu.log_register_values(ptrs);
             cpu.exec_instruction(&mut memory, ptrs);
         }
     }
@@ -57,7 +71,13 @@ fn main() {
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
-    let ref mut ptrs = mmap::MemoryMapPtrs { ppu, apu };
+    let ref mut cpu_cycles = 0;
+
+    let ref mut ptrs = PtrsWrapper {
+        ppu,
+        apu,
+        cpu_cycles,
+    };
 
     // LDA #ff
     memory.write_cpu(ptrs, 0u16, 0xa9);
