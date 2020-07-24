@@ -17,7 +17,6 @@ pub struct Ppu {
     // writing to oamaddr. not sure if these need to be
     // emulated either, but it may be worth keeping in mind
     oamaddr: u8,
-    ppudata: u8,
     ppudata_read_buffer: u8,
     // internal registers
     // used to toggle whether reads and writes to 'ppuscroll'
@@ -70,7 +69,6 @@ impl Default for Ppu {
             ppumask: 0,
             ppustatus: 0,
             oamaddr: 0,
-            ppudata: 0,
             ppudata_read_buffer: 0,
             high_bits_toggle: false,
             current_vram_addr: 0,
@@ -105,7 +103,7 @@ impl Ppu {
             7 => {
                 let val = if (self.current_vram_addr >> 8) == 0b111111 {
                     // read directly from vram if address is in range
-                    // 0x3f00..=0x3ff (palette ram)
+                    // 0x3f00-0x3ff (palette ram)
                     let val = memory.read_ppu(self.current_vram_addr);
                     // store value at mirrored address (down to 0x2f00-0x2fff)
                     // in read buffer
@@ -172,14 +170,14 @@ impl Ppu {
             5 => {
                 // high bits toggle = 0 => x coordinate is being written
                 if !self.high_bits_toggle {
-                    // write low 3 bits to fine scroll register
+                    // write low 3 bits to 'self.fine_xy_scroll'
                     self.set_fine_x_scroll(val & 0b111);
                     // write high 5 bits to temporary vram address register
                     self.temp_vram_addr = (val >> 3) as u16 & 0b11111;
                 }
                 // high bits toggle = 1 => y coordinate is being written
                 else {
-                    // write low 3 bits to high 3 bits of fine scroll register
+                    // write low 3 bits to high 3 bits 'self.fine_xy_scroll'
                     self.set_fine_y_scroll(val << 5);
                     self.temp_vram_addr |= (val as u16 & !0b111) << 2;
                 }
@@ -206,7 +204,6 @@ impl Ppu {
             }
             // ppudata
             7 => {
-                self.ppudata = val;
                 memory.write_ppu(self.current_vram_addr, val);
 
                 // increment 'current_vram_addr' (same as when reading ppudata)
@@ -292,10 +289,16 @@ impl Ppu {
     }
 
     pub fn render(&mut self) {
+
+        //
         // TODO: ..
         // calculate nametable fetch addr ('v') (base nametable addr and 'temp_vram_addr' register)
-        // increment fetch addr x for each tile
-        // increment fetch addr y for each scanline
+        // for each upper row of a tile in a scanline:
+        //     increment fetch addr x
+        // for each scanline:
+        //     update horizontal bits of nametable fetch addr from 'temp_vram_addr'
+        //     increment y
+        //
         // fetch from addr
         // do other stuff that i haven't gotten to yet
         // NOTE: buggy behavior with oam when oamaddr is > 8
