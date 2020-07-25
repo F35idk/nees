@@ -58,7 +58,7 @@ pub fn is_nes_2_format(rom_header: &[u8]) -> bool {
 //     }
 //
 //     let prg_size = rom_header[4];
-//     // NOTE: if zero, game uses chr /ram/, not chr rom_header
+//     // NOTE: if zero, game uses chr /ram/, not chr rom
 //     let chr_size = rom_header[5];
 //
 //     let flags_6 = rom_header[6];

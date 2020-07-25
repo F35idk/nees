@@ -1,4 +1,6 @@
+#[macro_use]
 use super::memory_map as mmap;
+use super::pixel_renderer::PixelRenderer;
 use mmap::MemoryMap;
 
 mod test;
@@ -8,7 +10,8 @@ pub struct Ppu {
     oam: Oam,
 
     // registers
-    ppuctrl: u8,
+    // TODO: remove pub
+    pub ppuctrl: u8,
     ppumask: u8,
     // NOTE: first 5 bits of this register contain the least significant
     // significant bits of any value previously written into a ppu
@@ -32,13 +35,13 @@ pub struct Ppu {
     // NOTE: instead of the fine y scroll value being stored in
     // the upper 3 bits of this, (as is the case on the actual
     // ppu), they are stored in 'fine_xy_scroll'
-    current_vram_addr: u16,
+    pub current_vram_addr: u16,
     // temporary address, same as above but minus 0x2000 and
     // doesn't get incremented while drawing. this register is
     // shared by 'ppuscroll' and 'ppuaddr' (so writes to these
     // registers go into this). referred to as 't' in the
     // nesdev.com 'ppu scrolling' article
-    temp_vram_addr: u16,
+    pub temp_vram_addr: u16,
     // low 3 bits consist of fine x scroll value, high 3 bits
     // consist of fine y scroll
     fine_xy_scroll: u8,
@@ -327,7 +330,12 @@ impl Ppu {
         }
     }
 
-    pub fn draw_scanline_tile(&mut self, memory: *mut mmap::Nrom128MemoryMap) {
+    pub fn draw_tile_row(
+        &mut self,
+        memory: *mut mmap::Nrom128MemoryMap,
+        renderer: &mut PixelRenderer,
+    ) {
+        let fine_y_pos = self.fine_xy_scroll >> 5;
         let fine_x_pos = if self.horizontal_tile_count == 0 {
             // if at start of scanline, set 'fine_x_pos' equal
             // to the fine x value in 'fine_xy_scroll'
@@ -336,10 +344,8 @@ impl Ppu {
             0
         };
 
-        let fine_y_pos = self.fine_xy_scroll >> 5;
-
-        println!("fine_y_pos: {}", fine_y_pos);
-        println!("fine_x_pos: {}", fine_x_pos);
+        logln!("fine_y_pos: {}", fine_y_pos);
+        logln!("fine_x_pos: {}", fine_x_pos);
 
         // get a raw pointer to the background pattern table. FIXME: explain why
         // FIXME: don't need the raw pointers here, should be able to remove this
@@ -352,9 +358,10 @@ impl Ppu {
         let current_tile = unsafe {
             // get tile index from nametable using 'current_vram_addr'
             let tile_index = (*memory).read_ppu(self.current_vram_addr);
-            println!(
+            logln!(
                 "tile_index: {:x} at {:x}",
-                tile_index, self.current_vram_addr
+                tile_index,
+                self.current_vram_addr
             );
             // get tile from pattern table using the tile index
             // SAFETY: 'current_tile_index' cannot be larger than 255
@@ -363,13 +370,23 @@ impl Ppu {
 
         let tile_attribute = { /* TODO: calculate attribute address etc. */ };
 
-        println!("tile: [{:>08b}", current_tile[0 + fine_y_pos as usize]);
-        println!("       {:>08b}]", current_tile[7 + fine_y_pos as usize]);
-
         // get the high and low bitplanes for the current row of the current tile
         // TODO: unchecked indexing
         let mut bitplane_low = current_tile[0 + fine_y_pos as usize];
-        let mut bitplane_high = current_tile[7 + fine_y_pos as usize];
+        let mut bitplane_high = current_tile[8 + fine_y_pos as usize];
+
+        // logln!("bitplanes: [{:>08b}", current_tile[0 + fine_y_pos as usize]);
+        // logln!(
+        //     "            {:>08b}]",
+        //     current_tile[8 + fine_y_pos as usize]
+        // );
+
+        let palette = [
+            [0, 0, 0, 0],       // black
+            [0xff, 0, 0, 0xff], // red
+            [0, 0xff, 0, 0xff], // green
+            [0, 0, 0xff, 0xff], // blue
+        ];
 
         // start at rightmost pixel in tile and move leftwards
         // until the pixel at 'fine_x_pos' is reached
@@ -378,14 +395,20 @@ impl Ppu {
             bitplane_low >>= 1;
             bitplane_high >>= 1;
 
-            println!(
-                "current_x_pos: {}",
+            let screen_x = ((self.horizontal_tile_count << 3) | (7 - i)) as usize;
+            let screen_y = self.scanline_count as usize;
+            logln!("screen coords [{}, {}]", screen_x, screen_y);
+
+            let pixels = super::pixels_to_u32(renderer);
+            pixels[screen_y * 256 + screen_x] =
+                u32::from_le_bytes(palette[current_palette_index as usize]);
+
+            logln!(
+                "current_nametable_x_pos: {}",
                 ((self.current_vram_addr & 0b11111) << 3) | (7 - i as u16)
             );
-            println!("current_palette_index: {}", current_palette_index);
+            // logln!("current_palette_index: {}", current_palette_index);
         }
-
-        self.increment_vram_addr_coarse_x();
 
         // if at end of scanline
         if self.horizontal_tile_count == 31 {
@@ -412,6 +435,7 @@ impl Ppu {
             self.current_vram_addr |= self.temp_vram_addr & 0b11111;
         } else {
             self.horizontal_tile_count += 1;
+            self.increment_vram_addr_coarse_x();
         }
     }
 

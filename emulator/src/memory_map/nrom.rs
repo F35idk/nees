@@ -43,6 +43,17 @@ impl Nrom128MemoryMap {
         assert!(rom.len() == 0x4000);
         self.cpu_memory[0x800..=0x47ff].copy_from_slice(rom);
     }
+
+    pub fn load_chr_ram(&mut self, ram: &[u8]) {
+        assert!(ram.len() == 0x2000);
+        self.chr_ram.copy_from_slice(ram);
+    }
+
+    pub fn fill_2400(&mut self) {
+        for (i, byte) in self.nametables[0x400..].iter_mut().enumerate() {
+            *byte = i as u8;
+        }
+    }
 }
 
 impl MemoryMap for Nrom128MemoryMap {

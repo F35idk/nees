@@ -1,6 +1,7 @@
 use super::super::apu;
 use super::super::cpu;
 use super::super::memory_map as mmap;
+use super::super::PixelRenderer;
 use super::super::PtrsWrapper;
 use mmap::MemoryMap;
 
@@ -395,9 +396,9 @@ fn test_render() {
     // set fine x pos = 3 to only draw pixels 3-7 in the tile
     ppu.fine_xy_scroll = 0b011;
 
-    ppu.draw_scanline_tile(memory);
-    println!("");
-    ppu.draw_scanline_tile(memory);
+    // ppu.draw_tile_row(memory);
+    // println!("");
+    // ppu.draw_tile_row(memory);
 
     assert!(false);
 }
