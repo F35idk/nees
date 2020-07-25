@@ -5,12 +5,13 @@ mod cpu;
 mod memory_map;
 mod parse;
 mod ppu;
+mod win;
 
 use memory_map as mmap;
 use mmap::MemoryMap;
 
 // convenience/helper struct for passing around important pointers,
-// to reduce amt. of function arguments everywhere etc.
+// to reduce amt. of function arguments everywhere, etc.
 pub struct PtrsWrapper<'a, 'b, 'c> {
     pub ppu: &'a mut ppu::Ppu,
     pub apu: &'b mut apu::Apu,
