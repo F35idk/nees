@@ -13,10 +13,10 @@ pub struct Nrom128MemoryMap {
     // [0..=0x7ff] = internal ram
     // [0x800..=0x47ff] = prg rom
     // [0x4800..=0x57ff] = prg ram
-    chr_ram: [u8; 0x2800],
+    chr_ram: [u8; 0x2000],
     nametables: [u8; 0x800],
     palettes: [u8; 32],
-    nametable_mirroring_mask: u16,
+    pub nametable_mirroring_mask: u16,
 }
 
 // 'NROM-256' (also ines mapper 0)
@@ -32,7 +32,7 @@ impl Nrom128MemoryMap {
     pub fn new() -> Self {
         Nrom128MemoryMap {
             cpu_memory: [0; 0x5800],
-            chr_ram: [0; 0x2800],
+            chr_ram: [0; 0x2000],
             nametables: [0; 0x800],
             palettes: [0; 32],
             nametable_mirroring_mask: 0,
@@ -163,6 +163,10 @@ impl MemoryMap for Nrom128MemoryMap {
 
         unsafe { *self.chr_ram.get_unchecked_mut(addr as usize) = val };
     }
+
+    unsafe fn get_pattern_tables_raw(&mut self) -> *mut [u8; 0x2000] {
+        &mut self.chr_ram
+    }
 }
 
 impl Nrom256MemoryMap {
@@ -238,6 +242,10 @@ impl MemoryMap for Nrom256MemoryMap {
     }
 
     fn write_ppu(&mut self, addr: u16, val: u8) {}
+
+    unsafe fn get_pattern_tables_raw(&mut self) -> *mut [u8; 0x2000] {
+        unimplemented!()
+    }
 }
 #[test]
 fn test_calc_addr_128() {

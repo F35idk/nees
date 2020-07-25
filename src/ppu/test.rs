@@ -1,6 +1,7 @@
 use super::super::apu;
 use super::super::cpu;
 use super::super::memory_map as mmap;
+use super::super::PtrsWrapper;
 use mmap::MemoryMap;
 
 #[test]
@@ -40,17 +41,18 @@ fn test_registers() {
     ppu.set_sprite_overflow(true);
     assert_eq!(ppu.ppustatus, 0xff);
 
-    let x_coord = 0b00110011;
-    let y_coord = 0b10001101;
+    let x_coord = 0b00110_011;
+    let y_coord = 0b10001_101;
     ppu.write_register_by_index(5, x_coord, memory);
     ppu.write_register_by_index(5, y_coord, memory);
 
     let ppuctrl = 0b00000011;
     ppu.write_register_by_index(0, ppuctrl, memory);
 
-    assert_eq!(ppu.temp_vram_addr, 0b11_10001_00110);
+    assert_eq!(ppu.temp_vram_addr, 0b101_11_10001_00110);
     assert_eq!(ppu.fine_xy_scroll & 0b111, x_coord & 0b111);
-    assert_eq!(ppu.fine_xy_scroll >> 5, y_coord & 0b111);
+    // bits 12-14 of 'temp_vram_addr' should be set to temporary fine y scroll
+    assert_eq!((ppu.temp_vram_addr >> 12) as u8, y_coord & 0b111);
 
     let addr_hi = 0x21;
     let addr_low = 0x0f;
@@ -84,7 +86,12 @@ fn test_write_2000() {
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut ppu = super::Ppu::default();
     let ref mut apu = apu::Apu {};
-    let ref mut ptrs = mmap::MemoryMapPtrs { ppu, apu };
+    let ref mut cpu_cycles = 0;
+    let ref mut ptrs = PtrsWrapper {
+        ppu,
+        apu,
+        cpu_cycles,
+    };
 
     // LDA #ff
     memory.write_cpu(ptrs, 0u16, 0xa9);
@@ -108,18 +115,23 @@ fn test_read_2002() {
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut ppu = super::Ppu::default();
     let ref mut apu = apu::Apu {};
-    let ref mut ptrs = mmap::MemoryMapPtrs { ppu, apu };
+    let ref mut cpu_cycles = 0;
+    let ref mut ptrs = PtrsWrapper {
+        ppu,
+        apu,
+        cpu_cycles,
+    };
 
     // LDA $2002
     memory.write_cpu(ptrs, 0u16, 0xad);
     memory.write_cpu(ptrs, 1u16, 02);
     memory.write_cpu(ptrs, 2u16, 0x20);
 
-    ptrs.ppu.high_bits_toggle = true;
+    ptrs.ppu.low_bits_toggle = true;
     cpu.pc = 0;
     cpu.exec_instruction(memory, ptrs);
 
-    assert_eq!(ppu.high_bits_toggle, false);
+    assert_eq!(ppu.low_bits_toggle, false);
 }
 
 #[test]
@@ -128,7 +140,12 @@ fn test_write_2005() {
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut ppu = super::Ppu::default();
     let ref mut apu = apu::Apu {};
-    let ref mut ptrs = mmap::MemoryMapPtrs { ppu, apu };
+    let ref mut cpu_cycles = 0;
+    let ref mut ptrs = PtrsWrapper {
+        ppu,
+        apu,
+        cpu_cycles,
+    };
 
     // LDA #7d (0b01111_101)
     memory.write_cpu(ptrs, 0u16, 0xa9);
@@ -144,7 +161,7 @@ fn test_write_2005() {
     }
 
     assert_eq!(ptrs.ppu.fine_xy_scroll, 0b101);
-    assert_eq!(ptrs.ppu.high_bits_toggle, true);
+    assert_eq!(ptrs.ppu.low_bits_toggle, true);
     assert_eq!(ptrs.ppu.temp_vram_addr, 0b00_00000_01111);
 
     // LDA #5e (0b01011_110)
@@ -159,9 +176,9 @@ fn test_write_2005() {
         cpu.exec_instruction(memory, ptrs);
     }
 
-    assert_eq!(ptrs.ppu.fine_xy_scroll >> 5, 0b110);
-    assert_eq!(ptrs.ppu.high_bits_toggle, false);
-    assert_eq!(ptrs.ppu.temp_vram_addr, 0b00_01011_01111);
+    assert_eq!(ptrs.ppu.temp_vram_addr >> 12, 0b110);
+    assert_eq!(ptrs.ppu.low_bits_toggle, false);
+    assert_eq!(ptrs.ppu.temp_vram_addr, 0b110_00_01011_01111);
 }
 
 #[test]
@@ -170,7 +187,12 @@ fn test_write_2006() {
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut ppu = super::Ppu::default();
     let ref mut apu = apu::Apu {};
-    let ref mut ptrs = mmap::MemoryMapPtrs { ppu, apu };
+    let ref mut cpu_cycles = 0;
+    let ref mut ptrs = PtrsWrapper {
+        ppu,
+        apu,
+        cpu_cycles,
+    };
 
     // LDA #3d (0b00111101)
     memory.write_cpu(ptrs, 0u16, 0xa9);
@@ -180,13 +202,18 @@ fn test_write_2006() {
     memory.write_cpu(ptrs, 3u16, 06);
     memory.write_cpu(ptrs, 4u16, 0x20);
 
+    // set bit 14 of 'temp_vram_addr'
+    ptrs.ppu.temp_vram_addr |= 0b0100000000000000;
+
     cpu.pc = 0;
     for _ in 0..2 {
         cpu.exec_instruction(memory, ptrs);
     }
 
-    assert_eq!(ptrs.ppu.high_bits_toggle, true);
-    assert_eq!(ptrs.ppu.temp_vram_addr, 0b111101_00000000);
+    assert_eq!(ptrs.ppu.low_bits_toggle, true);
+    // bit 14 should be cleared and bits 8-13 should be
+    // equal to bits 0-6 of the value written to 0x2006
+    assert_eq!(ptrs.ppu.temp_vram_addr, 0b000_00_111101_00000000);
 
     // LDA #f0 (0b11110000)
     memory.write_cpu(ptrs, 5u16, 0xa9);
@@ -200,8 +227,8 @@ fn test_write_2006() {
         cpu.exec_instruction(memory, ptrs);
     }
 
-    assert_eq!(ptrs.ppu.high_bits_toggle, false);
-    assert_eq!(ptrs.ppu.temp_vram_addr, 0b111101_11110000);
+    assert_eq!(ptrs.ppu.low_bits_toggle, false);
+    assert_eq!(ptrs.ppu.temp_vram_addr, 0b000_00_111101_11110000);
     assert_eq!(ptrs.ppu.temp_vram_addr, ptrs.ppu.current_vram_addr);
 }
 
@@ -211,7 +238,12 @@ fn test_write_2003_read_2004() {
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut ppu = super::Ppu::default();
     let ref mut apu = apu::Apu {};
-    let ref mut ptrs = mmap::MemoryMapPtrs { ppu, apu };
+    let ref mut cpu_cycles = 0;
+    let ref mut ptrs = PtrsWrapper {
+        ppu,
+        apu,
+        cpu_cycles,
+    };
 
     // LDA #ff
     memory.write_cpu(ptrs, 0u16, 0xa9);
@@ -331,4 +363,41 @@ fn todo_ppu_memory_map_calc() {
     }
 
     println!("read_addr: {:x}", read_addr);
+}
+
+#[test]
+fn test_render() {
+    let mut cpu = cpu::Cpu::default();
+    let ref mut memory = mmap::Nrom128MemoryMap::new();
+    let ref mut ppu = super::Ppu::default();
+    let ref mut apu = apu::Apu {};
+    let ref mut cpu_cycles = 0;
+    let ref mut ptrs = PtrsWrapper {
+        ppu,
+        apu,
+        cpu_cycles,
+    };
+
+    // set background pattern table addr = 0x1000
+    ppu.ppuctrl = 0b10000;
+    // set 'current_vram_addr' = first byte of second nametable
+    ppu.current_vram_addr = 0x2400;
+    // set nametable mirroring mask = vertical mirroring
+    memory.nametable_mirroring_mask = !0x800;
+    // write 255 to first byte of second nametable (tile index)
+    memory.write_ppu(0x2400, 0xff);
+
+    // write high and low bitplanes to the 255th tile of the pattern table at 0x1000
+    let tile_lo_bits = 0b00010011;
+    let tile_hi_bits = 0b00010101;
+    memory.write_ppu(16 * 255 + 0x1000, tile_lo_bits);
+    memory.write_ppu(16 * 255 + 0x1000 + 7, tile_hi_bits);
+    // set fine x pos = 3 to only draw pixels 3-7 in the tile
+    ppu.fine_xy_scroll = 0b011;
+
+    ppu.draw_scanline_tile(memory);
+    println!("");
+    ppu.draw_scanline_tile(memory);
+
+    assert!(false);
 }

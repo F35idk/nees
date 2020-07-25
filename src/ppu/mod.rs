@@ -6,6 +6,7 @@ mod test;
 pub struct Ppu {
     // object attribute memory
     oam: Oam,
+
     // registers
     ppuctrl: u8,
     ppumask: u8,
@@ -18,12 +19,13 @@ pub struct Ppu {
     // emulated either, but it may be worth keeping in mind
     oamaddr: u8,
     ppudata_read_buffer: u8,
+
     // internal registers
     // used to toggle whether reads and writes to 'ppuscroll'
     // and 'ppuaddr' access the high or low bits of the register.
     // referred to as 'w' in the nesdev.com 'ppu scrolling' article
     // OPTIMIZE: pack these together (bitfields, somehow?)
-    high_bits_toggle: bool,
+    low_bits_toggle: bool,
     // address of the current tile to be fetched and drawn. points
     // to a byte in one of the nametables in vram. referred to
     // as 'v' in the nesdev.com 'ppu scrolling' article
@@ -40,6 +42,12 @@ pub struct Ppu {
     // low 3 bits consist of fine x scroll value, high 3 bits
     // consist of fine y scroll
     fine_xy_scroll: u8,
+
+    // counter variables used for rendering
+    scanline_count: u8,
+    // holds the x-position on the screen (not the x-position in the
+    // current nametable or the like) of the current tile to be drawn.
+    horizontal_tile_count: u8,
 }
 
 union Oam {
@@ -70,10 +78,12 @@ impl Default for Ppu {
             ppustatus: 0,
             oamaddr: 0,
             ppudata_read_buffer: 0,
-            high_bits_toggle: false,
+            low_bits_toggle: false,
             current_vram_addr: 0,
             temp_vram_addr: 0,
             fine_xy_scroll: 0,
+            scanline_count: 0,
+            horizontal_tile_count: 0,
         }
     }
 }
@@ -88,8 +98,8 @@ impl Ppu {
             1 => self.ppumask,
             // ppustatus
             2 => {
-                // clear high bits toggle
-                self.high_bits_toggle = false;
+                // clear low bits toggle
+                self.low_bits_toggle = false;
                 self.ppustatus
             }
             // oamaddr
@@ -98,7 +108,7 @@ impl Ppu {
             // TODO: special values when rendering
             4 => unsafe { *self.oam.bytes.get_unchecked(self.oamaddr as usize) },
             // ppuscroll | ppuaddr
-            5 | 6 => 0, // FIXME: should these reset the high bits toggle as well??
+            5 | 6 => 0, // FIXME: should these reset the low bits toggle as well??
             // ppudata
             7 => {
                 let val = if (self.current_vram_addr >> 8) == 0b111111 {
@@ -142,14 +152,7 @@ impl Ppu {
     ) {
         match index {
             // ppuctrl
-            0 => {
-                // set bits 11-12 of 'temp_vram_addr' equal to
-                // the low 2 bits of the value to be written
-                self.temp_vram_addr &= !0b110000000000;
-                self.temp_vram_addr |= ((val & 0b11) as u16) << 10;
-
-                self.ppuctrl = val;
-            }
+            0 => self.write_ppuctrl(val),
             // ppumask
             1 => self.ppumask = val,
             // ppustatus, ignore attemps to write
@@ -157,64 +160,98 @@ impl Ppu {
             // oamaddr
             3 => self.oamaddr = val,
             // oamdata
-            4 => {
-                if self.is_rendering() {
-                    // ignore attemps to write when rendering
-                    return;
-                }
-
-                unsafe { *self.oam.bytes.get_unchecked_mut(self.oamaddr as usize) = val };
-                self.oamaddr = self.oamaddr.wrapping_add(1);
-            }
+            4 => self.write_oamdata(val),
             // ppuscroll
-            5 => {
-                // high bits toggle = 0 => x coordinate is being written
-                if !self.high_bits_toggle {
-                    // write low 3 bits to 'self.fine_xy_scroll'
-                    self.set_fine_x_scroll(val & 0b111);
-                    // write high 5 bits to temporary vram address register
-                    self.temp_vram_addr = (val >> 3) as u16 & 0b11111;
-                }
-                // high bits toggle = 1 => y coordinate is being written
-                else {
-                    // write low 3 bits to high 3 bits 'self.fine_xy_scroll'
-                    self.set_fine_y_scroll(val << 5);
-                    self.temp_vram_addr |= (val as u16 & !0b111) << 2;
-                }
-
-                // reset high bits toggle
-                self.high_bits_toggle = !self.high_bits_toggle;
-            }
+            5 => self.write_ppuscroll(val),
             // ppuaddr
-            6 => {
-                let mut temp_vram_addr_bytes = self.temp_vram_addr.to_le_bytes();
-
-                if !self.high_bits_toggle {
-                    // write low 6 bits into high bits of 'temp_vram_addr'
-                    temp_vram_addr_bytes[1] = val & 0b111111;
-                    self.temp_vram_addr = u16::from_le_bytes(temp_vram_addr_bytes);
-                } else {
-                    temp_vram_addr_bytes[0] = val;
-                    self.temp_vram_addr = u16::from_le_bytes(temp_vram_addr_bytes);
-                    // set 'current_vram_addr' equal to 'temp_vram_addr' immediately
-                    self.current_vram_addr = self.temp_vram_addr;
-                }
-
-                self.high_bits_toggle = !self.high_bits_toggle;
-            }
+            6 => self.write_ppuaddr(val),
             // ppudata
-            7 => {
-                memory.write_ppu(self.current_vram_addr, val);
-
-                // increment 'current_vram_addr' (same as when reading ppudata)
-                if !self.is_rendering() {
-                    self.increment_vram_addr();
-                } else {
-                    self.increment_vram_addr_coarse_x();
-                    self.increment_vram_addr_y();
-                }
-            }
+            7 => self.write_ppudata(val, memory),
             _ => (),
+        }
+    }
+
+    fn write_ppuctrl(&mut self, val: u8) {
+        // set bits 10-11 of 'temp_vram_addr'
+        // equal to the low 2 bits of 'val'
+        self.temp_vram_addr &= !0b110000000000;
+        self.temp_vram_addr |= ((val & 0b11) as u16) << 10;
+
+        self.ppuctrl = val;
+    }
+
+    fn write_oamdata(&mut self, val: u8) {
+        if self.is_rendering() {
+            // ignore attemps to write when rendering
+            return;
+        }
+
+        unsafe { *self.oam.bytes.get_unchecked_mut(self.oamaddr as usize) = val };
+        self.oamaddr = self.oamaddr.wrapping_add(1);
+    }
+
+    fn write_ppuscroll(&mut self, val: u8) {
+        // low bits toggle = 0 => x coordinate is being written
+        if !self.low_bits_toggle {
+            // write low 3 bits (fine x) to 'self.fine_xy_scroll'
+            self.set_fine_x_scroll(val & 0b111);
+            // write high 5 bits (coarse x) to low 5 bits
+            // of temporary vram address register
+            self.temp_vram_addr &= !0b11111;
+            self.temp_vram_addr |= (val >> 3) as u16;
+        }
+        // low bits toggle = 1 => y coordinate is being written
+        else {
+            // write high 5 bits (coarse y) to
+            // bits 5-10 of 'temp_vram_addr'
+            self.temp_vram_addr &= !0b1111100000;
+            self.temp_vram_addr |= (val as u16 & !0b111) << 2;
+            // write low 3 bits (fine y) to bits
+            // 12-14 of 'temp_vram_addr'
+            self.temp_vram_addr &= !0b111000000000000;
+            self.temp_vram_addr |= (val as u16 & 0b111) << 12;
+        }
+
+        // reset low bits toggle
+        self.low_bits_toggle = !self.low_bits_toggle;
+    }
+
+    fn write_ppuaddr(&mut self, val: u8) {
+        let mut temp_vram_addr_bytes = self.temp_vram_addr.to_le_bytes();
+
+        if !self.low_bits_toggle {
+            // write low 6 bits into bits 8-13 of temporary vram address register
+            temp_vram_addr_bytes[1] = val & 0b111111;
+            // clear bit 14
+            temp_vram_addr_bytes[1] &= !0b01000000;
+
+            // store back
+            self.temp_vram_addr = u16::from_le_bytes(temp_vram_addr_bytes);
+        } else {
+            // set all low bits of temporary vram register equal to 'val'
+            temp_vram_addr_bytes[0] = val;
+            self.temp_vram_addr = u16::from_le_bytes(temp_vram_addr_bytes);
+
+            // write bits 4-5 into fine y scroll bits of 'self.fine_xy_scroll'
+            let fine_y = (val & 0b00110000) << 1;
+            self.fine_xy_scroll = (self.fine_xy_scroll & !0b01100000) | fine_y;
+
+            // set 'current_vram_addr' equal to 'temp_vram_addr'
+            self.current_vram_addr = self.temp_vram_addr;
+        }
+
+        self.low_bits_toggle = !self.low_bits_toggle;
+    }
+
+    fn write_ppudata(&mut self, val: u8, memory: &mut mmap::Nrom128MemoryMap) {
+        memory.write_ppu(self.current_vram_addr, val);
+
+        // increment 'current_vram_addr' (same as when reading ppudata)
+        if !self.is_rendering() {
+            self.increment_vram_addr();
+        } else {
+            self.increment_vram_addr_coarse_x();
+            self.increment_vram_addr_y();
         }
     }
 
@@ -275,6 +312,8 @@ impl Ppu {
         }
     }
 
+    // increments the coarse y scroll/position bits in 'current_vram_addr'
+    // (corresponds to moving one tile to the left in the current nametable)
     fn increment_vram_addr_coarse_x(&mut self) {
         if (self.current_vram_addr & 0b11111) == 0b11111 {
             // if the coarse x component of 'current_vram_addr' is the highest
@@ -288,16 +327,110 @@ impl Ppu {
         }
     }
 
-    pub fn render(&mut self) {
+    pub fn draw_scanline_tile(&mut self, memory: *mut mmap::Nrom128MemoryMap) {
+        let fine_x_pos = if self.horizontal_tile_count == 0 {
+            // if at start of scanline, set 'fine_x_pos' equal
+            // to the fine x value in 'fine_xy_scroll'
+            self.fine_xy_scroll & 0b111
+        } else {
+            0
+        };
+
+        let fine_y_pos = self.fine_xy_scroll >> 5;
+
+        println!("fine_y_pos: {}", fine_y_pos);
+        println!("fine_x_pos: {}", fine_x_pos);
+
+        // get a raw pointer to the background pattern table. FIXME: explain why
+        // FIXME: don't need the raw pointers here, should be able to remove this
+        let background_table_ptr = unsafe {
+            (((*memory).get_pattern_tables_raw() as usize)
+                + self.get_background_pattern_table_addr() as usize)
+                as *mut [u8; 0x1000]
+        };
+
+        let current_tile = unsafe {
+            // get tile index from nametable using 'current_vram_addr'
+            let tile_index = (*memory).read_ppu(self.current_vram_addr);
+            println!(
+                "tile_index: {:x} at {:x}",
+                tile_index, self.current_vram_addr
+            );
+            // get tile from pattern table using the tile index
+            // SAFETY: 'current_tile_index' cannot be larger than 255
+            *((background_table_ptr as usize + tile_index as usize * 16) as *mut [u8; 16])
+        };
+
+        let tile_attribute = { /* TODO: calculate attribute address etc. */ };
+
+        println!("tile: [{:>08b}", current_tile[0 + fine_y_pos as usize]);
+        println!("       {:>08b}]", current_tile[7 + fine_y_pos as usize]);
+
+        // get the high and low bitplanes for the current row of the current tile
+        // TODO: unchecked indexing
+        let mut bitplane_low = current_tile[0 + fine_y_pos as usize];
+        let mut bitplane_high = current_tile[7 + fine_y_pos as usize];
+
+        // start at rightmost pixel in tile and move leftwards
+        // until the pixel at 'fine_x_pos' is reached
+        for i in 0..8 - fine_x_pos {
+            let current_palette_index = (bitplane_low & 1) | ((bitplane_high << 1) & 0b11);
+            bitplane_low >>= 1;
+            bitplane_high >>= 1;
+
+            println!(
+                "current_x_pos: {}",
+                ((self.current_vram_addr & 0b11111) << 3) | (7 - i as u16)
+            );
+            println!("current_palette_index: {}", current_palette_index);
+        }
+
+        self.increment_vram_addr_coarse_x();
+
+        // if at end of scanline
+        if self.horizontal_tile_count == 31 {
+            // if at last scanline
+            if self.scanline_count == 239 {
+                self.scanline_count = 0;
+                // copy coarse y bits from 'temp_vram_addr' into 'current_vram_addr'
+                self.current_vram_addr &= !0b1111100000;
+                self.current_vram_addr |= self.temp_vram_addr & 0b1111100000;
+                // copy high 3 bits from 'temp_vram_addr' (corresponding to fine
+                // y scroll/position) into high 3 bits of 'fine_xy_scroll'
+                self.set_fine_y_scroll(self.temp_vram_addr.to_le_bytes()[1] & 0b11100000);
+
+                return;
+            }
+
+            self.horizontal_tile_count = 0;
+            self.scanline_count += 1;
+
+            // increment fine y
+            self.increment_vram_addr_y();
+            // copy coarse x scroll/position bits from 'temp_vram_addr' into 'current_vram_addr'
+            self.current_vram_addr &= !0b11111;
+            self.current_vram_addr |= self.temp_vram_addr & 0b11111;
+        } else {
+            self.horizontal_tile_count += 1;
+        }
+    }
+
+    fn comments() {
+        // start fetching from current addr
 
         //
         // TODO: ..
-        // calculate nametable fetch addr ('v') (base nametable addr and 'temp_vram_addr' register)
-        // for each upper row of a tile in a scanline:
+        // for each entire screen rendered:
+        //     re-calculate nametable fetch addr ('v') (from base
+        //     nametable addr and 'temp_vram_addr' register)
+        // for each pixel in a scanline:
         //     increment fetch addr x
+        // for every second row of a tile in a scanline:
+        //     calculate attribute address
+        //     compute pixel color from palette
         // for each scanline:
         //     update horizontal bits of nametable fetch addr from 'temp_vram_addr'
-        //     increment y
+        //     increment fetch addr y
         //
         // fetch from addr
         // do other stuff that i haven't gotten to yet
