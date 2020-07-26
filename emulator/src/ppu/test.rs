@@ -195,9 +195,9 @@ fn test_write_2006() {
         cpu_cycles,
     };
 
-    // LDA #3d (0b00111101)
+    // LDA #ed (0b11101101)
     memory.write_cpu(ptrs, 0u16, 0xa9);
-    memory.write_cpu(ptrs, 1u16, 0x3d);
+    memory.write_cpu(ptrs, 1u16, 0xed);
     // STA $2006
     memory.write_cpu(ptrs, 2u16, 0x8d);
     memory.write_cpu(ptrs, 3u16, 06);
@@ -214,7 +214,7 @@ fn test_write_2006() {
     assert_eq!(ptrs.ppu.low_bits_toggle, true);
     // bit 14 should be cleared and bits 8-13 should be
     // equal to bits 0-6 of the value written to 0x2006
-    assert_eq!(ptrs.ppu.temp_vram_addr, 0b000_00_111101_00000000);
+    assert_eq!(ptrs.ppu.temp_vram_addr, 0b010_11_01000_00000);
 
     // LDA #f0 (0b11110000)
     memory.write_cpu(ptrs, 5u16, 0xa9);
@@ -229,8 +229,16 @@ fn test_write_2006() {
     }
 
     assert_eq!(ptrs.ppu.low_bits_toggle, false);
-    assert_eq!(ptrs.ppu.temp_vram_addr, 0b000_00_111101_11110000);
+    // low 8 bits should all be set equal to the value written
+    assert_eq!(ptrs.ppu.temp_vram_addr, 0b010_11_01111_10000);
+    // 'temp_vram_addr' should've been transferred to 'current_vram_addr'
     assert_eq!(ptrs.ppu.temp_vram_addr, ptrs.ppu.current_vram_addr);
+    // bits 5-6 of 'fine_xy_scroll' (low 2 bits of fine y scroll value)
+    // should be equal bits 12-13 of 'current_vram_addr'
+    assert_eq!(
+        ptrs.ppu.fine_xy_scroll >> 5,
+        (ptrs.ppu.current_vram_addr >> 12) as u8
+    );
 }
 
 #[test]
@@ -364,6 +372,25 @@ fn todo_ppu_memory_map_calc() {
     }
 
     println!("read_addr: {:x}", read_addr);
+}
+
+#[test]
+fn test_misc() {
+    let mut cpu = cpu::Cpu::default();
+    let ref mut memory = mmap::Nrom128MemoryMap::new();
+    let ref mut ppu = super::Ppu::default();
+    let ref mut apu = apu::Apu {};
+    let ref mut cpu_cycles = 0;
+    let ref mut ptrs = PtrsWrapper {
+        ppu,
+        apu,
+        cpu_cycles,
+    };
+
+    ppu.write_ppuaddr(0x24);
+    ppu.write_ppuaddr(0x00);
+
+    assert_eq!(ppu.current_vram_addr, 0x2400);
 }
 
 #[test]

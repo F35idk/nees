@@ -49,8 +49,8 @@ pub struct Ppu {
 
     // counter variables used for rendering
     scanline_count: u8,
-    // holds the x-position on the screen (not the x-position in the
-    // current nametable or the like) of the current tile to be drawn.
+    // holds the x-position on the screen (not the x-position in
+    // the current nametable) of the current tile to be drawn.
     horizontal_tile_count: u8,
 }
 
@@ -236,9 +236,9 @@ impl Ppu {
             temp_vram_addr_bytes[0] = val;
             self.temp_vram_addr = u16::from_le_bytes(temp_vram_addr_bytes);
 
-            // write bits 4-5 into fine y scroll bits of 'self.fine_xy_scroll'
-            let fine_y = (val & 0b00110000) << 1;
-            self.fine_xy_scroll = (self.fine_xy_scroll & !0b01100000) | fine_y;
+            // write bits 12-13 into fine y scroll bits of 'self.fine_xy_scroll'
+            let fine_y = (self.temp_vram_addr & 0b011_00_00000_00000) >> 7;
+            self.fine_xy_scroll = (self.fine_xy_scroll & !0b01100000) | (fine_y as u8);
 
             // set 'current_vram_addr' equal to 'temp_vram_addr'
             self.current_vram_addr = self.temp_vram_addr;
@@ -248,7 +248,6 @@ impl Ppu {
     }
 
     fn write_ppudata(&mut self, val: u8, memory: &mut mmap::Nrom128MemoryMap) {
-        // FIXME:::::::
         memory.write_ppu(self.current_vram_addr, val);
 
         // increment 'current_vram_addr' (same as when reading ppudata)
