@@ -57,16 +57,20 @@ fn main() {
     let prg_size = 0x4000 * (parse::get_prg_size(&rom) as usize);
     let chr_size = 0x2000 * (parse::get_chr_size(&rom) as usize);
     memory.load_chr_ram(&rom[0x10 + prg_size..=prg_size + chr_size + 0xf]);
-    memory.fill_2400();
+    memory.fill_nametables();
 
-    // set sprite pattern table addr = 0x1000
-    ppu.ppuctrl = 0b100000;
-    // set 'current_vram_addr' = first byte of second nametable
-    ppu.current_vram_addr = 0x2400;
     // set nametable mirroring mask = vertical mirroring
     memory.nametable_mirroring_mask = !0x800;
+    // set background pattern table addr = 0x1000
+    ppu.ppuctrl = 0b10000;
+    // set base nametable addr = 0x2400
+    ppu.ppuctrl |= 1;
+    // set coarse x scroll = 1 (offset by 1 in the nametable)
+    ppu.temp_vram_addr |= 0b01111;
 
-    // ppu.temp_vram_addr = 0b00111;
+    // 0b10_01_00000_00000 = 0x2400
+    // 0b010_01_00000_00000
+    // 0byyy_NN_YYYYY_XXXXX
 
     loop {
         ppu.draw_tile_row(&mut memory, &mut renderer);

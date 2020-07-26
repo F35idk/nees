@@ -35,6 +35,7 @@ pub struct Ppu {
     // NOTE: instead of the fine y scroll value being stored in
     // the upper 3 bits of this, (as is the case on the actual
     // ppu), they are stored in 'fine_xy_scroll'
+    // TODO: store fine y scroll in this
     pub current_vram_addr: u16,
     // temporary address, same as above but minus 0x2000 and
     // doesn't get incremented while drawing. this register is
@@ -44,7 +45,7 @@ pub struct Ppu {
     pub temp_vram_addr: u16,
     // low 3 bits consist of fine x scroll value, high 3 bits
     // consist of fine y scroll
-    fine_xy_scroll: u8,
+    pub fine_xy_scroll: u8,
 
     // counter variables used for rendering
     scanline_count: u8,
@@ -247,6 +248,7 @@ impl Ppu {
     }
 
     fn write_ppudata(&mut self, val: u8, memory: &mut mmap::Nrom128MemoryMap) {
+        // FIXME:::::::
         memory.write_ppu(self.current_vram_addr, val);
 
         // increment 'current_vram_addr' (same as when reading ppudata)
@@ -308,7 +310,8 @@ impl Ppu {
                 // bit 11 and switching nametables (unintended behavior afaik)
                 self.current_vram_addr &= !0b1111100000;
             } else {
-                self.current_vram_addr += 1;
+                // increment coarse y bits of 'current_vram_addr'
+                self.current_vram_addr += 1 << 5;
             }
         } else {
             self.fine_xy_scroll = res;
@@ -336,16 +339,34 @@ impl Ppu {
         renderer: &mut PixelRenderer,
     ) {
         let fine_y_pos = self.fine_xy_scroll >> 5;
-        let fine_x_pos = if self.horizontal_tile_count == 0 {
-            // if at start of scanline, set 'fine_x_pos' equal
-            // to the fine x value in 'fine_xy_scroll'
-            self.fine_xy_scroll & 0b111
-        } else {
-            0
-        };
+        let mut fine_x_pos = 0;
 
-        logln!("fine_y_pos: {}", fine_y_pos);
-        logln!("fine_x_pos: {}", fine_x_pos);
+        // if at start of scanline
+        if self.horizontal_tile_count == 0 {
+            // if on first scanline
+            if self.scanline_count == 0 {
+                // copy coarse y bits from 'temp_vram_addr' into 'current_vram_addr'
+                self.current_vram_addr &= !0b1111100000;
+                self.current_vram_addr |= self.temp_vram_addr & 0b1111100000;
+
+                // copy high 3 bits from 'temp_vram_addr' (corresponding to fine
+                // y scroll/position) into high 3 bits of 'fine_xy_scroll'
+                self.set_fine_y_scroll(self.temp_vram_addr.to_le_bytes()[1] & 0b11100000);
+            }
+
+            // set bits 10-11 in 'current_vram_addr' equal to the nametable select bits in ppuctrl
+            self.current_vram_addr &= !0b110000000000;
+            self.current_vram_addr |= (self.ppuctrl as u16 & 0b11) << 10;
+
+            // set 'fine_x_pos' equal to the fine x value in 'fine_xy_scroll'
+            fine_x_pos = self.fine_xy_scroll & 0b111;
+
+            // copy coarse x scroll/position bits from 'temp_vram_addr' into 'current_vram_addr'
+            self.current_vram_addr &= !0b11111;
+            self.current_vram_addr |= self.temp_vram_addr & 0b11111;
+        }
+
+        log!("fine x, y: ({}, {}), ", fine_x_pos, fine_y_pos);
 
         // get a raw pointer to the background pattern table. FIXME: explain why
         // FIXME: don't need the raw pointers here, should be able to remove this
@@ -356,13 +377,15 @@ impl Ppu {
         };
 
         let current_tile = unsafe {
-            // get tile index from nametable using 'current_vram_addr'
-            let tile_index = (*memory).read_ppu(self.current_vram_addr);
+            // get tile index from nametable using 'current_vram_addr' + 0x2000
+            let fetch_addr = (self.current_vram_addr & 0xfff) | 0x2000;
+            let tile_index = (*memory).read_ppu(fetch_addr);
             logln!(
                 "tile_index: {:x} at {:x}",
                 tile_index,
-                self.current_vram_addr
+                (self.current_vram_addr & 0xfff) | 0x2000
             );
+
             // get tile from pattern table using the tile index
             // SAFETY: 'current_tile_index' cannot be larger than 255
             *((background_table_ptr as usize + tile_index as usize * 16) as *mut [u8; 16])
@@ -374,12 +397,6 @@ impl Ppu {
         // TODO: unchecked indexing
         let mut bitplane_low = current_tile[0 + fine_y_pos as usize];
         let mut bitplane_high = current_tile[8 + fine_y_pos as usize];
-
-        // logln!("bitplanes: [{:>08b}", current_tile[0 + fine_y_pos as usize]);
-        // logln!(
-        //     "            {:>08b}]",
-        //     current_tile[8 + fine_y_pos as usize]
-        // );
 
         let palette = [
             [0, 0, 0, 0],       // black
@@ -397,32 +414,17 @@ impl Ppu {
 
             let screen_x = ((self.horizontal_tile_count << 3) | (7 - i)) as usize;
             let screen_y = self.scanline_count as usize;
-            logln!("screen coords [{}, {}]", screen_x, screen_y);
 
             let pixels = super::pixels_to_u32(renderer);
             pixels[screen_y * 256 + screen_x] =
                 u32::from_le_bytes(palette[current_palette_index as usize]);
-
-            logln!(
-                "current_nametable_x_pos: {}",
-                ((self.current_vram_addr & 0b11111) << 3) | (7 - i as u16)
-            );
-            // logln!("current_palette_index: {}", current_palette_index);
         }
 
         // if at end of scanline
         if self.horizontal_tile_count == 31 {
-            // if at last scanline
+            // if on last scanline
             if self.scanline_count == 239 {
                 self.scanline_count = 0;
-                // copy coarse y bits from 'temp_vram_addr' into 'current_vram_addr'
-                self.current_vram_addr &= !0b1111100000;
-                self.current_vram_addr |= self.temp_vram_addr & 0b1111100000;
-                // copy high 3 bits from 'temp_vram_addr' (corresponding to fine
-                // y scroll/position) into high 3 bits of 'fine_xy_scroll'
-                self.set_fine_y_scroll(self.temp_vram_addr.to_le_bytes()[1] & 0b11100000);
-
-                return;
             }
 
             self.horizontal_tile_count = 0;
@@ -430,9 +432,6 @@ impl Ppu {
 
             // increment fine y
             self.increment_vram_addr_y();
-            // copy coarse x scroll/position bits from 'temp_vram_addr' into 'current_vram_addr'
-            self.current_vram_addr &= !0b11111;
-            self.current_vram_addr |= self.temp_vram_addr & 0b11111;
         } else {
             self.horizontal_tile_count += 1;
             self.increment_vram_addr_coarse_x();

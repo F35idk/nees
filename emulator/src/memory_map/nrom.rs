@@ -49,8 +49,9 @@ impl Nrom128MemoryMap {
         self.chr_ram.copy_from_slice(ram);
     }
 
-    pub fn fill_2400(&mut self) {
-        for (i, byte) in self.nametables[0x400..].iter_mut().enumerate() {
+    // NOTE: dummy function
+    pub fn fill_nametables(&mut self) {
+        for (i, byte) in self.nametables.iter_mut().enumerate() {
             *byte = i as u8;
         }
     }
