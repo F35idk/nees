@@ -1,8 +1,6 @@
 #[macro_use]
-use super::super::log;
-use super::super::PtrsWrapper;
 use super::MemoryMap;
-use super::{apu, ppu};
+use super::{apu, ppu, util};
 
 // the cpu and ppu memory maps for games that use the 'NROM-128' cartridge/mapper (ines mapper 0)
 pub struct Nrom128MemoryMap {
@@ -58,7 +56,7 @@ impl Nrom128MemoryMap {
 }
 
 impl MemoryMap for Nrom128MemoryMap {
-    fn read_cpu(&self, ptrs: &mut PtrsWrapper, mut addr: u16) -> u8 {
+    fn read_cpu(&self, ptrs: &mut util::PtrsWrapper, mut addr: u16) -> u8 {
         // address lines a13-a15 = 000 (0-0x1fff) => internal ram
         if (addr >> 13) == 0 {
             // mask off bit 11 and 12 for mirroring
@@ -98,7 +96,7 @@ impl MemoryMap for Nrom128MemoryMap {
         0
     }
 
-    fn write_cpu(&mut self, ptrs: &mut PtrsWrapper, addr: u16, val: u8) {
+    fn write_cpu(&mut self, ptrs: &mut util::PtrsWrapper, addr: u16, val: u8) {
         // NOTE: see 'calc_cpu_read_addr()' for comments explaining address calculation
         if (addr >> 13) == 0 {
             unsafe {
@@ -195,7 +193,7 @@ impl Nrom256MemoryMap {
 }
 
 impl MemoryMap for Nrom256MemoryMap {
-    fn read_cpu(&self, ptrs: &mut PtrsWrapper, mut addr: u16) -> u8 {
+    fn read_cpu(&self, ptrs: &mut util::PtrsWrapper, mut addr: u16) -> u8 {
         if (addr >> 13) == 0 {
             addr &= !0b1100000000000;
             return unsafe { *self.cpu_memory.get(addr as usize).unwrap() };
@@ -221,7 +219,7 @@ impl MemoryMap for Nrom256MemoryMap {
         0
     }
 
-    fn write_cpu(&mut self, ptrs: &mut PtrsWrapper, addr: u16, val: u8) {
+    fn write_cpu(&mut self, ptrs: &mut util::PtrsWrapper, addr: u16, val: u8) {
         if (addr >> 13) == 0 {
             unsafe {
                 *self
@@ -285,7 +283,7 @@ fn test_calc_addr_128() {
     let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
     let ref mut cpu_cycles = 0;
-    let ref mut ptrs = PtrsWrapper {
+    let ref mut ptrs = util::PtrsWrapper {
         ppu,
         apu,
         cpu_cycles,

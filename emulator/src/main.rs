@@ -1,5 +1,5 @@
 #[macro_use]
-mod log;
+mod util;
 mod apu;
 mod cpu;
 mod memory_map;
@@ -12,23 +12,6 @@ use mmap::MemoryMap;
 
 use pixel_renderer;
 use pixel_renderer::PixelRenderer;
-
-// convenience/helper struct for passing around important pointers,
-// to reduce amt. of function arguments everywhere, etc.
-pub struct PtrsWrapper<'a, 'b, 'c> {
-    pub ppu: &'a mut ppu::Ppu,
-    pub apu: &'b mut apu::Apu,
-    pub cpu_cycles: &'c mut u64,
-}
-
-pub fn pixels_to_u32<'a>(pixel_renderer: &'a mut PixelRenderer) -> &'a mut [u32] {
-    unsafe {
-        std::slice::from_raw_parts_mut(
-            pixel_renderer.get_pixels().as_mut_ptr() as *mut u32,
-            pixel_renderer.get_pixels().len() / 4,
-        )
-    }
-}
 
 fn main() {
     let rom = std::fs::read("Super_Mario_Bros.nes").unwrap();
@@ -68,7 +51,7 @@ fn main() {
         let ref mut apu = apu::Apu {};
         let ref mut cpu_cycles = 7; // for whatever reason
 
-        let ref mut ptrs = PtrsWrapper {
+        let ref mut ptrs = util::PtrsWrapper {
             ppu,
             apu,
             cpu_cycles,

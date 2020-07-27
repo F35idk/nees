@@ -1,5 +1,5 @@
 #[macro_use]
-use super::memory_map as mmap;
+use super::{memory_map as mmap, util};
 use super::pixel_renderer::PixelRenderer;
 use mmap::MemoryMap;
 
@@ -432,7 +432,7 @@ impl Ppu {
             let screen_x = ((self.current_tile_x << 3) | (7 - i)) as usize;
             let screen_y = self.current_scanline as usize;
 
-            let pixels = super::pixels_to_u32(renderer);
+            let pixels = util::pixels_to_u32(renderer);
             pixels[screen_y * 256 + screen_x] =
                 u32::from_le_bytes(palette[current_palette_index as usize]);
         }

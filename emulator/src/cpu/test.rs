@@ -1,5 +1,4 @@
-use super::super::PtrsWrapper;
-use super::super::{apu, memory_map as mmap, ppu};
+use super::super::{apu, memory_map as mmap, ppu, util};
 use super::Cpu;
 use mmap::MemoryMap;
 
@@ -30,7 +29,7 @@ fn test_adc() {
     assert_eq!(cpu.p, 0x27);
 
     let ref mut memory = mmap::Nrom128MemoryMap::new();
-    let ref mut ptrs = PtrsWrapper {
+    let ref mut ptrs = util::PtrsWrapper {
         ppu,
         apu,
         cpu_cycles,
@@ -87,7 +86,7 @@ fn test_and() {
     assert_eq!(cpu.p, 2); // zero-flag should be set
 
     let ref mut memory = mmap::Nrom128MemoryMap::new();
-    let ref mut ptrs = PtrsWrapper {
+    let ref mut ptrs = util::PtrsWrapper {
         ppu,
         apu,
         cpu_cycles,
@@ -112,7 +111,7 @@ fn test_asl() {
     let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
-    let ref mut ptrs = PtrsWrapper {
+    let ref mut ptrs = util::PtrsWrapper {
         ppu,
         apu,
         cpu_cycles,
@@ -154,7 +153,7 @@ fn test_branch_instrs() {
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut cpu_cycles = 0;
-    let ref mut ptrs = PtrsWrapper {
+    let ref mut ptrs = util::PtrsWrapper {
         ppu,
         apu,
         cpu_cycles,
@@ -195,7 +194,7 @@ fn test_bit() {
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut cpu_cycles = 0;
-    let ref mut ptrs = PtrsWrapper {
+    let ref mut ptrs = util::PtrsWrapper {
         ppu,
         apu,
         cpu_cycles,
@@ -228,7 +227,7 @@ fn test_dec_inc() {
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut cpu_cycles = 0;
-    let ref mut ptrs = PtrsWrapper {
+    let ref mut ptrs = util::PtrsWrapper {
         ppu,
         apu,
         cpu_cycles,
@@ -250,7 +249,7 @@ fn test_eor() {
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut cpu_cycles = 0;
-    let ref mut ptrs = PtrsWrapper {
+    let ref mut ptrs = util::PtrsWrapper {
         ppu,
         apu,
         cpu_cycles,
@@ -285,7 +284,7 @@ fn test_jmp() {
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut cpu_cycles = 0;
-    let ref mut ptrs = PtrsWrapper {
+    let ref mut ptrs = util::PtrsWrapper {
         ppu,
         apu,
         cpu_cycles,
@@ -311,7 +310,7 @@ fn test_jsr() {
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut cpu_cycles = 0;
-    let ref mut ptrs = PtrsWrapper {
+    let ref mut ptrs = util::PtrsWrapper {
         ppu,
         apu,
         cpu_cycles,
@@ -369,7 +368,7 @@ fn test_jsr_2() {
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut cpu_cycles = 0;
-    let ref mut ptrs = PtrsWrapper {
+    let ref mut ptrs = util::PtrsWrapper {
         ppu,
         apu,
         cpu_cycles,
@@ -400,7 +399,7 @@ fn test_ld() {
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut cpu_cycles = 0;
-    let ref mut ptrs = PtrsWrapper {
+    let ref mut ptrs = util::PtrsWrapper {
         ppu,
         apu,
         cpu_cycles,
@@ -443,7 +442,7 @@ fn test_push_pull() {
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut cpu_cycles = 0;
-    let ref mut ptrs = PtrsWrapper {
+    let ref mut ptrs = util::PtrsWrapper {
         ppu,
         apu,
         cpu_cycles,
@@ -482,7 +481,7 @@ fn test_rol_ror() {
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut cpu_cycles = 0;
-    let ref mut ptrs = PtrsWrapper {
+    let ref mut ptrs = util::PtrsWrapper {
         ppu,
         apu,
         cpu_cycles,
@@ -527,7 +526,7 @@ fn test_rts() {
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut cpu_cycles = 0;
-    let ref mut ptrs = PtrsWrapper {
+    let ref mut ptrs = util::PtrsWrapper {
         ppu,
         apu,
         cpu_cycles,

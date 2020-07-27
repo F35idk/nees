@@ -1,10 +1,5 @@
-use super::super::apu;
-use super::super::cpu;
-use super::super::memory_map as mmap;
-use super::super::parse;
-use super::super::win;
 use super::super::PixelRenderer;
-use super::super::PtrsWrapper;
+use super::super::{apu, cpu, memory_map as mmap, parse, util, win};
 use mmap::MemoryMap;
 
 #[test]
@@ -90,7 +85,7 @@ fn test_write_2000() {
     let ref mut ppu = super::Ppu::default();
     let ref mut apu = apu::Apu {};
     let ref mut cpu_cycles = 0;
-    let ref mut ptrs = PtrsWrapper {
+    let ref mut ptrs = util::PtrsWrapper {
         ppu,
         apu,
         cpu_cycles,
@@ -119,7 +114,7 @@ fn test_read_2002() {
     let ref mut ppu = super::Ppu::default();
     let ref mut apu = apu::Apu {};
     let ref mut cpu_cycles = 0;
-    let ref mut ptrs = PtrsWrapper {
+    let ref mut ptrs = util::PtrsWrapper {
         ppu,
         apu,
         cpu_cycles,
@@ -144,7 +139,7 @@ fn test_write_2005() {
     let ref mut ppu = super::Ppu::default();
     let ref mut apu = apu::Apu {};
     let ref mut cpu_cycles = 0;
-    let ref mut ptrs = PtrsWrapper {
+    let ref mut ptrs = util::PtrsWrapper {
         ppu,
         apu,
         cpu_cycles,
@@ -191,7 +186,7 @@ fn test_write_2006() {
     let ref mut ppu = super::Ppu::default();
     let ref mut apu = apu::Apu {};
     let ref mut cpu_cycles = 0;
-    let ref mut ptrs = PtrsWrapper {
+    let ref mut ptrs = util::PtrsWrapper {
         ppu,
         apu,
         cpu_cycles,
@@ -247,7 +242,7 @@ fn test_write_2003_read_2004() {
     let ref mut ppu = super::Ppu::default();
     let ref mut apu = apu::Apu {};
     let ref mut cpu_cycles = 0;
-    let ref mut ptrs = PtrsWrapper {
+    let ref mut ptrs = util::PtrsWrapper {
         ppu,
         apu,
         cpu_cycles,
@@ -371,7 +366,7 @@ fn test_misc() {
     let ref mut ppu = super::Ppu::default();
     let ref mut apu = apu::Apu {};
     let ref mut cpu_cycles = 0;
-    let ref mut ptrs = PtrsWrapper {
+    let ref mut ptrs = util::PtrsWrapper {
         ppu,
         apu,
         cpu_cycles,
