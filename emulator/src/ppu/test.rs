@@ -1,6 +1,8 @@
 use super::super::apu;
 use super::super::cpu;
 use super::super::memory_map as mmap;
+use super::super::parse;
+use super::super::win;
 use super::super::PixelRenderer;
 use super::super::PtrsWrapper;
 use mmap::MemoryMap;
@@ -381,18 +383,41 @@ fn test_misc() {
     assert_eq!(ppu.current_vram_addr.addr, 0x2400);
 }
 
-#[test]
-fn test_render() {
-    let mut cpu = cpu::Cpu::default();
-    let ref mut memory = mmap::Nrom128MemoryMap::new();
-    let ref mut ppu = super::Ppu::default();
-    let ref mut apu = apu::Apu {};
-    let ref mut cpu_cycles = 0;
-    let ref mut ptrs = PtrsWrapper {
-        ppu,
-        apu,
-        cpu_cycles,
-    };
+// draws the pattern table at address 0x1000 of 'rom'
+fn test_draw(rom: &[u8]) {
+    assert!(parse::is_valid(&rom));
 
-    // TODO:
+    let mut win = win::XcbWindowWrapper::new("mynes", 1200, 600).unwrap();
+    let mut renderer = PixelRenderer::new(&mut win.connection, win.win, 256, 240).unwrap();
+    let mut memory = mmap::Nrom128MemoryMap::new();
+    let mut ppu = super::Ppu::default();
+
+    win.map_and_flush();
+
+    let prg_size = 0x4000 * (parse::get_prg_size(&rom) as usize);
+    let chr_size = 0x2000 * (parse::get_chr_size(&rom) as usize);
+    memory.load_chr_ram(&rom[0x10 + prg_size..=prg_size + chr_size + 0xf]);
+    memory.fill_nametables();
+
+    // set nametable mirroring mask = vertical mirroring
+    memory.nametable_mirroring_mask = !0x800;
+    // set background pattern table addr = 0x1000 and base nametable addr = 0x2400
+    ppu.write_register_by_index(0, 0b10001, &mut memory);
+    // set coarse x scroll = 15 (offset by 15 in the nametable)
+    ppu.temp_vram_addr.addr |= 0b01111;
+
+    let mut i = 0;
+    loop {
+        if i % 32 == 0 {
+            let i = renderer.render_frame();
+            renderer.present(i);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+
+        if i < 960 * 8 {
+            ppu.draw_tile_row(&mut memory, &mut renderer);
+        }
+
+        i += 1;
+    }
 }
