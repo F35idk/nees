@@ -61,25 +61,24 @@ fn main() {
 
     // set nametable mirroring mask = vertical mirroring
     memory.nametable_mirroring_mask = !0x800;
-    // set background pattern table addr = 0x1000
-    ppu.ppuctrl = 0b10000;
-    // set base nametable addr = 0x2400
-    ppu.ppuctrl |= 1;
-    // set coarse x scroll = 1 (offset by 1 in the nametable)
-    ppu.temp_vram_addr |= 0b01111;
+    // set background pattern table addr = 0x1000 and base nametable addr = 0x2400
+    ppu.write_register_by_index(0, 0b10001, &mut memory);
+    // set coarse x scroll = 15 (offset by 15 in the nametable)
+    ppu.temp_vram_addr.addr |= 0b01111;
 
-    // 0b10_01_00000_00000 = 0x2400
-    // 0b010_01_00000_00000
-    // 0byyy_NN_YYYYY_XXXXX
-
+    let mut i = 0;
     loop {
-        ppu.draw_tile_row(&mut memory, &mut renderer);
-        {
+        if i % 32 == 0 {
             let i = renderer.render_frame();
             renderer.present(i);
+            std::thread::sleep(std::time::Duration::from_millis(5));
         }
 
-        std::thread::sleep(std::time::Duration::from_millis(1));
+        if i < 960 * 8 {
+            ppu.draw_tile_row(&mut memory, &mut renderer);
+        }
+
+        i += 1;
         // TODO:
     }
 
