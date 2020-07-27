@@ -16,3 +16,7 @@ features = ["keysyms"]
 
 [features]
 logging = []
+
+[profile.release]
+lto = true
+codegen-units = 1
