@@ -346,19 +346,6 @@ fn test_oamdma() {
     assert_eq!(ppu.oamaddr, 0xee);
 }
 
-fn todo_ppu_memory_map_calc() {
-    // 0b10000000000000 => PA13 is high => 0x2000
-    // 0b01000000000000 => PA12 is high => 0x1000
-    // 0b11000000000000 => PA13 & PA12 are high => 0x3000
-    let mut read_addr = 0x3f00;
-
-    if (read_addr >> 13) == 1 {
-        read_addr &= !0b01000000000000;
-    }
-
-    println!("read_addr: {:x}", read_addr);
-}
-
 #[test]
 fn test_misc() {
     let mut cpu = cpu::Cpu::default();
@@ -379,7 +366,7 @@ fn test_misc() {
 }
 
 // draws the pattern table at address 0x1000 of 'rom'
-fn test_draw(rom: &[u8]) {
+pub fn test_draw(rom: &[u8]) {
     assert!(parse::is_valid(&rom));
 
     let mut win = win::XcbWindowWrapper::new("mynes", 1200, 600).unwrap();
@@ -387,12 +374,31 @@ fn test_draw(rom: &[u8]) {
     let mut memory = mmap::Nrom128MemoryMap::new();
     let mut ppu = super::Ppu::default();
 
-    win.map_and_flush();
-
     let prg_size = 0x4000 * (parse::get_prg_size(&rom) as usize);
     let chr_size = 0x2000 * (parse::get_chr_size(&rom) as usize);
     memory.load_chr_ram(&rom[0x10 + prg_size..=prg_size + chr_size + 0xf]);
-    memory.fill_nametables();
+
+    {
+        // set universal background color = black
+        memory.palettes[0] = 0x0f;
+        // set palette 2 = [red, green, blue]
+        memory.palettes[8 + 1] = 0x06;
+        memory.palettes[8 + 2] = 0x19;
+        memory.palettes[8 + 3] = 0x02;
+
+        for (i, byte) in memory.nametables.iter_mut().enumerate() {
+            *byte = i as u8;
+        }
+
+        for attr in memory.nametables[0x3c0..0x400].iter_mut() {
+            // ensure all tiles will use palette 2
+            *attr = 0b10101010;
+        }
+
+        for attr in memory.nametables[0x400 + 0x3c0..].iter_mut() {
+            *attr = 0b10101010;
+        }
+    }
 
     // set nametable mirroring mask = vertical mirroring
     memory.nametable_mirroring_mask = !0x800;
@@ -400,6 +406,8 @@ fn test_draw(rom: &[u8]) {
     ppu.write_register_by_index(0, 0b10001, &mut memory);
     // set coarse x scroll = 15 (offset by 15 in the nametable)
     ppu.temp_vram_addr.addr |= 0b01111;
+
+    win.map_and_flush();
 
     let mut i = 0;
     loop {

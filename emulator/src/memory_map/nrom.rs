@@ -4,16 +4,16 @@ use super::{apu, ppu, util};
 
 // the cpu and ppu memory maps for games that use the 'NROM-128' cartridge/mapper (ines mapper 0)
 pub struct Nrom128MemoryMap {
-    cpu_memory: [u8; 0x5800],
+    pub cpu_memory: [u8; 0x5800],
     // the addresses passed to the read/write calls translate
     // to these ranges in the 'cpu_memory' array:
     // TODO: make these separate fields instead
     // [0..=0x7ff] = internal ram
     // [0x800..=0x47ff] = prg rom
     // [0x4800..=0x57ff] = prg ram
-    chr_ram: [u8; 0x2000],
-    nametables: [u8; 0x800],
-    palettes: [u8; 32],
+    pub chr_ram: [u8; 0x2000],
+    pub nametables: [u8; 0x800],
+    pub palettes: [u8; 32],
     pub nametable_mirroring_mask: u16,
 }
 
@@ -45,13 +45,6 @@ impl Nrom128MemoryMap {
     pub fn load_chr_ram(&mut self, ram: &[u8]) {
         assert!(ram.len() == 0x2000);
         self.chr_ram.copy_from_slice(ram);
-    }
-
-    // NOTE: dummy function
-    pub fn fill_nametables(&mut self) {
-        for (i, byte) in self.nametables.iter_mut().enumerate() {
-            *byte = i as u8;
-        }
     }
 }
 

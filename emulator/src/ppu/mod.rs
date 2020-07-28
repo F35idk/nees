@@ -3,7 +3,28 @@ use super::{memory_map as mmap, util};
 use super::pixel_renderer::PixelRenderer;
 use mmap::MemoryMap;
 
-mod test;
+pub mod test;
+
+#[rustfmt::skip]
+// 'Wavebeam' color palette
+static COLORS: [[u8; 3]; 64] = [
+    [0x6b, 0x6b, 0x6b], [0x00, 0x1b, 0x87], [0x21, 0x00, 0x9a], [0x40, 0x00, 0x8c],
+    [0x60, 0x00, 0x67], [0x64, 0x00, 0x1e], [0x59, 0x08, 0x00], [0x46, 0x16, 0x00],
+    [0x26, 0x36, 0x00], [0x00, 0x45, 0x00], [0x00, 0x47, 0x08], [0x00, 0x42, 0x1d],
+    [0x00, 0x36, 0x59], [0x00, 0x00, 0x00], [0x00, 0x00, 0x00], [0x00, 0x00, 0x00],
+    [0xb4, 0xb4, 0xb4], [0x15, 0x55, 0xce], [0x43, 0x37, 0xea], [0x71, 0x24, 0xda],
+    [0x9c, 0x1a, 0xb6], [0xaa, 0x11, 0x64], [0xa8, 0x2e, 0x00], [0x87, 0x4b, 0x00],
+    [0x66, 0x6b, 0x00], [0x21, 0x83, 0x00], [0x00, 0x8a, 0x00], [0x00, 0x81, 0x44],
+    [0x00, 0x76, 0x91], [0x00, 0x00, 0x00], [0x00, 0x00, 0x00], [0x00, 0x00, 0x00],
+    [0xff, 0xff, 0xff], [0x63, 0xaf, 0xff], [0x82, 0x96, 0xff], [0xc0, 0x7d, 0xfe],
+    [0xe9, 0x77, 0xff], [0xf5, 0x72, 0xcd], [0xf4, 0x88, 0x6b], [0xdd, 0xa0, 0x29],
+    [0xbd, 0xbd, 0x0a], [0x89, 0xd2, 0x0e], [0x5c, 0xde, 0x3e], [0x4b, 0xd8, 0x86],
+    [0x4d, 0xcf, 0xd2], [0x50, 0x50, 0x50], [0x00, 0x00, 0x00], [0x00, 0x00, 0x00],
+    [0xff, 0xff, 0xff], [0xbe, 0xe1, 0xff], [0xd4, 0xd4, 0xff], [0xe3, 0xca, 0xff],
+    [0xf0, 0xc9, 0xff], [0xff, 0xc6, 0xe3], [0xff, 0xce, 0xc9], [0xf4, 0xdc, 0xaf],
+    [0xeb, 0xe5, 0xa1], [0xd2, 0xef, 0xa2], [0xbe, 0xf4, 0xb5], [0xb8, 0xf1, 0xd0],
+    [0xb8, 0xed, 0xf1], [0xbd, 0xbd, 0xbd], [0x00, 0x00, 0x00], [0x00, 0x00, 0x00],
+];
 
 pub struct Ppu {
     // object attribute memory
@@ -359,6 +380,10 @@ impl Ppu {
         memory: *mut mmap::Nrom128MemoryMap,
         renderer: &mut PixelRenderer,
     ) {
+        // FIXME: check if background rendering of left column is enabled
+        // TODO: if background rendering disabled, draw backdrop color (or
+        // if vram addr 0x3f00-0x3ff, draw the color it points to)
+
         let fine_y_pos = self.current_vram_addr.get_fine_y();
         let mut fine_x_pos = 0;
 
@@ -376,7 +401,7 @@ impl Ppu {
             self.current_vram_addr.set_nametable_select(temp_nametable);
 
             // set 'fine_x_pos' equal to the fine x value in 'fine_x_scroll'
-            fine_x_pos = self.fine_x_scroll & 0b111;
+            fine_x_pos = self.fine_x_scroll;
 
             // copy coarse x scroll/position bits from 'temp_vram_addr' into 'current_vram_addr'
             let temp_coarse_x = self.temp_vram_addr.get_coarse_x();
@@ -385,18 +410,16 @@ impl Ppu {
 
         log!("fine x, y: ({}, {}), ", fine_x_pos, fine_y_pos);
 
-        // get a raw pointer to the background pattern table. FIXME: explain why
-        // FIXME: don't need the raw pointers here, should be able to remove this
-        let background_table_ptr = unsafe {
-            (((*memory).get_pattern_tables_raw() as usize)
-                + self.get_background_pattern_table_addr() as usize)
-                as *mut [u8; 0x1000]
-        };
-
         let current_tile = unsafe {
+            // get a raw pointer to the background pattern table. FIXME: explain why
+            // FIXME: don't need the raw pointers here, should be able to remove this
+            let background_table_ptr = (((*memory).get_pattern_tables_raw() as usize)
+                + self.get_background_pattern_table_addr() as usize)
+                as *mut [u8; 0x1000];
+
             // get tile index from nametable using 'current_vram_addr' + 0x2000
-            let fetch_addr = (self.current_vram_addr.addr & 0xfff) | 0x2000;
-            let tile_index = (*memory).read_ppu(fetch_addr);
+            let addr = (self.current_vram_addr.addr & 0xfff) | 0x2000;
+            let tile_index = (*memory).read_ppu(addr);
             logln!(
                 "tile_index: {:x} at {:x}",
                 tile_index,
@@ -408,24 +431,29 @@ impl Ppu {
             *((background_table_ptr as usize + tile_index as usize * 16) as *mut [u8; 16])
         };
 
-        let tile_attribute = { /* TODO: calculate attribute address etc. */ };
+        let palette_index = {
+            // calculate the address of the current tile's 'attribute' in the attribute table
+            let attribute_addr = 0x23c0
+                | (self.current_vram_addr.get_nametable_select() as u16) << 10
+                | (self.current_vram_addr.get_coarse_y() << 1) as u16 & 0b111000
+                | (self.current_vram_addr.get_coarse_x() >> 2) as u16;
+
+            // get the 'attribute' byte from the attribute table
+            let attribute = unsafe { (*memory).read_ppu(attribute_addr) };
+            // calculate how much to shift 'attribute' by to get the current tile's palette index
+            let shift_amount = (self.current_tile_x & 2) | ((self.current_scanline >> 2) & 4);
+
+            (attribute >> shift_amount) & 0b11
+        };
 
         // get the high and low bitplanes for the current row of the current tile
-        // TODO: unchecked indexing
-        let mut bitplane_low = current_tile[0 + fine_y_pos as usize];
-        let mut bitplane_high = current_tile[8 + fine_y_pos as usize];
+        let mut bitplane_low = unsafe { *current_tile.get_unchecked(0 + fine_y_pos as usize) };
+        let mut bitplane_high = unsafe { *current_tile.get_unchecked(8 + fine_y_pos as usize) };
 
-        let palette = [
-            [0, 0, 0, 0],       // black
-            [0xff, 0, 0, 0xff], // red
-            [0, 0xff, 0, 0xff], // green
-            [0, 0, 0xff, 0xff], // blue
-        ];
-
-        // start at rightmost pixel in tile and move leftwards
+        // start drawing rightmost pixel in tile and move leftwards
         // until the pixel at 'fine_x_pos' is reached
         for i in 0..8 - fine_x_pos {
-            let current_palette_index = (bitplane_low & 1) | ((bitplane_high << 1) & 0b11);
+            let color_index = (bitplane_low & 1) | ((bitplane_high << 1) & 0b11);
             bitplane_low >>= 1;
             bitplane_high >>= 1;
 
@@ -433,8 +461,30 @@ impl Ppu {
             let screen_y = self.current_scanline as usize;
 
             let pixels = util::pixels_to_u32(renderer);
-            pixels[screen_y * 256 + screen_x] =
-                u32::from_le_bytes(palette[current_palette_index as usize]);
+            let color = {
+                let mut addr = 0x3f00 + ((palette_index as u16) << 2);
+                addr += color_index as u16;
+                // OPTIMIZE: avoid branch
+                if color_index == 0 {
+                    // set 'addr' to point to universal backdrop color
+                    addr = 0x3f00;
+                }
+
+                let mut final_color_index = unsafe { (*memory).read_ppu(addr) };
+                final_color_index &= 0x3f;
+
+                unsafe {
+                    [
+                        COLORS.get_unchecked(final_color_index as usize)[0],
+                        COLORS.get_unchecked(final_color_index as usize)[1],
+                        COLORS.get_unchecked(final_color_index as usize)[2],
+                        1,
+                    ]
+                }
+            };
+
+            // TODO: OPTIMIZE: unchecked indexing
+            pixels[screen_y * 256 + screen_x] = u32::from_le_bytes(color);
         }
 
         // if at end of scanline
@@ -455,37 +505,9 @@ impl Ppu {
         }
     }
 
-    fn comments() {
-        // start fetching from current addr
-
-        //
-        // TODO: ..
-        // for each entire screen rendered:
-        //     re-calculate nametable fetch addr ('v') (from base
-        //     nametable addr and 'temp_vram_addr' register)
-        // for each pixel in a scanline:
-        //     increment fetch addr x
-        // for every second row of a tile in a scanline:
-        //     calculate attribute address
-        //     compute pixel color from palette
-        // for each scanline:
-        //     update horizontal bits of nametable fetch addr from 'temp_vram_addr'
-        //     increment fetch addr y
-        //
-        // fetch from addr
-        // do other stuff that i haven't gotten to yet
-        // NOTE: buggy behavior with oam when oamaddr is > 8
-        // display contents
-    }
-
     // NOTE: this expects the fine x value to be in the low 3 bits of 'fine_x'
     fn set_fine_x_scroll(&mut self, fine_x: u8) {
         self.fine_x_scroll = (self.fine_x_scroll & !0b111) | fine_x;
-    }
-
-    // NOTE: this expects the fine y value to be in the high 3 bits of 'fine_y'
-    fn set_fine_y_scroll(&mut self, fine_y: u8) {
-        self.fine_x_scroll = (self.fine_x_scroll & !0b11100000) | fine_y;
     }
 
     fn get_base_nametable_addr(&self) -> u16 {
