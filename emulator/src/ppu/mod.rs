@@ -377,11 +377,12 @@ impl Ppu {
         }
     }
 
+    // returns whether drawing is finished (entire screen is drawn)
     pub fn draw_tile_row(
         &mut self,
         memory: *mut mmap::Nrom128MemoryMap,
         renderer: &mut PixelRenderer,
-    ) {
+    ) -> bool {
         // TODO: if background rendering disabled, draw backdrop color (or
         // if vram addr 0x3f00-0x3ff, draw the color it points to)
 
@@ -453,7 +454,7 @@ impl Ppu {
             // if on tile 32 (meaning 'fine_x_scroll' is non-zero and
             // this is the last tile in the scanline), start drawing
             // at offset 0 from current tile and stop at end of screen
-            0..(self.current_screen_x % 8)
+            0..(8 - (self.current_screen_x % 8))
         } else if self.horizontal_tile_count == 0 {
             // if on first tile, start drawing pixel at 'fine_x_scroll'
             self.fine_x_scroll..8
@@ -500,11 +501,14 @@ impl Ppu {
         }
         logln!("");
 
+        let mut is_finished = false;
+
         // if at end of scanline (and 'current_screen_x' has wrapped around to zero)
         if self.current_screen_x == 0 {
             // if on last scanline
             if self.current_scanline == 239 {
                 self.current_scanline = 0;
+                is_finished = true;
             } else {
                 self.current_scanline += 1;
                 // increment fine y
@@ -516,6 +520,8 @@ impl Ppu {
             self.horizontal_tile_count += 1;
             self.increment_vram_addr_coarse_x();
         }
+
+        is_finished
     }
 
     // NOTE: this expects the fine x value to be in the low 3 bits of 'fine_x'

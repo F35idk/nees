@@ -404,23 +404,32 @@ pub fn test_draw(rom: &[u8]) {
     memory.nametable_mirroring_mask = !0x800;
     // set background pattern table addr = 0x1000 and base nametable addr = 0x2400
     ppu.write_register_by_index(0, 0b10001, &mut memory);
-    // set coarse x scroll = 15 (offset by 15 in the nametable)
-    ppu.temp_vram_addr.addr |= 0b01111;
+
+    // set coarse x scroll = 0 (offset by 0 in the nametable)
+    ppu.temp_vram_addr.addr |= 0b00000;
+    // set fine x scroll = 0
+    ppu.fine_x_scroll = 0b000;
 
     win.map_and_flush();
 
-    let mut i = 0;
+    let mut dec = false;
     loop {
-        if i % 32 == 0 {
-            let i = renderer.render_frame();
-            renderer.present(i);
-            std::thread::sleep(std::time::Duration::from_millis(5));
+        if dec {
+            ppu.fine_x_scroll -= 1;
+            if ppu.fine_x_scroll == 0 {
+                dec = false;
+            }
+        } else {
+            ppu.fine_x_scroll += 1;
+            if ppu.fine_x_scroll == 0b111 {
+                dec = true;
+            }
         }
 
-        if i < 960 * 8 {
-            ppu.draw_tile_row(&mut memory, &mut renderer);
-        }
+        while !ppu.draw_tile_row(&mut memory, &mut renderer) {}
 
-        i += 1;
+        let i = renderer.render_frame();
+        renderer.present(i);
+        std::thread::sleep(std::time::Duration::from_millis(5));
     }
 }
