@@ -462,6 +462,8 @@ impl Ppu {
             0..8
         };
 
+        log!("tile: {}, ", self.horizontal_tile_count);
+
         for i in pixels_range {
             let color_index_low = (bitplane_low >> (7 - i)) & 1;
             let color_index_high = ((bitplane_high >> (7 - i)) << 1) & 2;
@@ -494,22 +496,22 @@ impl Ppu {
 
             // TODO: OPTIMIZE: unchecked indexing
             pixels[self.current_scanline as usize * 256 + self.current_screen_x as usize] = color;
-
             self.current_screen_x = self.current_screen_x.wrapping_add(1);
         }
         logln!("");
 
         // if at end of scanline (and 'current_screen_x' has wrapped around to zero)
         if self.current_screen_x == 0 {
-            self.horizontal_tile_count = 0;
-            self.current_scanline += 1;
-            // increment fine y
-            self.increment_vram_addr_y();
-
             // if on last scanline
             if self.current_scanline == 239 {
                 self.current_scanline = 0;
+            } else {
+                self.current_scanline += 1;
+                // increment fine y
+                self.increment_vram_addr_y();
             }
+
+            self.horizontal_tile_count = 0;
         } else {
             self.horizontal_tile_count += 1;
             self.increment_vram_addr_coarse_x();
