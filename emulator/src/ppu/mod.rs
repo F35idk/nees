@@ -138,9 +138,6 @@ impl VramAddrRegister {
     }
 }
 
-// TODO: make lookup table of colors in srgb format,
-// where the index corresponds to the value or whatever
-
 impl Default for Ppu {
     fn default() -> Self {
         Ppu {
@@ -377,7 +374,7 @@ impl Ppu {
     }
 
     // increments the coarse x scroll/position bits in 'current_vram_addr'
-    // (corresponds to moving one tile to the left in the current nametable)
+    // (corresponds to moving one tile forwards in the current nametable)
     fn increment_vram_addr_coarse_x(&mut self) {
         if self.current_vram_addr.get_coarse_x() == 0b11111 {
             // if the coarse x component of 'current_vram_addr' is the highest
@@ -401,14 +398,120 @@ impl Ppu {
         memory: &mut mmap::Nrom128MemoryMap,
         renderer: &mut PixelRenderer,
     ) -> bool {
-        // if background rendering is disabled
-        if !self.is_background_enable() {
-            // draw 8 pixels of backdrop color (or if 'current_vram_addr'
-            // >= 0x3f00, draw the color 'current_vram_addr' points to)
+        // NOTE: to help readability, this function is split into smaller subfunctions.
+        // instead of factoring these subfunctions out into the outer 'Ppu' impl block,
+        // i decided to keep them inside of 'draw_tile_row()', so as to not give the
+        // impression that they are needed anywhere else
+
+        {
+            return draw_tile_row_main(self, memory, renderer);
+        }
+
+        fn draw_tile_row_main(
+            ppu: &mut Ppu,
+            memory: &mut mmap::Nrom128MemoryMap,
+            renderer: &mut PixelRenderer,
+        ) -> bool {
+            // if background rendering is disabled
+            if !ppu.is_background_enable() {
+                return draw_tile_row_backdrop(ppu, memory, renderer);
+            }
+
+            // if at start of scanline
+            if ppu.horizontal_tile_count == 0 {
+                // if on first scanline
+                if ppu.current_scanline == 0 {
+                    // copy coarse y bits from 'temp_vram_addr' into 'current_vram_addr'
+                    let temp_coarse_y = ppu.temp_vram_addr.get_coarse_y();
+                    ppu.current_vram_addr.set_coarse_y(temp_coarse_y);
+
+                    // copy fine y bits from 'temp_vram_addr' into 'current_vram_addr'
+                    let temp_fine_y = ppu.temp_vram_addr.get_fine_y();
+                    ppu.current_vram_addr.set_fine_y(temp_fine_y);
+                }
+
+                // copy nametable select bits from 'temp_vram_addr' into 'current_vram_addr'
+                let temp_nametable = ppu.temp_vram_addr.get_nametable_select();
+                ppu.current_vram_addr.set_nametable_select(temp_nametable);
+
+                // copy coarse x scroll/position bits from 'temp_vram_addr' into 'current_vram_addr'
+                let temp_coarse_x = ppu.temp_vram_addr.get_coarse_x();
+                ppu.current_vram_addr.set_coarse_x(temp_coarse_x);
+            }
+
+            let current_tile = get_current_tile(ppu, memory);
+            let palette_index = get_tile_palette_index(ppu, memory);
+
+            // get the high and low bitplanes for the current row of the current tile
+            let fine_y = ppu.current_vram_addr.get_fine_y();
+            let bitplane_low = unsafe { *current_tile.get_unchecked(0 + fine_y as usize) };
+            let bitplane_high = unsafe { *current_tile.get_unchecked(8 + fine_y as usize) };
+
+            let pixels_range = if ppu.horizontal_tile_count == 32 {
+                // if on tile 32 (meaning 'fine_x_scroll' is non-zero and
+                // this is the last tile in the scanline), start drawing
+                // at offset 0 from current tile and stop at end of screen
+                0..(8 - (ppu.current_screen_x % 8))
+            } else if ppu.horizontal_tile_count == 0 {
+                // if on first tile, start drawing pixel at 'fine_x_scroll'
+                ppu.fine_x_scroll..8
+            } else {
+                // if on any other tile, draw all pixels in it
+                0..8
+            };
+
+            log!("tile: {}, ", ppu.horizontal_tile_count);
+
+            for i in pixels_range {
+                let color_index_low = (bitplane_low >> (7 - i)) & 1;
+                let color_index_high = ((bitplane_high >> (7 - i)) << 1) & 2;
+                let color_index = color_index_low | color_index_high;
+
+                log!("(x: {}, i: {}), ", ppu.current_screen_x, i);
+
+                let pixels = util::pixels_to_u32(renderer);
+                let color = get_pixel_color(ppu, memory, palette_index, color_index);
+                // TODO: OPTIMIZE: unchecked indexing
+                pixels[ppu.current_scanline as usize * 256 + ppu.current_screen_x as usize] = color;
+
+                ppu.current_screen_x = ppu.current_screen_x.wrapping_add(1);
+            }
+            logln!("");
+
+            let mut is_finished = false;
+
+            // if at end of scanline (and 'current_screen_x' has wrapped around to zero)
+            if ppu.current_screen_x == 0 {
+                // if on last scanline
+                if ppu.current_scanline == 239 {
+                    ppu.current_scanline = 0;
+                    is_finished = true; // TODO: set vblank = true, etc.
+                } else {
+                    ppu.current_scanline += 1;
+                    // increment fine y
+                    ppu.increment_vram_addr_y();
+                }
+
+                ppu.horizontal_tile_count = 0;
+            } else {
+                ppu.horizontal_tile_count += 1;
+                ppu.increment_vram_addr_coarse_x();
+            }
+
+            is_finished
+        }
+
+        // draws 8 pixels of backdrop color (or if 'current_vram_addr'
+        // >= 0x3f00, draws the color 'current_vram_addr' points to)
+        fn draw_tile_row_backdrop(
+            ppu: &mut Ppu,
+            memory: &mut mmap::Nrom128MemoryMap,
+            renderer: &mut PixelRenderer,
+        ) -> bool {
             for _ in 0..8 {
-                let color_index_addr = if self.current_vram_addr.get_addr() >= 0x3f00 {
+                let color_index_addr = if ppu.current_vram_addr.get_addr() >= 0x3f00 {
                     logln!("background palette hack triggered");
-                    self.current_vram_addr.get_addr()
+                    ppu.current_vram_addr.get_addr()
                 } else {
                     0x3f00
                 };
@@ -417,56 +520,33 @@ impl Ppu {
                 let color = get_color_from_index(color_index);
 
                 let pixels = util::pixels_to_u32(renderer);
-                let screen_x = self.current_screen_x as usize;
-                let screen_y = self.current_scanline as usize;
+                let screen_x = ppu.current_screen_x as usize;
+                let screen_y = ppu.current_scanline as usize;
                 pixels[screen_y * 256 + screen_x] = color;
 
-                self.current_screen_x = self.current_screen_x.wrapping_add(1);
+                ppu.current_screen_x = ppu.current_screen_x.wrapping_add(1);
             }
 
             let mut is_finished = false;
-            // if at end of scanline (and 'current_screen_x' has wrapped around to zero)
-            if self.current_screen_x == 0 {
-                if self.current_scanline == 239 {
+            if ppu.current_screen_x == 0 {
+                if ppu.current_scanline == 239 {
                     is_finished = true;
-                    self.current_scanline = 0;
+                    ppu.current_scanline = 0;
                 } else {
-                    self.current_scanline += 1;
+                    ppu.current_scanline += 1;
                 }
 
-                self.horizontal_tile_count = 0;
+                ppu.horizontal_tile_count = 0;
             } else {
-                self.horizontal_tile_count += 1;
+                ppu.horizontal_tile_count += 1;
             }
 
-            return is_finished;
+            is_finished
         }
 
-        // if at start of scanline
-        if self.horizontal_tile_count == 0 {
-            // if on first scanline
-            if self.current_scanline == 0 {
-                // copy coarse y bits from 'temp_vram_addr' into 'current_vram_addr'
-                let temp_coarse_y = self.temp_vram_addr.get_coarse_y();
-                self.current_vram_addr.set_coarse_y(temp_coarse_y);
-
-                // copy fine y bits from 'temp_vram_addr' into 'current_vram_addr'
-                let temp_fine_y = self.temp_vram_addr.get_fine_y();
-                self.current_vram_addr.set_fine_y(temp_fine_y);
-            }
-
-            // copy nametable select bits from 'temp_vram_addr' into 'current_vram_addr'
-            let temp_nametable = self.temp_vram_addr.get_nametable_select();
-            self.current_vram_addr.set_nametable_select(temp_nametable);
-
-            // copy coarse x scroll/position bits from 'temp_vram_addr' into 'current_vram_addr'
-            let temp_coarse_x = self.temp_vram_addr.get_coarse_x();
-            self.current_vram_addr.set_coarse_x(temp_coarse_x);
-        }
-
-        let current_tile = {
+        fn get_current_tile(ppu: &mut Ppu, memory: &mut mmap::Nrom128MemoryMap) -> [u8; 16] {
             // get tile index from nametable using 'current_vram_addr' + 0x2000
-            let addr = (self.current_vram_addr.inner & 0xfff) | 0x2000;
+            let addr = (ppu.current_vram_addr.inner & 0xfff) | 0x2000;
             let tile_index = memory.read_ppu(addr);
             let background_table_ptr = memory.get_pattern_tables();
 
@@ -475,95 +555,45 @@ impl Ppu {
                 // SAFETY: 'current_tile_index' * 16 cannot be
                 // larger than 0x1000 (the size of a nametable)
                 *((background_table_ptr.get_unchecked_mut(
-                    self.get_background_pattern_table_addr() as usize + tile_index as usize * 16,
+                    ppu.get_background_pattern_table_addr() as usize + tile_index as usize * 16,
                 )) as *mut _ as *mut [u8; 16])
             }
-        };
+        }
 
-        let palette_index = {
+        fn get_tile_palette_index(ppu: &mut Ppu, memory: &mut mmap::Nrom128MemoryMap) -> u8 {
             // calculate the address of the current tile's 'attribute' in the attribute table
             let attribute_addr = 0x23c0
-                | (self.current_vram_addr.get_nametable_select() as u16) << 10
-                | (self.current_vram_addr.get_coarse_y() << 1) as u16 & 0b111000
-                | (self.current_vram_addr.get_coarse_x() >> 2) as u16;
+                | (ppu.current_vram_addr.get_nametable_select() as u16) << 10
+                | (ppu.current_vram_addr.get_coarse_y() << 1) as u16 & 0b111000
+                | (ppu.current_vram_addr.get_coarse_x() >> 2) as u16;
 
             // get the 'attribute' byte from the attribute table
             let attribute = memory.read_ppu(attribute_addr);
             // calculate how much to shift 'attribute' by to get the current tile's palette index
-            let shift_amt = (self.horizontal_tile_count & 2) | ((self.current_scanline >> 2) & 4);
+            let shift_amt = (ppu.horizontal_tile_count & 2) | ((ppu.current_scanline >> 2) & 4);
 
             (attribute >> shift_amt) & 0b11
-        };
-
-        // get the high and low bitplanes for the current row of the current tile
-        let fine_y = self.current_vram_addr.get_fine_y();
-        let bitplane_low = unsafe { *current_tile.get_unchecked(0 + fine_y as usize) };
-        let bitplane_high = unsafe { *current_tile.get_unchecked(8 + fine_y as usize) };
-
-        let pixels_range = if self.horizontal_tile_count == 32 {
-            // if on tile 32 (meaning 'fine_x_scroll' is non-zero and
-            // this is the last tile in the scanline), start drawing
-            // at offset 0 from current tile and stop at end of screen
-            0..(8 - (self.current_screen_x % 8))
-        } else if self.horizontal_tile_count == 0 {
-            // if on first tile, start drawing pixel at 'fine_x_scroll'
-            self.fine_x_scroll..8
-        } else {
-            // if on any other tile, draw all pixels in it
-            0..8
-        };
-
-        log!("tile: {}, ", self.horizontal_tile_count);
-
-        for i in pixels_range {
-            let color_index_low = (bitplane_low >> (7 - i)) & 1;
-            let color_index_high = ((bitplane_high >> (7 - i)) << 1) & 2;
-            let color_index = color_index_low | color_index_high;
-
-            log!("(x: {}, i: {}), ", self.current_screen_x, i);
-
-            let pixels = util::pixels_to_u32(renderer);
-            let color = {
-                let mut addr = 0x3f00 | ((palette_index as u16) << 2);
-                addr += color_index as u16;
-
-                if (self.current_screen_x < 8 && !self.is_background_left_column_enable())
-                    || color_index == 0
-                {
-                    // set 'addr' to point to universal backdrop color
-                    addr = 0x3f00;
-                }
-
-                let final_color_index = memory.read_ppu(addr);
-                get_color_from_index(final_color_index)
-            };
-
-            // TODO: OPTIMIZE: unchecked indexing
-            pixels[self.current_scanline as usize * 256 + self.current_screen_x as usize] = color;
-            self.current_screen_x = self.current_screen_x.wrapping_add(1);
         }
-        logln!("");
 
-        let mut is_finished = false;
+        fn get_pixel_color(
+            ppu: &mut Ppu,
+            memory: &mut mmap::Nrom128MemoryMap,
+            palette_index: u8,
+            color_index: u8,
+        ) -> u32 {
+            let mut addr = 0x3f00 | ((palette_index as u16) << 2);
+            addr |= color_index as u16;
 
-        if self.current_screen_x == 0 {
-            // if on last scanline
-            if self.current_scanline == 239 {
-                self.current_scanline = 0;
-                is_finished = true; // TODO: set vblank = true, etc.
-            } else {
-                self.current_scanline += 1;
-                // increment fine y
-                self.increment_vram_addr_y();
+            if (ppu.current_screen_x < 8 && !ppu.is_background_left_column_enable())
+                || color_index == 0
+            {
+                // set 'addr' to point to universal backdrop color
+                addr = 0x3f00;
             }
 
-            self.horizontal_tile_count = 0;
-        } else {
-            self.horizontal_tile_count += 1;
-            self.increment_vram_addr_coarse_x();
+            let final_color_index = memory.read_ppu(addr);
+            get_color_from_index(final_color_index)
         }
-
-        is_finished
     }
 
     // NOTE: this expects the fine x value to be in the low 3 bits of 'fine_x'
