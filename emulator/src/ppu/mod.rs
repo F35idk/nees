@@ -479,7 +479,10 @@ impl Ppu {
                 let mut addr = 0x3f00 | ((palette_index as u16) << 2);
                 addr += color_index as u16;
 
-                if color_index == 0 {
+                if (self.current_screen_x < 8 && !self.is_background_left_column_enable())
+                    || color_index == 0
+                {
+                    // set 'addr' to point to universal backdrop color
                     addr = 0x3f00;
                 }
 
