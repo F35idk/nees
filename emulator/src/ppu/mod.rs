@@ -278,11 +278,9 @@ impl Ppu {
         let mut temp_vram_addr_bytes = self.temp_vram_addr.inner.to_le_bytes();
 
         if !self.low_bits_toggle {
-            // write low 6 bits into bits 8-13 of temporary vram address register
-            temp_vram_addr_bytes[1] &= !0b111111;
-            temp_vram_addr_bytes[1] |= val & 0b111111;
-            // clear bit 14
-            temp_vram_addr_bytes[1] &= !0b01000000;
+            // write low 6 bits into bits 8-13 of temporary
+            // vram address register while clearing bit 14
+            temp_vram_addr_bytes[1] = val & 0b0111111;
             // store back
             self.temp_vram_addr.inner = u16::from_le_bytes(temp_vram_addr_bytes);
         } else {
