@@ -26,6 +26,18 @@ static COLORS: [[u8; 3]; 64] = [
     [0xb8, 0xed, 0xf1], [0xbd, 0xbd, 0xbd], [0x00, 0x00, 0x00], [0x00, 0x00, 0x00],
 ];
 
+fn get_color_from_index(mut index: u8) -> u32 {
+    index &= 0x3f;
+    unsafe {
+        u32::from_le_bytes([
+            COLORS.get_unchecked(index as usize)[0],
+            COLORS.get_unchecked(index as usize)[1],
+            COLORS.get_unchecked(index as usize)[2],
+            1,
+        ])
+    }
+}
+
 pub struct Ppu {
     // object attribute memory
     oam: Oam,
@@ -389,8 +401,46 @@ impl Ppu {
         memory: &mut mmap::Nrom128MemoryMap,
         renderer: &mut PixelRenderer,
     ) -> bool {
-        // TODO: if background rendering disabled, draw backdrop color (or
-        // if vram addr 0x3f00-0x3ff, draw the color vram addr points to)
+        // if background rendering is disabled
+        if !self.is_background_enable() {
+            // draw 8 pixels of backdrop color (or if 'current_vram_addr'
+            // >= 0x3f00, draw the color 'current_vram_addr' points to)
+            for _ in 0..8 {
+                let color_index_addr = if self.current_vram_addr.get_addr() >= 0x3f00 {
+                    logln!("background palette hack triggered");
+                    self.current_vram_addr.get_addr()
+                } else {
+                    0x3f00
+                };
+
+                let color_index = memory.read_ppu(color_index_addr);
+                let color = get_color_from_index(color_index);
+
+                let pixels = util::pixels_to_u32(renderer);
+                let screen_x = self.current_screen_x as usize;
+                let screen_y = self.current_scanline as usize;
+                pixels[screen_y * 256 + screen_x] = color;
+
+                self.current_screen_x = self.current_screen_x.wrapping_add(1);
+            }
+
+            let mut is_finished = false;
+            // if at end of scanline (and 'current_screen_x' has wrapped around to zero)
+            if self.current_screen_x == 0 {
+                if self.current_scanline == 239 {
+                    is_finished = true;
+                    self.current_scanline = 0;
+                } else {
+                    self.current_scanline += 1;
+                }
+
+                self.horizontal_tile_count = 0;
+            } else {
+                self.horizontal_tile_count += 1;
+            }
+
+            return is_finished;
+        }
 
         // if at start of scanline
         if self.horizontal_tile_count == 0 {
@@ -484,17 +534,8 @@ impl Ppu {
                     addr = 0x3f00;
                 }
 
-                let mut final_color_index = memory.read_ppu(addr);
-                final_color_index &= 0x3f;
-
-                unsafe {
-                    u32::from_le_bytes([
-                        COLORS.get_unchecked(final_color_index as usize)[0],
-                        COLORS.get_unchecked(final_color_index as usize)[1],
-                        COLORS.get_unchecked(final_color_index as usize)[2],
-                        1,
-                    ])
-                }
+                let final_color_index = memory.read_ppu(addr);
+                get_color_from_index(final_color_index)
             };
 
             // TODO: OPTIMIZE: unchecked indexing
@@ -505,7 +546,6 @@ impl Ppu {
 
         let mut is_finished = false;
 
-        // if at end of scanline (and 'current_screen_x' has wrapped around to zero)
         if self.current_screen_x == 0 {
             // if on last scanline
             if self.current_scanline == 239 {
