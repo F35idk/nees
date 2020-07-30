@@ -47,17 +47,22 @@ fn test_registers() {
     let ppuctrl = 0b00000011;
     ppu.write_register_by_index(0, ppuctrl, memory);
 
-    assert_eq!(ppu.temp_vram_addr.addr, 0b101_11_10001_00110);
+    assert_eq!(ppu.temp_vram_addr.inner, 0b101_11_10001_00110);
     assert_eq!(ppu.fine_x_scroll & 0b111, x_coord & 0b111);
     // bits 12-14 of 'temp_vram_addr' should be set to temporary fine y scroll
-    assert_eq!((ppu.temp_vram_addr.addr >> 12) as u8, y_coord & 0b111);
+    assert_eq!((ppu.temp_vram_addr.inner >> 12) as u8, y_coord & 0b111);
 
     let addr_hi = 0x21;
     let addr_low = 0x0f;
     ppu.write_register_by_index(6, addr_hi, memory);
     ppu.write_register_by_index(6, addr_low, memory);
 
-    assert_eq!(ppu.current_vram_addr.addr, 0x210f);
+    assert_eq!(ppu.current_vram_addr.get_addr(), 0x210f);
+
+    assert_eq!(
+        ppu.current_vram_addr.inner,
+        0x210f | (ppu.temp_vram_addr.inner & !0x3fff)
+    );
 
     let addr_hi = 0x4f;
     let addr_low = 0xe8;
@@ -65,15 +70,15 @@ fn test_registers() {
     ppu.write_register_by_index(6, addr_low, memory);
 
     // address is mirrored down
-    assert_eq!(ppu.current_vram_addr.addr, 0x4fe8 % 0x4000);
+    assert_eq!(ppu.current_vram_addr.inner, 0x4fe8 % 0x4000);
 }
 
 #[test]
 fn test_write_2007() {
-    // ppu.current_vram_addr.addr = 0;
+    // ppu.current_vram_addr.inner = 0;
     // // write 0xff to ppudata
     // ppu.write_register_by_index(7, 0xff, memory);
-    // ppu.current_vram_addr.addr = 0;
+    // ppu.current_vram_addr.inner = 0;
     // // read from ppudata
     // assert_eq!(ppu.read_register_by_index(7, memory), 0xff);
 }
@@ -104,7 +109,7 @@ fn test_write_2000() {
         cpu.exec_instruction(memory, ptrs);
     }
 
-    assert_eq!(ppu.temp_vram_addr.addr, 0b11_00000_00000)
+    assert_eq!(ppu.temp_vram_addr.inner, 0b11_00000_00000)
 }
 
 #[test]
@@ -160,7 +165,7 @@ fn test_write_2005() {
 
     assert_eq!(ptrs.ppu.fine_x_scroll, 0b101);
     assert_eq!(ptrs.ppu.low_bits_toggle, true);
-    assert_eq!(ptrs.ppu.temp_vram_addr.addr, 0b00_00000_01111);
+    assert_eq!(ptrs.ppu.temp_vram_addr.inner, 0b00_00000_01111);
 
     // LDA #5e (0b01011_110)
     memory.write_cpu(ptrs, 5u16, 0xa9);
@@ -174,9 +179,9 @@ fn test_write_2005() {
         cpu.exec_instruction(memory, ptrs);
     }
 
-    assert_eq!(ptrs.ppu.temp_vram_addr.addr >> 12, 0b110);
+    assert_eq!(ptrs.ppu.temp_vram_addr.inner >> 12, 0b110);
     assert_eq!(ptrs.ppu.low_bits_toggle, false);
-    assert_eq!(ptrs.ppu.temp_vram_addr.addr, 0b110_00_01011_01111);
+    assert_eq!(ptrs.ppu.temp_vram_addr.inner, 0b110_00_01011_01111);
 }
 
 #[test]
@@ -201,7 +206,7 @@ fn test_write_2006() {
     memory.write_cpu(ptrs, 4u16, 0x20);
 
     // set bit 14 of 'temp_vram_addr'
-    ptrs.ppu.temp_vram_addr.addr |= 0b0100000000000000;
+    ptrs.ppu.temp_vram_addr.inner |= 0b0100000000000000;
 
     cpu.pc = 0;
     for _ in 0..2 {
@@ -211,7 +216,7 @@ fn test_write_2006() {
     assert_eq!(ptrs.ppu.low_bits_toggle, true);
     // bit 14 should be cleared and bits 8-13 should be
     // equal to bits 0-6 of the value written to 0x2006
-    assert_eq!(ptrs.ppu.temp_vram_addr.addr, 0b010_11_01000_00000);
+    assert_eq!(ptrs.ppu.temp_vram_addr.inner, 0b010_11_01000_00000);
 
     // LDA #f0 (0b11110000)
     memory.write_cpu(ptrs, 5u16, 0xa9);
@@ -227,11 +232,11 @@ fn test_write_2006() {
 
     assert_eq!(ptrs.ppu.low_bits_toggle, false);
     // low 8 bits should all be set equal to the value written
-    assert_eq!(ptrs.ppu.temp_vram_addr.addr, 0b010_11_01111_10000);
+    assert_eq!(ptrs.ppu.temp_vram_addr.inner, 0b010_11_01111_10000);
     // 'temp_vram_addr' should've been transferred to 'current_vram_addr'
     assert_eq!(
-        ptrs.ppu.temp_vram_addr.addr,
-        ptrs.ppu.current_vram_addr.addr
+        ptrs.ppu.temp_vram_addr.inner,
+        ptrs.ppu.current_vram_addr.inner
     );
 }
 
@@ -281,56 +286,56 @@ fn test_increment_vram_addr() {
     let ref mut ppu = super::Ppu::default();
     let ref mut memory = mmap::Nrom128MemoryMap::new();
 
-    ppu.current_vram_addr.addr = 0;
+    ppu.current_vram_addr.inner = 0;
     // set increment mode to 32
     ppu.write_register_by_index(0, 0b00000100, memory);
     ppu.increment_vram_addr();
-    assert_eq!(ppu.current_vram_addr.addr, 32);
+    assert_eq!(ppu.current_vram_addr.inner, 32);
 
-    ppu.current_vram_addr.addr = 0;
+    ppu.current_vram_addr.inner = 0;
     // set increment mode to 1
     ppu.write_register_by_index(0, 0b00000000, memory);
     ppu.increment_vram_addr();
-    assert_eq!(ppu.current_vram_addr.addr, 1);
+    assert_eq!(ppu.current_vram_addr.inner, 1);
 
     // check wrapping behavior ((3fff + 1) % 4000 = 0)
-    ppu.current_vram_addr.addr = 0x3fff;
+    ppu.current_vram_addr.inner = 0x3fff;
     ppu.increment_vram_addr();
-    assert_eq!(ppu.current_vram_addr.addr, 0);
+    assert_eq!(ppu.current_vram_addr.inner, 0);
 
     // check wrapping behavior ((3fe0 + 0x20) % 4000 = 0)
-    ppu.current_vram_addr.addr = 0x3fe0;
+    ppu.current_vram_addr.inner = 0x3fe0;
     ppu.write_register_by_index(0, 0b00000100, memory);
     ppu.increment_vram_addr();
-    assert_eq!(ppu.current_vram_addr.addr, 0);
+    assert_eq!(ppu.current_vram_addr.inner, 0);
 }
 
 #[test]
 fn test_increment_vram_addr_xy() {
     let ref mut ppu = super::Ppu::default();
 
-    ppu.current_vram_addr.addr = 0b01_01010_11111;
+    ppu.current_vram_addr.inner = 0b01_01010_11111;
     ppu.increment_vram_addr_coarse_x();
     // increment should overflow into bit 10
-    assert_eq!(ppu.current_vram_addr.addr, 0b00_01010_00000);
+    assert_eq!(ppu.current_vram_addr.inner, 0b00_01010_00000);
 
     // set coarse y = 31, fine y = 7
-    ppu.current_vram_addr.addr = 0b111_10_11111_01010;
+    ppu.current_vram_addr.inner = 0b111_10_11111_01010;
     ppu.increment_vram_addr_y();
     // increment should not overflow into bit 11
-    assert_eq!(ppu.current_vram_addr.addr, 0b000_10_00000_01010);
+    assert_eq!(ppu.current_vram_addr.inner, 0b000_10_00000_01010);
 
     // set coarse y = 29, fine y = 7
-    ppu.current_vram_addr.addr = 0b111_10_11101_01010;
+    ppu.current_vram_addr.inner = 0b111_10_11101_01010;
     ppu.increment_vram_addr_y();
     // increment should overflow into bit 11
-    assert_eq!(ppu.current_vram_addr.addr, 0b000_00_00000_01010);
+    assert_eq!(ppu.current_vram_addr.inner, 0b000_00_00000_01010);
 
     // set coarse y = 29, fine y = 6
-    ppu.current_vram_addr.addr = 0b110_10_11111_01010;
+    ppu.current_vram_addr.inner = 0b110_10_11111_01010;
     ppu.increment_vram_addr_y();
     // increment should not change coarse y
-    assert_eq!(ppu.current_vram_addr.addr, 0b111_10_11111_01010);
+    assert_eq!(ppu.current_vram_addr.inner, 0b111_10_11111_01010);
 }
 
 #[test]
@@ -362,7 +367,7 @@ fn test_misc() {
     ppu.write_ppuaddr(0x24);
     ppu.write_ppuaddr(0x00);
 
-    assert_eq!(ppu.current_vram_addr.addr, 0x2400);
+    assert_eq!(ppu.current_vram_addr.inner, 0x2400);
 }
 
 // draws the pattern table at address 0x1000 of 'rom'
@@ -404,32 +409,50 @@ pub fn test_draw(rom: &[u8]) {
     memory.nametable_mirroring_mask = !0x800;
     // set background pattern table addr = 0x1000 and base nametable addr = 0x2400
     ppu.write_register_by_index(0, 0b10001, &mut memory);
-
     // set coarse x scroll = 0 (offset by 0 in the nametable)
-    ppu.temp_vram_addr.addr |= 0b00000;
+    ppu.temp_vram_addr.inner |= 0b00000;
     // set fine x scroll = 0
     ppu.fine_x_scroll = 0b000;
 
     win.map_and_flush();
 
-    let mut dec = false;
+    let mut counter: u64 = 0;
+    let mut frame_times: u128 = 0;
+
     loop {
-        if dec {
-            ppu.fine_x_scroll -= 1;
-            if ppu.fine_x_scroll == 0 {
-                dec = false;
-            }
-        } else {
-            ppu.fine_x_scroll += 1;
+        // increment fine x
+        {
             if ppu.fine_x_scroll == 0b111 {
-                dec = true;
+                if ppu.temp_vram_addr.get_coarse_x() == 0b11111 {
+                    ppu.temp_vram_addr.set_coarse_x(0);
+                    ppu.temp_vram_addr.inner ^= 0b10000000000;
+                } else {
+                    ppu.temp_vram_addr.inner += 1;
+                }
+                ppu.fine_x_scroll = 0;
+            } else {
+                ppu.fine_x_scroll += 1;
             }
         }
 
+        // draw whole screen
+        let now = std::time::Instant::now();
         while !ppu.draw_tile_row(&mut memory, &mut renderer) {}
+        let elapsed = now.elapsed().as_micros();
 
-        let i = renderer.render_frame();
-        renderer.present(i);
-        std::thread::sleep(std::time::Duration::from_millis(5));
+        // render and display
+        let frame_index = renderer.render_frame();
+        renderer.present(frame_index);
+
+        // println!("frame time: {}", elapsed);
+
+        if counter == 1000 {
+            break;
+        }
+
+        counter += 1;
+        frame_times += elapsed;
     }
+
+    println!("avg. frame time: {} us", frame_times / (counter as u128));
 }

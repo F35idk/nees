@@ -85,40 +85,44 @@ struct OamEntry {
 
 #[derive(Copy, Clone)]
 pub struct VramAddrRegister {
-    pub addr: u16,
+    pub inner: u16,
 }
 
 impl VramAddrRegister {
+    fn get_addr(self) -> u16 {
+        self.inner & 0x3fff
+    }
+
     fn get_coarse_x(self) -> u8 {
-        (self.addr & 0b11111) as u8
+        (self.inner & 0b11111) as u8
     }
 
     fn set_coarse_x(&mut self, coarse_x: u8) {
-        self.addr = (self.addr & !0b11111) | coarse_x as u16;
+        self.inner = (self.inner & !0b11111) | coarse_x as u16;
     }
 
     fn get_coarse_y(self) -> u8 {
-        ((self.addr >> 5) & 0b11111) as u8
+        ((self.inner >> 5) & 0b11111) as u8
     }
 
     fn set_coarse_y(&mut self, coarse_y: u8) {
-        self.addr = (self.addr & !0b1111100000) | ((coarse_y as u16) << 5);
+        self.inner = (self.inner & !0b1111100000) | ((coarse_y as u16) << 5);
     }
 
     fn get_fine_y(self) -> u8 {
-        ((self.addr & 0b111_00_00000_00000) >> 12) as u8
+        ((self.inner & 0b111_00_00000_00000) >> 12) as u8
     }
 
     fn set_fine_y(&mut self, fine_y: u8) {
-        self.addr = (self.addr & !0b111_00_00000_00000) | (fine_y as u16) << 12;
+        self.inner = (self.inner & !0b111_00_00000_00000) | (fine_y as u16) << 12;
     }
 
     fn get_nametable_select(self) -> u8 {
-        ((self.addr & 0b11_00000_00000) >> 10) as u8
+        ((self.inner & 0b11_00000_00000) >> 10) as u8
     }
 
     fn set_nametable_select(&mut self, select: u8) {
-        self.addr = (self.addr & !0b11_00000_00000) | ((select as u16) << 10);
+        self.inner = (self.inner & !0b11_00000_00000) | ((select as u16) << 10);
     }
 }
 
@@ -137,8 +141,8 @@ impl Default for Ppu {
             oamaddr: 0,
             ppudata_read_buffer: 0,
             low_bits_toggle: false,
-            current_vram_addr: VramAddrRegister { addr: 0 },
-            temp_vram_addr: VramAddrRegister { addr: 0 },
+            current_vram_addr: VramAddrRegister { inner: 0 },
+            temp_vram_addr: VramAddrRegister { inner: 0 },
             fine_x_scroll: 0,
             current_scanline: 0,
             current_screen_x: 0,
@@ -170,20 +174,19 @@ impl Ppu {
             5 | 6 => 0, // FIXME: should these reset the low bits toggle as well??
             // ppudata
             7 => {
-                let val = if (self.current_vram_addr.addr >> 8) == 0b111111 {
+                let val = if (self.current_vram_addr.inner >> 8) == 0b111111 {
                     // read directly from vram if address is in range
                     // 0x3f00-0x3ff (palette ram)
-                    // FIXME: should mask off high 2 bits?
-                    let val = memory.read_ppu(self.current_vram_addr.addr);
+                    let val = memory.read_ppu(self.current_vram_addr.get_addr());
                     // store value at mirrored address (down to 0x2f00-0x2fff)
                     // in read buffer
                     self.ppudata_read_buffer =
-                        memory.read_ppu(self.current_vram_addr.addr & !0b01000000000000);
+                        memory.read_ppu(self.current_vram_addr.get_addr() & !0b01000000000000);
                     val
                 } else {
                     // read from read buffer if address is in range 0-0x0x3eff
                     let val = self.ppudata_read_buffer;
-                    self.ppudata_read_buffer = memory.read_ppu(self.current_vram_addr.addr);
+                    self.ppudata_read_buffer = memory.read_ppu(self.current_vram_addr.get_addr());
                     val
                 };
 
@@ -272,19 +275,20 @@ impl Ppu {
     }
 
     fn write_ppuaddr(&mut self, val: u8) {
-        let mut temp_vram_addr_bytes = self.temp_vram_addr.addr.to_le_bytes();
+        let mut temp_vram_addr_bytes = self.temp_vram_addr.inner.to_le_bytes();
 
         if !self.low_bits_toggle {
             // write low 6 bits into bits 8-13 of temporary vram address register
-            temp_vram_addr_bytes[1] = val & 0b111111;
+            temp_vram_addr_bytes[1] &= !0b111111;
+            temp_vram_addr_bytes[1] |= val & 0b111111;
             // clear bit 14
             temp_vram_addr_bytes[1] &= !0b01000000;
             // store back
-            self.temp_vram_addr.addr = u16::from_le_bytes(temp_vram_addr_bytes);
+            self.temp_vram_addr.inner = u16::from_le_bytes(temp_vram_addr_bytes);
         } else {
             // set all low bits of temporary vram register equal to 'val'
             temp_vram_addr_bytes[0] = val;
-            self.temp_vram_addr.addr = u16::from_le_bytes(temp_vram_addr_bytes);
+            self.temp_vram_addr.inner = u16::from_le_bytes(temp_vram_addr_bytes);
 
             // set 'current_vram_addr' equal to 'temp_vram_addr'
             self.current_vram_addr = self.temp_vram_addr;
@@ -294,7 +298,7 @@ impl Ppu {
     }
 
     fn write_ppudata(&mut self, val: u8, memory: &mut mmap::Nrom128MemoryMap) {
-        memory.write_ppu(self.current_vram_addr.addr, val);
+        memory.write_ppu(self.current_vram_addr.get_addr(), val);
 
         // increment 'current_vram_addr' (same as when reading ppudata)
         if !self.is_rendering() {
@@ -331,7 +335,7 @@ impl Ppu {
         } else {
             1
         };
-        self.current_vram_addr.addr = (self.current_vram_addr.addr + increment) & 0x3fff;
+        self.current_vram_addr.inner = (self.current_vram_addr.inner + increment) & 0x3fff;
     }
 
     // increments the fine y scroll bits in 'current_vram_addr',
@@ -347,18 +351,18 @@ impl Ppu {
                 // clear all coarse y bits and overflow into bit
                 // 11 to move to next nametable vertically
                 self.current_vram_addr.set_coarse_y(0);
-                self.current_vram_addr.addr ^= 0b100000000000;
+                self.current_vram_addr.inner ^= 0b100000000000;
             } else if self.current_vram_addr.get_coarse_y() == 0b11111 {
                 // if coarse y = maximum, wrap the value without overflowing into
                 // bit 11 and switching nametables (unintended behavior afaik)
                 self.current_vram_addr.set_coarse_y(0);
             } else {
                 // increment coarse y bits of 'current_vram_addr'
-                self.current_vram_addr.addr += 1 << 5;
+                self.current_vram_addr.inner += 1 << 5;
             }
         } else {
             // increment fine y bits normally
-            self.current_vram_addr.addr += 1 << 12;
+            self.current_vram_addr.inner += 1 << 12;
         }
     }
 
@@ -370,10 +374,10 @@ impl Ppu {
             // value it can be (31), clear all coarse x bits and overflow
             // into bit 10 (move to next nametable horizontally)
             self.current_vram_addr.set_coarse_x(0);
-            self.current_vram_addr.addr ^= 0b10000000000;
+            self.current_vram_addr.inner ^= 0b10000000000;
         } else {
             // if not highest value, increment normally
-            self.current_vram_addr.addr += 1;
+            self.current_vram_addr.inner += 1;
         }
     }
 
@@ -414,7 +418,7 @@ impl Ppu {
 
         let current_tile = {
             // get tile index from nametable using 'current_vram_addr' + 0x2000
-            let addr = (self.current_vram_addr.addr & 0xfff) | 0x2000;
+            let addr = (self.current_vram_addr.inner & 0xfff) | 0x2000;
             let tile_index = memory.read_ppu(addr);
             let background_table_ptr = memory.get_pattern_tables();
 
@@ -474,9 +478,8 @@ impl Ppu {
             let color = {
                 let mut addr = 0x3f00 | ((palette_index as u16) << 2);
                 addr += color_index as u16;
-                // OPTIMIZE: avoid branch
+
                 if color_index == 0 {
-                    // set 'addr' to point to universal backdrop color
                     addr = 0x3f00;
                 }
 
