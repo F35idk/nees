@@ -11,6 +11,6 @@ pub trait MemoryMap {
     fn write_cpu(&mut self, ptrs: &mut util::PtrsWrapper, addr: u16, val: u8);
     fn read_ppu(&self, addr: u16) -> u8;
     fn write_ppu(&mut self, addr: u16, val: u8);
-    unsafe fn get_pattern_tables_raw(&mut self) -> *mut [u8; 0x2000];
+    fn get_pattern_tables<'a>(&'a mut self) -> &'a mut [u8; 0x2000];
     // TODO: default methods for loading into rom/ram/etc.
 }

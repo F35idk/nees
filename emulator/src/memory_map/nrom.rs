@@ -167,7 +167,7 @@ impl MemoryMap for Nrom128MemoryMap {
         unsafe { *self.chr_ram.get_unchecked_mut(addr as usize) = val };
     }
 
-    unsafe fn get_pattern_tables_raw(&mut self) -> *mut [u8; 0x2000] {
+    fn get_pattern_tables(&mut self) -> &mut [u8; 0x2000] {
         &mut self.chr_ram
     }
 }
@@ -246,7 +246,7 @@ impl MemoryMap for Nrom256MemoryMap {
 
     fn write_ppu(&mut self, addr: u16, val: u8) {}
 
-    unsafe fn get_pattern_tables_raw(&mut self) -> *mut [u8; 0x2000] {
+    fn get_pattern_tables(&mut self) -> &mut [u8; 0x2000] {
         unimplemented!()
     }
 }

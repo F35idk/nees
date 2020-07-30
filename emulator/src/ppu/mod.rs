@@ -377,14 +377,18 @@ impl Ppu {
         }
     }
 
-    // returns whether drawing is finished (entire screen is drawn)
+    // draws a horizontal line of pixels starting at 'current_screen_x' and
+    // stopping at the end of the current tile in the background nametable
+    // (or the end of the screen, if the current tile happens to poke outside
+    // of it). returns whether drawing is finished (entire screen is drawn)
+    // TODO: set vblank when drawing is finished
     pub fn draw_tile_row(
         &mut self,
-        memory: *mut mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         renderer: &mut PixelRenderer,
     ) -> bool {
         // TODO: if background rendering disabled, draw backdrop color (or
-        // if vram addr 0x3f00-0x3ff, draw the color it points to)
+        // if vram addr 0x3f00-0x3ff, draw the color vram addr points to)
 
         // if at start of scanline
         if self.horizontal_tile_count == 0 {
@@ -408,25 +412,20 @@ impl Ppu {
             self.current_vram_addr.set_coarse_x(temp_coarse_x);
         }
 
-        let current_tile = unsafe {
-            // get a raw pointer to the background pattern table. FIXME: explain why
-            // FIXME: don't need the raw pointers here, should be able to remove this
-            let background_table_ptr = (((*memory).get_pattern_tables_raw() as usize)
-                + self.get_background_pattern_table_addr() as usize)
-                as *mut [u8; 0x1000];
-
+        let current_tile = {
             // get tile index from nametable using 'current_vram_addr' + 0x2000
             let addr = (self.current_vram_addr.addr & 0xfff) | 0x2000;
-            let tile_index = (*memory).read_ppu(addr);
-            logln!(
-                "tile_index: {:x} at {:x}",
-                tile_index,
-                (self.current_vram_addr.addr & 0xfff) | 0x2000
-            );
+            let tile_index = memory.read_ppu(addr);
+            let background_table_ptr = memory.get_pattern_tables();
 
-            // get tile from pattern table using the tile index
-            // SAFETY: 'current_tile_index' cannot be larger than 255
-            *((background_table_ptr as usize + tile_index as usize * 16) as *mut [u8; 16])
+            unsafe {
+                // get tile from pattern table using the tile index
+                // SAFETY: 'current_tile_index' * 16 cannot be
+                // larger than 0x1000 (the size of a nametable)
+                *((background_table_ptr.get_unchecked_mut(
+                    self.get_background_pattern_table_addr() as usize + tile_index as usize * 16,
+                )) as *mut _ as *mut [u8; 16])
+            }
         };
 
         let palette_index = {
@@ -437,12 +436,11 @@ impl Ppu {
                 | (self.current_vram_addr.get_coarse_x() >> 2) as u16;
 
             // get the 'attribute' byte from the attribute table
-            let attribute = unsafe { (*memory).read_ppu(attribute_addr) };
+            let attribute = memory.read_ppu(attribute_addr);
             // calculate how much to shift 'attribute' by to get the current tile's palette index
-            let shift_amount =
-                (self.horizontal_tile_count & 2) | ((self.current_scanline >> 2) & 4);
+            let shift_amt = (self.horizontal_tile_count & 2) | ((self.current_scanline >> 2) & 4);
 
-            (attribute >> shift_amount) & 0b11
+            (attribute >> shift_amt) & 0b11
         };
 
         // get the high and low bitplanes for the current row of the current tile
@@ -482,7 +480,7 @@ impl Ppu {
                     addr = 0x3f00;
                 }
 
-                let mut final_color_index = unsafe { (*memory).read_ppu(addr) };
+                let mut final_color_index = memory.read_ppu(addr);
                 final_color_index &= 0x3f;
 
                 unsafe {
@@ -508,7 +506,7 @@ impl Ppu {
             // if on last scanline
             if self.current_scanline == 239 {
                 self.current_scanline = 0;
-                is_finished = true;
+                is_finished = true; // TODO: set vblank = true, etc.
             } else {
                 self.current_scanline += 1;
                 // increment fine y
