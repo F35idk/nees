@@ -127,7 +127,7 @@ impl VramAddrRegister {
     }
 
     fn set_fine_y(&mut self, fine_y: u8) {
-        self.inner = (self.inner & !0b111_00_00000_00000) | (fine_y as u16) << 12;
+        self.inner = (self.inner & !0b111_00_00000_00000) | ((fine_y as u16) << 12);
     }
 
     fn get_nametable_select(self) -> u8 {
@@ -406,121 +406,150 @@ impl Ppu {
 
         // FIXME: this may overshoot target cycles. is this bad??
         while *ppu_cycles < target_cycles {
+            // TODO: match on tuple?
             match self.current_scanline {
                 // visible scanlines
-                0..=239 => {
-                    match self.current_scanline_dot {
-                        // idle cycle
-                        0 => {
-                            self.current_scanline_dot += 1;
-                            *ppu_cycles += 1;
-                        }
-                        1..=256 => {
-                            // if background rendering is disabled
-                            if !self.is_background_enable() {
-                                self.draw_tile_row_backdrop(memory, renderer);
-                                *ppu_cycles += 8;
-                                break;
-                            }
-
-                            // draw one row of a tile (or less, if the current tile straddles
-                            // the screen boundary). this increments 'current_scanline_dot',
-                            // 'current_scanline' and 'horizontal_tile_count'
-                            let pixels_drawn = self.draw_tile_row(memory, renderer);
-                            *ppu_cycles += pixels_drawn as u64;
-
-                            // if at end of scanline
-                            if self.current_scanline_dot == 257 {
-                                self.horizontal_tile_count = 0;
-                                // increment fine y
-                                self.increment_vram_addr_y();
-                            } else {
-                                self.horizontal_tile_count += 1;
-                                self.increment_vram_addr_coarse_x();
-                            }
-                        }
-                        257 => {
-                            // copy nametable select bits from 'temp_vram_addr'
-                            // into 'current_vram_addr'
-                            let temp_nametable = self.temp_vram_addr.get_nametable_select();
-                            self.current_vram_addr.set_nametable_select(temp_nametable);
-
-                            // copy coarse x scroll/position bits from 'temp_vram_addr'
-                            // into 'current_vram_addr'
-                            let temp_coarse_x = self.temp_vram_addr.get_coarse_x();
-                            self.current_vram_addr.set_coarse_x(temp_coarse_x);
-
-                            *ppu_cycles += 8;
-                            self.current_scanline_dot += 8;
-                        }
-                        258..=336 => {
-                            *ppu_cycles += 8;
-                            self.current_scanline_dot += 8;
-                        }
-                        337 => {
-                            *ppu_cycles += 4;
-                            self.current_scanline_dot = 0;
-                            self.current_scanline += 1;
-                        }
-                        _ => (),
+                0..=239 => match self.current_scanline_dot {
+                    // idle cycle
+                    0 => {
+                        self.current_scanline_dot += 1;
+                        *ppu_cycles += 1;
                     }
-                }
-                // idle scanline
-                240 => {
-                    if self.current_scanline_dot != 336 {
+                    1..=256 => {
+                        // if background rendering is disabled
+                        if !self.is_background_enable() {
+                            self.draw_tile_row_backdrop(memory, renderer);
+                            *ppu_cycles += 8;
+                            break;
+                        }
+
+                        // draw one row of a tile (or less, if the current tile straddles
+                        // the screen boundary). this increments 'current_scanline_dot',
+                        // 'current_scanline' and 'horizontal_tile_count'
+                        let pixels_drawn = self.draw_tile_row(memory, renderer);
+                        *ppu_cycles += pixels_drawn as u64;
+
+                        // if at end of scanline
+                        if self.current_scanline_dot == 257 {
+                            self.horizontal_tile_count = 0;
+                            // increment fine y
+                            self.increment_vram_addr_y();
+                        } else {
+                            self.horizontal_tile_count += 1;
+                            self.increment_vram_addr_coarse_x();
+                        }
+                    }
+                    257 => {
+                        // copy nametable select bits from 'temp_vram_addr'
+                        // into 'current_vram_addr'
+                        let temp_nametable = self.temp_vram_addr.get_nametable_select();
+                        self.current_vram_addr.set_nametable_select(temp_nametable);
+
+                        // copy coarse x scroll/position bits from 'temp_vram_addr'
+                        // into 'current_vram_addr'
+                        let temp_coarse_x = self.temp_vram_addr.get_coarse_x();
+                        self.current_vram_addr.set_coarse_x(temp_coarse_x);
+
                         *ppu_cycles += 8;
                         self.current_scanline_dot += 8;
-                    } else {
+                    }
+                    258..=336 => {
+                        *ppu_cycles += 8;
+                        self.current_scanline_dot += 8;
+                    }
+                    337 => {
+                        *ppu_cycles += 4;
+                        self.current_scanline_dot = 0;
+                        self.current_scanline += 1;
+                    }
+                    _ => (),
+                },
+                // idle scanline
+                240 => match self.current_scanline_dot {
+                    256 => {
+                        let temp_nametable = self.temp_vram_addr.get_nametable_select();
+                        self.current_vram_addr.set_nametable_select(temp_nametable);
+                        let temp_coarse_x = self.temp_vram_addr.get_coarse_x();
+                        self.current_vram_addr.set_coarse_x(temp_coarse_x);
+
+                        *ppu_cycles += 8;
+                        self.current_scanline_dot += 8;
+                    }
+                    336 => {
                         *ppu_cycles += 5;
                         self.current_scanline_dot = 0;
                         self.current_scanline += 1;
                     }
-                }
+                    _ => {
+                        *ppu_cycles += 8;
+                        self.current_scanline_dot += 8;
+                    }
+                },
                 // vblank 'scanlines'
-                241..=260 => {
+                241..=260 => match self.current_scanline_dot {
                     // TODO:FIXME:NOTE: one more cycle if on an odd frame
                     // TODO: actual shit
+                    256 => {
+                        let temp_nametable = self.temp_vram_addr.get_nametable_select();
+                        self.current_vram_addr.set_nametable_select(temp_nametable);
+                        let temp_coarse_x = self.temp_vram_addr.get_coarse_x();
+                        self.current_vram_addr.set_coarse_x(temp_coarse_x);
 
-                    if self.current_scanline_dot != 336 {
                         *ppu_cycles += 8;
                         self.current_scanline_dot += 8;
-                    } else {
+                    }
+                    336 => {
                         *ppu_cycles += 5;
                         self.current_scanline_dot = 0;
                         self.current_scanline += 1;
                     }
-                }
-                // pre-render scanline
-                261 => {
-                    match self.current_scanline_dot {
-                        0..=279 => {
-                            *ppu_cycles += 8;
-                            self.current_scanline_dot += 8;
-                        }
-                        280 => {
-                            // copy coarse y bits from 'temp_vram_addr' into 'current_vram_addr'
-                            let temp_coarse_y = self.temp_vram_addr.get_coarse_y();
-                            self.current_vram_addr.set_coarse_y(temp_coarse_y);
-
-                            // copy fine y bits from 'temp_vram_addr' into 'current_vram_addr'
-                            let temp_fine_y = self.temp_vram_addr.get_fine_y();
-                            self.current_vram_addr.set_fine_y(temp_fine_y);
-
-                            *ppu_cycles += 8;
-                            self.current_scanline_dot += 8;
-                        }
-                        281..=335 => {
-                            *ppu_cycles += 8;
-                            self.current_scanline_dot += 8;
-                        }
-                        336 => {
-                            *ppu_cycles += 5;
-                            self.current_scanline_dot = 0;
-                            self.current_scanline = 0;
-                        }
-                        _ => (),
+                    _ => {
+                        *ppu_cycles += 8;
+                        self.current_scanline_dot += 8;
                     }
-                }
+                },
+                // pre-render scanline
+                261 => match self.current_scanline_dot {
+                    0..=255 => {
+                        *ppu_cycles += 8;
+                        self.current_scanline_dot += 8;
+                    }
+                    256 => {
+                        let temp_nametable = self.temp_vram_addr.get_nametable_select();
+                        self.current_vram_addr.set_nametable_select(temp_nametable);
+                        let temp_coarse_x = self.temp_vram_addr.get_coarse_x();
+                        self.current_vram_addr.set_coarse_x(temp_coarse_x);
+
+                        *ppu_cycles += 8;
+                        self.current_scanline_dot += 8;
+                    }
+                    257..=279 => {
+                        *ppu_cycles += 8;
+                        self.current_scanline_dot += 8;
+                    }
+                    280 => {
+                        // copy coarse y bits from 'temp_vram_addr' into 'current_vram_addr'
+                        let temp_coarse_y = self.temp_vram_addr.get_coarse_y();
+                        self.current_vram_addr.set_coarse_y(temp_coarse_y);
+
+                        // copy fine y bits from 'temp_vram_addr' into 'current_vram_addr'
+                        let temp_fine_y = self.temp_vram_addr.get_fine_y();
+                        self.current_vram_addr.set_fine_y(temp_fine_y);
+
+                        *ppu_cycles += 8;
+                        self.current_scanline_dot += 8;
+                    }
+                    281..=335 => {
+                        *ppu_cycles += 8;
+                        self.current_scanline_dot += 8;
+                    }
+                    336 => {
+                        *ppu_cycles += 5;
+                        self.current_scanline_dot = 0;
+                        self.current_scanline = 0;
+                    }
+                    _ => (),
+                },
                 _ => (),
             }
         }

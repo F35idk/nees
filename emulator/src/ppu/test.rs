@@ -421,38 +421,8 @@ pub fn test_draw(rom: &[u8]) {
     ppu.ppumask = 0b11110;
 
     loop {
-        // // increment fine x
-        // {
-        //     if ppu.fine_x_scroll == 0b111 {
-        //         if ppu.temp_vram_addr.get_coarse_x() == 0b11111 {
-        //             ppu.temp_vram_addr.set_coarse_x(0);
-        //             ppu.temp_vram_addr.inner ^= 0b10000000000;
-        //         } else {
-        //             ppu.temp_vram_addr.inner += 1;
-        //         }
-        //         ppu.fine_x_scroll = 0;
-        //     } else {
-        //         ppu.fine_x_scroll += 1;
-        //     }
-        // }
-
-        // let now = std::time::Instant::now();
-
-        // // draw whole screen
-        // let mut i = 0;
-        // while !ppu.draw_tile_row(&mut memory, &mut renderer) {
-        //     if counter > 5 {
-        //         i += 1;
-        //     }
-
-        //     if i >= 100 * 32 {
-        //         ppu.ppumask = 0b11110;
-        //     }
-        // }
-
-        // let elapsed = now.elapsed().as_micros();
-        ppu.current_scanline = 261;
-        for _ in 0..261 {
+        // step through all visible scanlines + idle scanline (scanline 240)
+        for _ in 0..240 {
             let mut ppu_cycles = 0;
             ppu.catch_up(&mut 0, &mut ppu_cycles, 341, &mut memory, &mut renderer);
             assert_eq!(ppu_cycles, 341)
@@ -473,13 +443,19 @@ pub fn test_draw(rom: &[u8]) {
             }
         }
 
-        // render and display
+        // step through vblank and pre-render scanlines
+        for _ in 0..22 {
+            let mut ppu_cycles = 0;
+            ppu.catch_up(&mut 0, &mut ppu_cycles, 341, &mut memory, &mut renderer);
+            assert_eq!(ppu_cycles, 341)
+        }
+
         let frame_index = renderer.render_frame();
         renderer.present(frame_index);
 
-        if counter == 1000 {
-            break;
-        }
+        // if counter == 1000 {
+        //     break;
+        // }
 
         counter += 1;
         // frame_times += elapsed;
