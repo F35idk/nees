@@ -418,8 +418,46 @@ pub fn test_draw(rom: &[u8]) {
 
     let mut counter: u64 = 0;
     let mut frame_times: u128 = 0;
+    ppu.ppumask = 0b11110;
 
     loop {
+        // // increment fine x
+        // {
+        //     if ppu.fine_x_scroll == 0b111 {
+        //         if ppu.temp_vram_addr.get_coarse_x() == 0b11111 {
+        //             ppu.temp_vram_addr.set_coarse_x(0);
+        //             ppu.temp_vram_addr.inner ^= 0b10000000000;
+        //         } else {
+        //             ppu.temp_vram_addr.inner += 1;
+        //         }
+        //         ppu.fine_x_scroll = 0;
+        //     } else {
+        //         ppu.fine_x_scroll += 1;
+        //     }
+        // }
+
+        // let now = std::time::Instant::now();
+
+        // // draw whole screen
+        // let mut i = 0;
+        // while !ppu.draw_tile_row(&mut memory, &mut renderer) {
+        //     if counter > 5 {
+        //         i += 1;
+        //     }
+
+        //     if i >= 100 * 32 {
+        //         ppu.ppumask = 0b11110;
+        //     }
+        // }
+
+        // let elapsed = now.elapsed().as_micros();
+        ppu.current_scanline = 261;
+        for _ in 0..261 {
+            let mut ppu_cycles = 0;
+            ppu.catch_up(&mut 0, &mut ppu_cycles, 341, &mut memory, &mut renderer);
+            assert_eq!(ppu_cycles, 341)
+        }
+
         // increment fine x
         {
             if ppu.fine_x_scroll == 0b111 {
@@ -435,23 +473,18 @@ pub fn test_draw(rom: &[u8]) {
             }
         }
 
-        // draw whole screen
-        let now = std::time::Instant::now();
-        while !ppu.draw_tile_row(&mut memory, &mut renderer) {}
-        let elapsed = now.elapsed().as_micros();
-
         // render and display
         let frame_index = renderer.render_frame();
         renderer.present(frame_index);
-
-        // println!("frame time: {}", elapsed);
 
         if counter == 1000 {
             break;
         }
 
         counter += 1;
-        frame_times += elapsed;
+        // frame_times += elapsed;
+
+        std::thread::sleep(std::time::Duration::from_millis(200));
     }
 
     println!("avg. frame time: {} us", frame_times / (counter as u128));
