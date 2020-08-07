@@ -1,6 +1,7 @@
 use super::super::PixelRenderer;
 use super::super::{apu, cpu, memory_map as mmap, parse, util, win};
 use mmap::MemoryMap;
+use std::ops::Sub;
 
 #[test]
 fn test_registers() {
@@ -416,13 +417,15 @@ pub fn test_draw(rom: &[u8]) {
 
     win.map_and_flush();
 
-    let mut counter: u64 = 0;
-    let mut frame_times: u128 = 0;
+    // let mut counter: u64 = 0;
+    // let mut frame_times: u128 = 0;
     ppu.ppumask = 0b11110;
 
     loop {
-        // step through all visible scanlines + idle scanline (scanline 240)
-        for _ in 0..240 {
+        // let start_of_frame = std::time::Instant::now();
+
+        // step through pre-render scanline, all visible scanlines and idle scanline (scanline 240)
+        for _ in -1..=240 {
             let mut ppu_cycles = 0;
             ppu.catch_up(&mut 0, &mut ppu_cycles, 341, &mut memory, &mut renderer);
             assert_eq!(ppu_cycles, 341)
@@ -443,25 +446,36 @@ pub fn test_draw(rom: &[u8]) {
             }
         }
 
-        // step through vblank and pre-render scanlines
-        for _ in 0..22 {
+        // step through vblank scanlines
+        for _ in 0..20 {
             let mut ppu_cycles = 0;
             ppu.catch_up(&mut 0, &mut ppu_cycles, 341, &mut memory, &mut renderer);
-            assert_eq!(ppu_cycles, 341)
+            assert_eq!(ppu_cycles, 341);
         }
 
         let frame_index = renderer.render_frame();
+
+        // let elapsed = start_of_frame.elapsed();
+        // let time_left = match std::time::Duration::from_micros(16_667).checked_sub(elapsed) {
+        //     Some(t) => t,
+        //     None => {
+        //         println!("frame took {} μs to render!", elapsed.as_micros());
+        //         std::time::Duration::default()
+        //     }
+        // };
+        // std::thread::sleep(time_left);
+
         renderer.present(frame_index);
 
         // if counter == 1000 {
         //     break;
         // }
 
-        counter += 1;
+        // counter += 1;
         // frame_times += elapsed;
 
-        std::thread::sleep(std::time::Duration::from_millis(200));
+        // std::thread::sleep(std::time::Duration::from_millis(30));
     }
 
-    println!("avg. frame time: {} us", frame_times / (counter as u128));
+    // println!("avg. frame time: {} us", frame_times / (counter as u128));
 }
