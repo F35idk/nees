@@ -645,29 +645,26 @@ impl Ppu {
 
             log!("tile: {}, ", ppu.horizontal_tile_count);
 
-            let mut pixels_drawn = 0;
+            pixels_range
+                .into_iter()
+                .map(|i| {
+                    let color_index_low = (bitplane_low >> (7 - i)) & 1;
+                    let color_index_high = ((bitplane_high >> (7 - i)) << 1) & 2;
+                    let color_index = color_index_low | color_index_high;
 
-            for i in pixels_range {
-                let color_index_low = (bitplane_low >> (7 - i)) & 1;
-                let color_index_high = ((bitplane_high >> (7 - i)) << 1) & 2;
-                let color_index = color_index_low | color_index_high;
+                    let pixels = util::pixels_to_u32(renderer);
+                    let color = get_pixel_color(ppu, memory, palette_index, color_index);
 
-                log!("(x: {}, i: {}), ", ppu.current_scanline_dot - 1, i);
+                    let screen_x = (ppu.current_scanline_dot - 1) as usize;
+                    let screen_y = ppu.current_scanline as usize;
+                    // TODO: OPTIMIZE: unchecked indexing
+                    pixels[screen_y * 256 + screen_x] = color;
 
-                let pixels = util::pixels_to_u32(renderer);
-                let color = get_pixel_color(ppu, memory, palette_index, color_index);
-                // TODO: OPTIMIZE: unchecked indexing
-
-                let screen_x = (ppu.current_scanline_dot - 1) as usize;
-                let screen_y = ppu.current_scanline as usize;
-                pixels[screen_y as usize * 256 + screen_x as usize] = color;
-
-                ppu.current_scanline_dot = ppu.current_scanline_dot.wrapping_add(1);
-                pixels_drawn += 1;
-            }
-            logln!("");
-
-            pixels_drawn
+                    log!("(x: {}, i: {}), ", ppu.current_scanline_dot - 1, i);
+                    ppu.current_scanline_dot = ppu.current_scanline_dot.wrapping_add(1);
+                })
+                // return amt of pixels drawn
+                .count() as u8
         }
 
         fn get_current_tile(ppu: &mut Ppu, memory: &mut mmap::Nrom128MemoryMap) -> [u8; 16] {
