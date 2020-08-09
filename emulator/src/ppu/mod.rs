@@ -170,10 +170,12 @@ impl Ppu {
             1 => self.ppumask,
             // ppustatus
             2 => {
-                // TODO: clear asldkfjøasjdøfj
                 // clear low bits toggle
                 self.low_bits_toggle = false;
-                self.ppustatus
+                let status = self.ppustatus;
+                // clear vblank flag
+                self.set_vblank(false);
+                status
             }
             // oamaddr
             3 => 0,
@@ -408,7 +410,17 @@ impl Ppu {
             match self.current_scanline {
                 // pre-render scanline
                 -1 => match self.current_scanline_dot {
-                    0..=255 => {
+                    0 => {
+                        self.current_scanline_dot += 1;
+                        *ppu_cycles += 1;
+                    }
+                    1 => {
+                        self.set_vblank(false);
+
+                        *ppu_cycles += 7;
+                        self.current_scanline_dot += 7;
+                    }
+                    2..=255 => {
                         *ppu_cycles += 8;
                         self.current_scanline_dot += 8;
                     }
@@ -474,7 +486,7 @@ impl Ppu {
                         let pixels_drawn = self.draw_tile_row(memory, renderer);
                         *ppu_cycles += pixels_drawn as u64;
 
-                        // if last pixel drawn was 256 (end of scanline)
+                        // if last pixel drawn was 256th (end of scanline)
                         if self.current_scanline_dot == 257 {
                             // increment fine y
                             self.increment_vram_addr_y();
@@ -528,7 +540,19 @@ impl Ppu {
                 // vblank 'scanlines'
                 241..=260 => match self.current_scanline_dot {
                     // TODO:FIXME:NOTE: one more cycle if on an odd frame
-                    // TODO: actual shit
+                    0 => {
+                        *ppu_cycles += 1;
+                        self.current_scanline_dot += 1;
+                    }
+                    1 => {
+                        self.set_vblank(true);
+                        if self.is_vblank_nmi_enabled() {
+                            // TODO: nmi
+                        }
+
+                        *ppu_cycles += 7;
+                        self.current_scanline_dot += 7;
+                    }
                     256 => {
                         let temp_nametable = self.temp_vram_addr.get_nametable_select();
                         let temp_coarse_x = self.temp_vram_addr.get_coarse_x();
