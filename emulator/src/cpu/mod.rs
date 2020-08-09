@@ -12,6 +12,9 @@ pub struct Cpu {
     pub p: u8,
     pub sp: u8,
     pub pc: u16,
+    // TODO: keep track of when (at what cycle) the nmi/irq was triggered?
+    pub nmi: bool,
+    pub irq: u8,
 }
 
 impl Cpu {
@@ -29,6 +32,28 @@ impl Cpu {
         memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) {
+        if self.nmi {
+            self.nmi(memory, ptrs);
+            self.nmi = false;
+            return;
+        }
+
+        if self.irq > 0 && !self.is_i_set() {
+            match memory.read_cpu(ptrs, self.pc) {
+                // if the instruction at memory[pc] is CLI, SEI or PLP,
+                // execute this instruction before handling the interrupt
+                0x58 => self.cli(ptrs.cpu_cycles),
+                0x78 => self.sei(ptrs.cpu_cycles),
+                0x28 => self.plp(memory, ptrs),
+                _ => self.irq(memory, ptrs),
+            }
+
+            // TODO: implement more subtle interrupt (mis)behavior
+            // (i.e interrupt hijacking, etc.)
+
+            return;
+        }
+
         match memory.read_cpu(ptrs, self.pc) {
             // ADC
             0x69 => self.adc_imm(memory, ptrs),
@@ -330,6 +355,11 @@ impl Cpu {
         self.p = (self.p & !4) | bit;
     }
 
+    #[inline]
+    fn is_i_set(&mut self) -> bool {
+        (self.p & 4) != 0
+    }
+
     fn adc(&mut self, val: u8) {
         // add 'val' to the accumulator first
         let (res_1, carry_1) = val.overflowing_add(self.a);
@@ -539,14 +569,14 @@ impl Cpu {
         self.bit(val);
     }
 
-    fn brk(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
-        // NOTE: pc + 2 is pushed, despite brk being a one byte instruction
-        let pc_bytes = (self.pc + 2).to_le_bytes();
+    // used for brk and maskable interrupts ('Cpu.irq()')
+    fn interrupt(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
+        let pc_bytes = self.pc.to_le_bytes();
 
-        // push high bits of pc + 2
+        // push high bits of pc
         memory.write_cpu(ptrs, self.sp as u16 + 0x100, pc_bytes[1]);
         self.sp = self.sp.wrapping_sub(1);
-        // push low bits of pc + 2
+        // push low bits of pc
         memory.write_cpu(ptrs, self.sp as u16 + 0x100, pc_bytes[0]);
         self.sp = self.sp.wrapping_sub(1);
 
@@ -558,13 +588,47 @@ impl Cpu {
         self.set_i_from_bit(4);
 
         // set pc to address in brk/irq vector
-        let brk_vector = u16::from_le_bytes([
+        let vector = u16::from_le_bytes([
             memory.read_cpu(ptrs, 0xfffeu16),
             memory.read_cpu(ptrs, 0xffffu16),
         ]);
-        self.pc = brk_vector;
+        self.pc = vector;
 
         *ptrs.cpu_cycles += 7;
+    }
+
+    fn brk(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
+        // NOTE: pc + 2 is pushed to the stack, despite brk being a one byte instruction
+        self.pc += 2;
+        self.interrupt(memory, ptrs);
+    }
+
+    fn irq(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
+        self.interrupt(memory, ptrs);
+    }
+
+    fn nmi(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
+        let pc_bytes = self.pc.to_le_bytes();
+
+        memory.write_cpu(ptrs, self.sp as u16 + 0x100, pc_bytes[1]);
+        self.sp = self.sp.wrapping_sub(1);
+        memory.write_cpu(ptrs, self.sp as u16 + 0x100, pc_bytes[0]);
+        self.sp = self.sp.wrapping_sub(1);
+
+        // push status flags (with the 'b-flag' cleared)
+        memory.write_cpu(ptrs, self.sp as u16 + 0x100, self.p);
+        self.sp = self.sp.wrapping_sub(1);
+
+        self.pc = u16::from_le_bytes([
+            memory.read_cpu(ptrs, 0xfffau16),
+            memory.read_cpu(ptrs, 0xfffbu16),
+        ]);
+
+        *ptrs.cpu_cycles += 7;
+    }
+
+    fn reset(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
+        // TODO: ..
     }
 
     fn clc(&mut self, cpu_cycles: &mut u64) {
