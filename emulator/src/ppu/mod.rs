@@ -638,25 +638,25 @@ impl Ppu {
             memory: &mut mmap::Nrom128MemoryMap,
             renderer: &mut PixelRenderer,
         ) -> u8 {
-            // calculate the index of the current tile in the current scanline
-            let scanline_tile_num =
-                ((ppu.current_scanline_dot - 1 + ppu.fine_x_scroll as u16) >> 3) as u8 & 0x3f;
-
             let current_tile = get_current_tile(ppu, memory);
-            let palette_index = get_tile_palette_index(ppu, scanline_tile_num, memory);
+            let palette_index = get_tile_palette_index(ppu, memory);
 
             // get the high and low bitplanes for the current row of the current tile
             let fine_y = ppu.current_vram_addr.get_fine_y();
             let bitplane_low = unsafe { *current_tile.get_unchecked(0 + fine_y as usize) };
             let bitplane_high = unsafe { *current_tile.get_unchecked(8 + fine_y as usize) };
 
-            let pixels_range = if scanline_tile_num == 32 {
+            // calculate the index of the current tile in the current scanline
+            let horizontal_tile_count =
+                ((ppu.current_scanline_dot - 1 + ppu.fine_x_scroll as u16) >> 3) as u8 & 0x3f;
+
+            let pixels_range = if horizontal_tile_count == 32 {
                 // if on tile 32 (meaning 'fine_x_scroll' is non-zero and
                 // this is the last tile in the scanline), start drawing
                 // at offset 0 from current tile and stop at end of screen
                 let screen_x = (ppu.current_scanline_dot - 1) as u8;
                 0..(8 - (screen_x % 8))
-            } else if scanline_tile_num == 0 {
+            } else if horizontal_tile_count == 0 {
                 // if on first tile, start drawing pixel at 'fine_x_scroll'
                 ppu.fine_x_scroll..8
             } else {
@@ -664,7 +664,7 @@ impl Ppu {
                 0..8
             };
 
-            log!("tile: {}, ", scanline_tile_num);
+            log!("tile: {}, ", horizontal_tile_count);
 
             pixels_range
                 .into_iter()
@@ -704,21 +704,20 @@ impl Ppu {
             }
         }
 
-        fn get_tile_palette_index(
-            ppu: &mut Ppu,
-            scanline_tile_num: u8,
-            memory: &mut mmap::Nrom128MemoryMap,
-        ) -> u8 {
+        fn get_tile_palette_index(ppu: &mut Ppu, memory: &mut mmap::Nrom128MemoryMap) -> u8 {
+            let coarse_y = ppu.current_vram_addr.get_coarse_y();
+            let coarse_x = ppu.current_vram_addr.get_coarse_x();
+
             // calculate the address of the current tile's 'attribute' in the attribute table
             let attribute_addr = 0x23c0
                 | (ppu.current_vram_addr.get_nametable_select() as u16) << 10
-                | (ppu.current_vram_addr.get_coarse_y() << 1) as u16 & 0b111000
-                | (ppu.current_vram_addr.get_coarse_x() >> 2) as u16;
+                | (coarse_y << 1) as u16 & 0b111000
+                | (coarse_x >> 2) as u16;
 
             // get the 'attribute' byte from the attribute table
             let attribute = memory.read_ppu(attribute_addr);
             // calculate how much to shift 'attribute' by to get the current tile's palette index
-            let shift_amt = (scanline_tile_num & 2) | ((ppu.current_scanline as u8 >> 2) & 4);
+            let shift_amt = ((coarse_y << 1) & 0b100) | (coarse_x & 0b10);
 
             (attribute >> shift_amt) & 0b11
         }
