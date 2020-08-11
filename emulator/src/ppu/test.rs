@@ -6,6 +6,7 @@ use std::ops::Sub;
 #[test]
 fn test_registers() {
     let mut ppu = super::Ppu::default();
+    let ref mut cpu = cpu::Cpu::default();
     let ref mut memory = mmap::Nrom128MemoryMap::new();
 
     ppu.ppuctrl = 0b00000011;
@@ -42,11 +43,11 @@ fn test_registers() {
 
     let x_coord = 0b00110_011;
     let y_coord = 0b10001_101;
-    ppu.write_register_by_index(5, x_coord, memory);
-    ppu.write_register_by_index(5, y_coord, memory);
+    ppu.write_register_by_index(5, x_coord, cpu, memory);
+    ppu.write_register_by_index(5, y_coord, cpu, memory);
 
     let ppuctrl = 0b00000011;
-    ppu.write_register_by_index(0, ppuctrl, memory);
+    ppu.write_register_by_index(0, ppuctrl, cpu, memory);
 
     assert_eq!(ppu.temp_vram_addr.inner, 0b101_11_10001_00110);
     assert_eq!(ppu.fine_x_scroll & 0b111, x_coord & 0b111);
@@ -55,8 +56,8 @@ fn test_registers() {
 
     let addr_hi = 0x21;
     let addr_low = 0x0f;
-    ppu.write_register_by_index(6, addr_hi, memory);
-    ppu.write_register_by_index(6, addr_low, memory);
+    ppu.write_register_by_index(6, addr_hi, cpu, memory);
+    ppu.write_register_by_index(6, addr_low, cpu, memory);
 
     assert_eq!(ppu.current_vram_addr.get_addr(), 0x210f);
 
@@ -67,8 +68,8 @@ fn test_registers() {
 
     let addr_hi = 0x4f;
     let addr_low = 0xe8;
-    ppu.write_register_by_index(6, addr_hi, memory);
-    ppu.write_register_by_index(6, addr_low, memory);
+    ppu.write_register_by_index(6, addr_hi, cpu, memory);
+    ppu.write_register_by_index(6, addr_low, cpu, memory);
 
     // address is mirrored down
     assert_eq!(ppu.current_vram_addr.inner, 0x4fe8 % 0x4000);
@@ -86,12 +87,13 @@ fn test_write_2007() {
 
 #[test]
 fn test_write_2000() {
-    let mut cpu = cpu::Cpu::default();
+    let ref mut cpu = cpu::Cpu::default();
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut ppu = super::Ppu::default();
     let ref mut apu = apu::Apu {};
     let ref mut cpu_cycles = 0;
     let ref mut ptrs = util::PtrsWrapper {
+        cpu,
         ppu,
         apu,
         cpu_cycles,
@@ -115,12 +117,13 @@ fn test_write_2000() {
 
 #[test]
 fn test_read_2002() {
-    let mut cpu = cpu::Cpu::default();
+    let ref mut cpu = cpu::Cpu::default();
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut ppu = super::Ppu::default();
     let ref mut apu = apu::Apu {};
     let ref mut cpu_cycles = 0;
     let ref mut ptrs = util::PtrsWrapper {
+        cpu,
         ppu,
         apu,
         cpu_cycles,
@@ -140,12 +143,13 @@ fn test_read_2002() {
 
 #[test]
 fn test_write_2005() {
-    let mut cpu = cpu::Cpu::default();
+    let ref mut cpu = cpu::Cpu::default();
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut ppu = super::Ppu::default();
     let ref mut apu = apu::Apu {};
     let ref mut cpu_cycles = 0;
     let ref mut ptrs = util::PtrsWrapper {
+        cpu,
         ppu,
         apu,
         cpu_cycles,
@@ -187,12 +191,13 @@ fn test_write_2005() {
 
 #[test]
 fn test_write_2006() {
-    let mut cpu = cpu::Cpu::default();
+    let ref mut cpu = cpu::Cpu::default();
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut ppu = super::Ppu::default();
     let ref mut apu = apu::Apu {};
     let ref mut cpu_cycles = 0;
     let ref mut ptrs = util::PtrsWrapper {
+        cpu,
         ppu,
         apu,
         cpu_cycles,
@@ -243,12 +248,13 @@ fn test_write_2006() {
 
 #[test]
 fn test_write_2003_read_2004() {
-    let mut cpu = cpu::Cpu::default();
+    let ref mut cpu = cpu::Cpu::default();
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut ppu = super::Ppu::default();
     let ref mut apu = apu::Apu {};
     let ref mut cpu_cycles = 0;
     let ref mut ptrs = util::PtrsWrapper {
+        cpu,
         ppu,
         apu,
         cpu_cycles,
@@ -285,17 +291,18 @@ fn test_write_2003_read_2004() {
 #[test]
 fn test_increment_vram_addr() {
     let ref mut ppu = super::Ppu::default();
+    let ref mut cpu = cpu::Cpu::default();
     let ref mut memory = mmap::Nrom128MemoryMap::new();
 
     ppu.current_vram_addr.inner = 0;
     // set increment mode to 32
-    ppu.write_register_by_index(0, 0b00000100, memory);
+    ppu.write_register_by_index(0, 0b00000100, cpu, memory);
     ppu.increment_vram_addr();
     assert_eq!(ppu.current_vram_addr.inner, 32);
 
     ppu.current_vram_addr.inner = 0;
     // set increment mode to 1
-    ppu.write_register_by_index(0, 0b00000000, memory);
+    ppu.write_register_by_index(0, 0b00000000, cpu, memory);
     ppu.increment_vram_addr();
     assert_eq!(ppu.current_vram_addr.inner, 1);
 
@@ -306,7 +313,7 @@ fn test_increment_vram_addr() {
 
     // check wrapping behavior ((3fe0 + 0x20) % 4000 = 0)
     ppu.current_vram_addr.inner = 0x3fe0;
-    ppu.write_register_by_index(0, 0b00000100, memory);
+    ppu.write_register_by_index(0, 0b00000100, cpu, memory);
     ppu.increment_vram_addr();
     assert_eq!(ppu.current_vram_addr.inner, 0);
 }
@@ -342,10 +349,11 @@ fn test_increment_vram_addr_xy() {
 #[test]
 fn test_oamdma() {
     let mut ppu = super::Ppu::default();
+    let ref mut cpu = cpu::Cpu::default();
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut cpu_cycle_count = 0;
 
-    ppu.write_register_by_index(3, 0xee, memory);
+    ppu.write_register_by_index(3, 0xee, cpu, memory);
     ppu.write_oamdma(0x20, cpu_cycle_count, memory);
 
     assert_eq!(*cpu_cycle_count, 513);
@@ -354,12 +362,13 @@ fn test_oamdma() {
 
 #[test]
 fn test_misc() {
-    let mut cpu = cpu::Cpu::default();
+    let ref mut cpu = cpu::Cpu::default();
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut ppu = super::Ppu::default();
     let ref mut apu = apu::Apu {};
     let ref mut cpu_cycles = 0;
     let ref mut ptrs = util::PtrsWrapper {
+        cpu,
         ppu,
         apu,
         cpu_cycles,
@@ -379,6 +388,7 @@ pub fn test_draw(rom: &[u8]) {
     let mut renderer = PixelRenderer::new(&mut win.connection, win.win, 256, 240).unwrap();
     let mut memory = mmap::Nrom128MemoryMap::new();
     let mut ppu = super::Ppu::default();
+    let ref mut cpu = cpu::Cpu::default();
 
     let prg_size = 0x4000 * (parse::get_prg_size(&rom) as usize);
     let chr_size = 0x2000 * (parse::get_chr_size(&rom) as usize);
@@ -393,6 +403,7 @@ pub fn test_draw(rom: &[u8]) {
         memory.palettes[8 + 3] = 0x02;
 
         for (i, byte) in memory.nametables.iter_mut().enumerate() {
+            // set nametable bytes to point to tiles 0..255 in the attribute table
             *byte = i as u8;
         }
 
@@ -409,25 +420,30 @@ pub fn test_draw(rom: &[u8]) {
     // set nametable mirroring mask = vertical mirroring
     memory.nametable_mirroring_mask = !0x800;
     // set background pattern table addr = 0x1000 and base nametable addr = 0x2400
-    ppu.write_register_by_index(0, 0b10001, &mut memory);
+    ppu.write_register_by_index(0, 0b100001, &mut cpu, &mut memory);
     // set coarse x scroll = 0 (offset by 0 in the nametable)
     ppu.temp_vram_addr.inner |= 0b00000;
     // set fine x scroll = 0
     ppu.fine_x_scroll = 0b000;
+    // ensure ppu will show background and sprites
+    ppu.ppumask = 0b11110;
 
     win.map_and_flush();
 
-    // let mut counter: u64 = 0;
-    // let mut frame_times: u128 = 0;
-    ppu.ppumask = 0b11110;
-
     loop {
-        // let start_of_frame = std::time::Instant::now();
+        let start_of_frame = std::time::Instant::now();
 
         // step through pre-render scanline, all visible scanlines and idle scanline (scanline 240)
         for _ in -1..=240 {
             let mut ppu_cycles = 0;
-            ppu.catch_up(&mut 0, &mut ppu_cycles, 341, &mut memory, &mut renderer);
+            ppu.catch_up(
+                &mut cpu,
+                &mut 0,
+                &mut ppu_cycles,
+                341,
+                &mut memory,
+                &mut renderer,
+            );
             assert_eq!(ppu_cycles, 341)
         }
 
@@ -449,33 +465,29 @@ pub fn test_draw(rom: &[u8]) {
         // step through vblank scanlines
         for _ in 0..20 {
             let mut ppu_cycles = 0;
-            ppu.catch_up(&mut 0, &mut ppu_cycles, 341, &mut memory, &mut renderer);
+            ppu.catch_up(
+                &mut cpu,
+                &mut 0,
+                &mut ppu_cycles,
+                341,
+                &mut memory,
+                &mut renderer,
+            );
             assert_eq!(ppu_cycles, 341);
         }
 
         let frame_index = renderer.render_frame();
 
-        // let elapsed = start_of_frame.elapsed();
-        // let time_left = match std::time::Duration::from_micros(16_667).checked_sub(elapsed) {
-        //     Some(t) => t,
-        //     None => {
-        //         println!("frame took {} μs to render!", elapsed.as_micros());
-        //         std::time::Duration::default()
-        //     }
-        // };
-        // std::thread::sleep(time_left);
+        let elapsed = start_of_frame.elapsed();
+        let time_left = match std::time::Duration::from_nanos(16_666_677).checked_sub(elapsed) {
+            Some(t) => t,
+            None => {
+                println!("frame took {} μs to render!", elapsed.as_micros());
+                std::time::Duration::default()
+            }
+        };
+        std::thread::sleep(time_left);
 
         renderer.present(frame_index);
-
-        // if counter == 1000 {
-        //     break;
-        // }
-
-        // counter += 1;
-        // frame_times += elapsed;
-
-        // std::thread::sleep(std::time::Duration::from_millis(30));
     }
-
-    // println!("avg. frame time: {} us", frame_times / (counter as u128));
 }

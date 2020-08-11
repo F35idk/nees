@@ -1,5 +1,5 @@
 #[macro_use]
-use super::{memory_map as mmap, util};
+use super::{cpu, memory_map as mmap, util};
 use super::pixel_renderer::PixelRenderer;
 use mmap::MemoryMap;
 
@@ -223,11 +223,12 @@ impl Ppu {
         &mut self,
         index: u8,
         val: u8,
+        cpu: &mut cpu::Cpu,
         memory: &mut mmap::Nrom128MemoryMap,
     ) {
         match index {
             // ppuctrl
-            0 => self.write_ppuctrl(val),
+            0 => self.write_ppuctrl(val, cpu),
             // ppumask
             1 => self.ppumask = val,
             // ppustatus, ignore attemps to write
@@ -246,11 +247,14 @@ impl Ppu {
         }
     }
 
-    fn write_ppuctrl(&mut self, val: u8) {
+    fn write_ppuctrl(&mut self, val: u8, cpu: &mut cpu::Cpu) {
         // set bits 10-11 of 'temp_vram_addr' equal to the low 2 bits of 'val'
         self.temp_vram_addr.set_nametable_select(val & 0b11);
-
         self.ppuctrl = val;
+
+        if self.is_vblank_nmi_enabled() && self.is_vblank() {
+            cpu.nmi = true;
+        }
     }
 
     fn write_oamdata(&mut self, val: u8) {
@@ -393,6 +397,7 @@ impl Ppu {
 
     pub fn catch_up(
         &mut self,
+        cpu: &mut cpu::Cpu,
         cpu_cycles: &mut u64,
         ppu_cycles: &mut u64,
         cycles_to_catch_up: u32,
@@ -547,7 +552,7 @@ impl Ppu {
                     1 => {
                         self.set_vblank(true);
                         if self.is_vblank_nmi_enabled() {
-                            // TODO: nmi
+                            cpu.nmi = true;
                         }
 
                         *ppu_cycles += 7;

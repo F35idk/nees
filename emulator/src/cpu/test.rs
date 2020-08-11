@@ -3,7 +3,7 @@ use super::Cpu;
 use mmap::MemoryMap;
 
 fn test_adc() {
-    let mut cpu = Cpu::default();
+    let ref mut cpu = Cpu::default();
     let ref mut cpu_cycles = 0;
     let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
@@ -30,6 +30,7 @@ fn test_adc() {
 
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut ptrs = util::PtrsWrapper {
+        cpu,
         ppu,
         apu,
         cpu_cycles,
@@ -72,7 +73,7 @@ fn test_adc() {
 }
 
 fn test_and() {
-    let mut cpu = Cpu::default();
+    let ref mut cpu = Cpu::default();
     let ref mut cpu_cycles = 0;
     let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
@@ -87,6 +88,7 @@ fn test_and() {
 
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut ptrs = util::PtrsWrapper {
+        cpu,
         ppu,
         apu,
         cpu_cycles,
@@ -106,12 +108,13 @@ fn test_and() {
 }
 
 fn test_asl() {
-    let mut cpu = Cpu::default();
+    let ref mut cpu = Cpu::default();
     let ref mut cpu_cycles = 0;
     let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut ptrs = util::PtrsWrapper {
+        cpu,
         ppu,
         apu,
         cpu_cycles,
@@ -148,12 +151,13 @@ fn test_asl() {
 }
 
 fn test_branch_instrs() {
-    let mut cpu = Cpu::default();
+    let ref mut cpu = Cpu::default();
     let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut cpu_cycles = 0;
     let ref mut ptrs = util::PtrsWrapper {
+        cpu,
         ppu,
         apu,
         cpu_cycles,
@@ -189,12 +193,13 @@ fn test_branch_instrs() {
 }
 
 fn test_bit() {
-    let mut cpu = Cpu::default();
+    let ref mut cpu = Cpu::default();
     let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut cpu_cycles = 0;
     let ref mut ptrs = util::PtrsWrapper {
+        cpu,
         ppu,
         apu,
         cpu_cycles,
@@ -212,7 +217,7 @@ fn test_bit() {
 }
 
 fn test_cmp() {
-    let mut cpu = Cpu::default();
+    let ref mut cpu = Cpu::default();
     cpu.a = 0x40;
     cpu.p = 0x25;
     let _ = cpu.compare_register_val(cpu.a, 0x41);
@@ -222,12 +227,13 @@ fn test_cmp() {
 }
 
 fn test_dec_inc() {
-    let mut cpu = Cpu::default();
+    let ref mut cpu = Cpu::default();
     let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut cpu_cycles = 0;
     let ref mut ptrs = util::PtrsWrapper {
+        cpu,
         ppu,
         apu,
         cpu_cycles,
@@ -244,12 +250,13 @@ fn test_dec_inc() {
 }
 
 fn test_eor() {
-    let mut cpu = Cpu::default();
+    let ref mut cpu = Cpu::default();
     let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut cpu_cycles = 0;
     let ref mut ptrs = util::PtrsWrapper {
+        cpu,
         ppu,
         apu,
         cpu_cycles,
@@ -279,12 +286,13 @@ fn test_eor() {
 }
 
 fn test_jmp() {
-    let mut cpu = Cpu::default();
+    let ref mut cpu = Cpu::default();
     let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut cpu_cycles = 0;
     let ref mut ptrs = util::PtrsWrapper {
+        cpu,
         ppu,
         apu,
         cpu_cycles,
@@ -305,12 +313,13 @@ fn test_jmp() {
 }
 
 fn test_jsr() {
-    let mut cpu = Cpu::default();
+    let ref mut cpu = Cpu::default();
     let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut cpu_cycles = 0;
     let ref mut ptrs = util::PtrsWrapper {
+        cpu,
         ppu,
         apu,
         cpu_cycles,
@@ -363,12 +372,13 @@ fn test_jsr() {
 }
 
 fn test_jsr_2() {
-    let mut cpu = Cpu::default();
+    let ref mut cpu = Cpu::default();
     let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut cpu_cycles = 0;
     let ref mut ptrs = util::PtrsWrapper {
+        cpu,
         ppu,
         apu,
         cpu_cycles,
@@ -394,12 +404,13 @@ fn test_jsr_2() {
 }
 
 fn test_ld() {
-    let mut cpu = Cpu::default();
+    let ref mut cpu = Cpu::default();
     let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut cpu_cycles = 0;
     let ref mut ptrs = util::PtrsWrapper {
+        cpu,
         ppu,
         apu,
         cpu_cycles,
@@ -437,12 +448,13 @@ fn test_ora() {
 }
 
 fn test_push_pull() {
-    let mut cpu = Cpu::default();
+    let ref mut cpu = Cpu::default();
     let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut cpu_cycles = 0;
     let ref mut ptrs = util::PtrsWrapper {
+        cpu,
         ppu,
         apu,
         cpu_cycles,
@@ -476,12 +488,13 @@ fn test_push_pull() {
 }
 
 fn test_rol_ror() {
-    let mut cpu = Cpu::default();
+    let ref mut cpu = Cpu::default();
     let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut cpu_cycles = 0;
     let ref mut ptrs = util::PtrsWrapper {
+        cpu,
         ppu,
         apu,
         cpu_cycles,
@@ -521,12 +534,13 @@ fn test_rti() {
 }
 
 fn test_rts() {
-    let mut cpu = Cpu::default();
+    let ref mut cpu = Cpu::default();
     let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut cpu_cycles = 0;
     let ref mut ptrs = util::PtrsWrapper {
+        cpu,
         ppu,
         apu,
         cpu_cycles,
@@ -555,7 +569,7 @@ fn test_rts() {
 }
 
 fn test_sbc() {
-    let mut cpu = Cpu::default();
+    let ref mut cpu = Cpu::default();
 
     cpu.a = 0x40;
     cpu.p = 0x65;

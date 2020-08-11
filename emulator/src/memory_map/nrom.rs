@@ -1,16 +1,19 @@
 #[macro_use]
 use super::MemoryMap;
+use super::super::cpu;
 use super::{apu, ppu, util};
 
 // the cpu and ppu memory maps for games that use the 'NROM-128' cartridge/mapper (ines mapper 0)
 pub struct Nrom128MemoryMap {
-    pub cpu_memory: [u8; 0x5800],
     // the addresses passed to the read/write calls translate
     // to these ranges in the 'cpu_memory' array:
     // TODO: make these separate fields instead
     // [0..=0x7ff] = internal ram
     // [0x800..=0x47ff] = prg rom
     // [0x4800..=0x57ff] = prg ram
+    pub cpu_memory: [u8; 0x5800],
+
+    // ppu memory
     pub chr_ram: [u8; 0x2000],
     pub nametables: [u8; 0x800],
     pub palettes: [u8; 32],
@@ -19,11 +22,11 @@ pub struct Nrom128MemoryMap {
 
 // 'NROM-256' (also ines mapper 0)
 pub struct Nrom256MemoryMap {
-    cpu_memory: [u8; 0x9800],
     // [0..=0x7ff] = internal ram
     // [0x800..=0x87ff] = prg rom
     // [0x8800..=0x97ff] = prg ram
     // TODO: 0x2000 * chr rom/possibly ram
+    cpu_memory: [u8; 0x9800],
 }
 
 impl Nrom128MemoryMap {
@@ -102,8 +105,14 @@ impl MemoryMap for Nrom128MemoryMap {
         }
 
         if (addr >> 13) == 1 {
-            ptrs.ppu
-                .write_register_by_index(addr as u8 & 0b111, val, self);
+            ptrs.ppu.write_register_by_index(
+                addr as u8 & 0b111,
+                val,
+                // SAFETY: none
+                // FIXME: safety
+                unsafe { std::mem::transmute(ptrs.cpu) },
+                self,
+            );
             return;
         }
 
@@ -129,6 +138,8 @@ impl MemoryMap for Nrom128MemoryMap {
 
     // NOTE: passing addresses higher than 0x3fff will read from palette ram
     fn read_ppu(&self, mut addr: u16) -> u8 {
+        debug_assert!(addr <= 0x3fff);
+
         // if address points to palette indices
         if addr >= 0x3f00 {
             // ignore all but lowest 5 bits (32 palettes)
@@ -151,6 +162,8 @@ impl MemoryMap for Nrom128MemoryMap {
 
     // NOTE: passing addresses higher than 0x3fff will write to palette ram
     fn write_ppu(&mut self, mut addr: u16, val: u8) {
+        debug_assert!(addr <= 0x3fff);
+
         if addr >= 0x3f00 {
             addr &= 0b11111;
             unsafe { *self.palettes.get_unchecked_mut(addr as usize) = val };
@@ -273,10 +286,12 @@ fn test_calc_addr_128() {
     }
 
     let mut memory = Nrom128MemoryMap::new();
+    let ref mut cpu = cpu::Cpu::default();
     let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
     let ref mut cpu_cycles = 0;
     let ref mut ptrs = util::PtrsWrapper {
+        cpu,
         ppu,
         apu,
         cpu_cycles,

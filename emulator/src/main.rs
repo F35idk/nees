@@ -45,13 +45,14 @@ fn main() {
 
     let nestest = false;
     if nestest {
-        let mut cpu = cpu::Cpu::new_nestest();
+        let ref mut cpu = cpu::Cpu::new_nestest();
         let mut memory = mmap::Nrom128MemoryMap::new();
         let ref mut ppu = ppu::Ppu::default();
         let ref mut apu = apu::Apu {};
         let ref mut cpu_cycles = 7; // for whatever reason
 
         let ref mut ptrs = util::PtrsWrapper {
+            cpu,
             ppu,
             apu,
             cpu_cycles,

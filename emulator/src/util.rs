@@ -1,9 +1,9 @@
-use super::apu;
-use super::ppu;
+use super::{apu, cpu, ppu};
 
 // convenience/helper struct for passing around important pointers,
 // to reduce amt. of function arguments everywhere, etc.
 pub struct PtrsWrapper<'a, 'b, 'c> {
+    pub cpu: *mut cpu::Cpu,
     pub ppu: &'a mut ppu::Ppu,
     pub apu: &'b mut apu::Apu,
     pub cpu_cycles: &'c mut u64,
