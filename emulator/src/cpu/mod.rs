@@ -617,6 +617,8 @@ impl Cpu {
         memory.write_cpu(ptrs, self.sp as u16 + 0x100, pc_bytes[0]);
         self.sp = self.sp.wrapping_sub(1);
 
+        self.set_i_from_bit(4);
+
         // push status flags (with the 'b-flag' cleared)
         memory.write_cpu(ptrs, self.sp as u16 + 0x100, self.p);
         self.sp = self.sp.wrapping_sub(1);
