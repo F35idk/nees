@@ -388,7 +388,7 @@ pub fn test_draw(rom: &[u8]) {
     let mut renderer = PixelRenderer::new(&mut win.connection, win.win, 256, 240).unwrap();
     let mut memory = mmap::Nrom128MemoryMap::new();
     let mut ppu = super::Ppu::default();
-    let ref mut cpu = cpu::Cpu::default();
+    let mut cpu = cpu::Cpu::default();
 
     let prg_size = 0x4000 * (parse::get_prg_size(&rom) as usize);
     let chr_size = 0x2000 * (parse::get_chr_size(&rom) as usize);
@@ -436,14 +436,7 @@ pub fn test_draw(rom: &[u8]) {
         // step through pre-render scanline, all visible scanlines and idle scanline (scanline 240)
         for _ in -1..=240 {
             let mut ppu_cycles = 0;
-            ppu.catch_up(
-                &mut cpu,
-                &mut 0,
-                &mut ppu_cycles,
-                341,
-                &mut memory,
-                &mut renderer,
-            );
+            ppu.step(&mut cpu, &mut ppu_cycles, 341, &mut memory, &mut renderer);
             assert_eq!(ppu_cycles, 341)
         }
 
@@ -465,14 +458,7 @@ pub fn test_draw(rom: &[u8]) {
         // step through vblank scanlines
         for _ in 0..20 {
             let mut ppu_cycles = 0;
-            ppu.catch_up(
-                &mut cpu,
-                &mut 0,
-                &mut ppu_cycles,
-                341,
-                &mut memory,
-                &mut renderer,
-            );
+            ppu.step(&mut cpu, &mut ppu_cycles, 341, &mut memory, &mut renderer);
             assert_eq!(ppu_cycles, 341);
         }
 

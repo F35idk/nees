@@ -395,21 +395,20 @@ impl Ppu {
         }
     }
 
-    pub fn catch_up(
+    pub fn step(
         &mut self,
         cpu: &mut cpu::Cpu,
-        cpu_cycles: &mut u64,
         ppu_cycles: &mut u64,
-        cycles_to_catch_up: u32,
+        cycles_to_step: u16,
         memory: &mut mmap::Nrom128MemoryMap,
         renderer: &mut PixelRenderer,
     ) {
         // pre-TODO: figure out what to start ppu vs cpu
         // cycle counts at (what distance between ticks)
 
-        let target_cycles = *ppu_cycles + cycles_to_catch_up as u64;
+        let target_cycles = *ppu_cycles + cycles_to_step as u64;
 
-        // FIXME: this may overshoot target cycles. is this bad??
+        // FIXME: this may overshoot target cycles somewhat. is this bad??
         while *ppu_cycles < target_cycles {
             // TODO: match on tuple of scanline and current dot?
             match self.current_scanline {
