@@ -14,8 +14,10 @@ pub struct Cpu {
     pub pc: u16,
     pub cycle_count: u64,
     // TODO: keep track of when (at what cycle) the nmi/irq was triggered?
+    // OPTIMIZE: pack bools together
     pub nmi: bool,
     pub irq: u8,
+    pub irq_delayed: bool,
 }
 
 impl Cpu {
@@ -40,23 +42,14 @@ impl Cpu {
             return;
         }
 
-        if self.irq > 0 && !self.is_i_set() {
-            match memory.read_cpu(ptrs, self.pc) {
-                // if the instruction at memory[pc] is CLI, SEI or PLP,
-                // execute this instruction before handling the interrupt
-                0x58 => self.cli(),
-                0x78 => self.sei(),
-                0x28 => self.plp(memory, ptrs),
-                _ => self.irq(memory, ptrs),
-            }
-
-            // TODO: implement more subtle interrupt (mis)behavior
-            // (i.e interrupt hijacking, etc.)
-
+        if self.is_irq_pending() && !self.irq_delayed {
+            self.irq(memory, ptrs);
             return;
         }
 
-        match memory.read_cpu(ptrs, self.pc) {
+        let opcode = memory.read_cpu(ptrs, self.pc);
+
+        match opcode {
             // ADC
             0x69 => self.adc_imm(memory, ptrs),
             0x65 => self.adc_zero_page(memory, ptrs),
@@ -275,6 +268,14 @@ impl Cpu {
             0x98 => self.tya(),
             _ => panic!("TODO: handle invalid opcode"),
         }
+
+        // ensure pending irqs will be delayed if the executed instruction was CLI, SEI or PLP
+        let mut delay = self.is_irq_pending() && matches!(opcode, 0x58 | 0x78 | 0x28);
+        delay &= !self.irq_delayed;
+        self.irq_delayed = delay;
+
+        // TODO: implement more subtle interrupt (mis)behavior (i.e interrupt
+        // hijacking, irq/nmi delay on 3-cycle branch instructions, etc.)
     }
 
     // returns the byte at pc+1
@@ -308,6 +309,11 @@ impl Cpu {
             memory.read_cpu(ptrs, self.pc + 1),
             memory.read_cpu(ptrs, self.pc + 2),
         ]
+    }
+
+    #[inline]
+    fn is_irq_pending(&mut self) -> bool {
+        self.irq > 0 && !self.is_i_set()
     }
 
     #[inline]
