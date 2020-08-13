@@ -436,8 +436,19 @@ pub fn test_draw(rom: &[u8]) {
         // step through pre-render scanline, all visible scanlines and idle scanline (scanline 240)
         for _ in -1..=240 {
             let mut ppu_cycles = 0;
-            ppu.step(&mut cpu, &mut ppu_cycles, 341, &mut memory, &mut renderer);
-            assert_eq!(ppu_cycles, 341)
+            // each scanline is 341 cycles long, except for the pre-render
+            // scanline on odd frames, which is 340 cycles long
+            let cycles_in_scanline = 341 - (!ppu.even_frame && ppu.current_scanline == -1) as u32;
+
+            ppu.step(
+                &mut cpu,
+                &mut ppu_cycles,
+                cycles_in_scanline,
+                &mut memory,
+                &mut renderer,
+            );
+
+            assert_eq!(ppu_cycles, cycles_in_scanline as u64);
         }
 
         // increment fine x
@@ -458,8 +469,17 @@ pub fn test_draw(rom: &[u8]) {
         // step through vblank scanlines
         for _ in 0..20 {
             let mut ppu_cycles = 0;
-            ppu.step(&mut cpu, &mut ppu_cycles, 341, &mut memory, &mut renderer);
-            assert_eq!(ppu_cycles, 341);
+            let cycles_in_scanline = 341 - (!ppu.even_frame && ppu.current_scanline == -1) as u32;
+
+            ppu.step(
+                &mut cpu,
+                &mut ppu_cycles,
+                cycles_in_scanline,
+                &mut memory,
+                &mut renderer,
+            );
+
+            assert_eq!(ppu_cycles, cycles_in_scanline as u64);
         }
 
         let frame_index = renderer.render_frame();

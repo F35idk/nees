@@ -155,7 +155,7 @@ impl Default for Ppu {
             fine_x_scroll: 0,
             current_scanline: -1,
             current_scanline_dot: 0,
-            even_frame: false,
+            even_frame: true,
         }
     }
 }
@@ -202,7 +202,7 @@ impl Ppu {
                     val
                 };
 
-                if !self.is_rendering() {
+                if !self.is_currently_rendering() {
                     // if not currently rendering, increment normally
                     self.increment_vram_addr();
                 } else {
@@ -258,7 +258,7 @@ impl Ppu {
     }
 
     fn write_oamdata(&mut self, val: u8) {
-        if self.is_rendering() {
+        if self.is_currently_rendering() {
             // ignore attemps to write when rendering
             return;
         }
@@ -315,7 +315,7 @@ impl Ppu {
         memory.write_ppu(self.current_vram_addr.get_addr(), val);
 
         // increment 'current_vram_addr' (same as when reading ppudata)
-        if !self.is_rendering() {
+        if !self.is_currently_rendering() {
             self.increment_vram_addr();
         } else {
             self.increment_vram_addr_coarse_x();
@@ -337,6 +337,8 @@ impl Ppu {
             unsafe { *self.oam.bytes.get_unchecked_mut(self.oamaddr as usize) = byte };
             self.oamaddr = self.oamaddr.wrapping_add(1);
         }
+
+        // FIXME: should call 'step()' on the ppu while dma-ing??
 
         // increment cycle count by 513 (or 514 if on an odd cpu cycle)
         *cpu_cycle_count += 513 + (*cpu_cycle_count % 2);
@@ -399,7 +401,7 @@ impl Ppu {
         &mut self,
         cpu: &mut cpu::Cpu,
         ppu_cycles: &mut u64,
-        cycles_to_step: u16,
+        cycles_to_step: u32,
         memory: &mut mmap::Nrom128MemoryMap,
         renderer: &mut PixelRenderer,
     ) {
@@ -414,11 +416,14 @@ impl Ppu {
             match self.current_scanline {
                 // pre-render scanline
                 -1 => match self.current_scanline_dot {
+                    // idle cycle
                     0 => {
                         self.current_scanline_dot += 1;
-                        *ppu_cycles += 1;
+                        // don't increment cycles on odd frames (idle cycle is skipped)
+                        *ppu_cycles += self.even_frame as u64;
                     }
                     1 => {
+                        // clear vblank flag
                         self.set_vblank(false);
 
                         *ppu_cycles += 7;
@@ -471,7 +476,6 @@ impl Ppu {
                 },
                 // visible scanlines
                 0..=239 => match self.current_scanline_dot {
-                    // idle cycle
                     0 => {
                         self.current_scanline_dot += 1;
                         *ppu_cycles += 1;
@@ -483,7 +487,6 @@ impl Ppu {
                             *ppu_cycles += 8;
                             break;
                         }
-
                         // draw one row of a tile (or less, if the current tile
                         // straddles the screen boundary). this increments
                         // 'current_scanline_dot', and 'current_scanline'
@@ -543,7 +546,6 @@ impl Ppu {
                 },
                 // vblank 'scanlines'
                 241..=260 => match self.current_scanline_dot {
-                    // TODO:FIXME:NOTE: one more cycle if on an odd frame
                     0 => {
                         *ppu_cycles += 1;
                         self.current_scanline_dot += 1;
@@ -573,6 +575,11 @@ impl Ppu {
                         if self.current_scanline == 260 {
                             // reset scanline count
                             self.current_scanline = -1;
+
+                            // toggle 'even_frame' if rendering is enabled
+                            if self.is_sprites_enable() || self.is_background_enable() {
+                                self.even_frame = !self.even_frame;
+                            }
                         } else {
                             self.current_scanline += 1;
                         }
@@ -845,7 +852,7 @@ impl Ppu {
         self.ppustatus |= (vblank as u8) << 7;
     }
 
-    fn is_rendering(&self) -> bool {
+    fn is_currently_rendering(&self) -> bool {
         !self.is_vblank() && (self.is_sprites_enable() || self.is_background_enable())
     }
 }
