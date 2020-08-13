@@ -26,7 +26,7 @@ mod imm {
     ) -> u8 {
         let val = cpu.fetch_operand_byte(memory, ptrs);
         cpu.pc += 2;
-        *ptrs.cpu_cycles += 2;
+        cpu.cycle_count += 2;
         val
     }
 }
@@ -42,7 +42,7 @@ mod abs {
     ) -> u8 {
         let addr = cpu.fetch_operand_u16(memory, ptrs);
         cpu.pc += 3;
-        *ptrs.cpu_cycles += 4;
+        cpu.cycle_count += 4;
         memory.read_cpu(ptrs, addr)
     }
 
@@ -54,7 +54,7 @@ mod abs {
     ) {
         let addr = cpu.fetch_operand_u16(memory, ptrs);
         cpu.pc += 3;
-        *ptrs.cpu_cycles += 4;
+        cpu.cycle_count += 4;
 
         memory.write_cpu(ptrs, addr, val);
     }
@@ -71,7 +71,7 @@ mod abs {
         let val = memory.read_cpu(ptrs, addr);
 
         cpu.pc += 3;
-        *ptrs.cpu_cycles += 6;
+        cpu.cycle_count += 6;
 
         let res = operation(cpu, val);
         memory.write_cpu(ptrs, addr, res);
@@ -93,7 +93,7 @@ mod abs_indexed {
         let addr_indexed = addr.wrapping_add(index as u16);
 
         cpu.pc += 3;
-        *ptrs.cpu_cycles += 5;
+        cpu.cycle_count += 5;
 
         // FIXME: dummy writes
         memory.write_cpu(ptrs, addr_indexed, val);
@@ -109,7 +109,7 @@ mod abs_indexed {
         let (addr_indexed, page_crossed) = self::calc_abs_indexed(addr_bytes, index);
 
         cpu.pc += 3;
-        *ptrs.cpu_cycles += 4 + page_crossed as u64;
+        cpu.cycle_count += 4 + page_crossed as u64;
 
         memory.read_cpu(ptrs, addr_indexed)
     }
@@ -127,7 +127,7 @@ mod abs_indexed {
         let val = memory.read_cpu(ptrs, addr_indexed);
 
         cpu.pc += 3;
-        *ptrs.cpu_cycles += 7;
+        cpu.cycle_count += 7;
 
         let res = operation(cpu, val);
         memory.write_cpu(ptrs, addr_indexed, res);
@@ -151,7 +151,7 @@ mod zero_page {
         ptrs: &mut util::PtrsWrapper,
     ) -> u8 {
         let addr = cpu.fetch_operand_byte(memory, ptrs);
-        *ptrs.cpu_cycles += 3;
+        cpu.cycle_count += 3;
         cpu.pc += 2;
 
         memory.read_cpu(ptrs, addr as u16)
@@ -165,7 +165,7 @@ mod zero_page {
     ) {
         let addr = cpu.fetch_operand_byte(memory, ptrs);
         cpu.pc += 2;
-        *ptrs.cpu_cycles += 3;
+        cpu.cycle_count += 3;
         memory.write_cpu(ptrs, addr as u16, val);
     }
 
@@ -179,7 +179,7 @@ mod zero_page {
         let val = memory.read_cpu(ptrs, addr as u16);
 
         cpu.pc += 2;
-        *ptrs.cpu_cycles += 5;
+        cpu.cycle_count += 5;
 
         let res = operation(cpu, val);
         memory.write_cpu(ptrs, addr as u16, res);
@@ -199,7 +199,7 @@ mod zero_page_indexed {
         let addr = cpu.fetch_operand_byte(memory, ptrs);
         let addr_indexed = addr.wrapping_add(index);
         cpu.pc += 2;
-        *ptrs.cpu_cycles += 4;
+        cpu.cycle_count += 4;
         memory.write_cpu(ptrs, addr_indexed as u16, val);
     }
 
@@ -213,7 +213,7 @@ mod zero_page_indexed {
         let addr_indexed = addr.wrapping_add(index);
 
         cpu.pc += 2;
-        *ptrs.cpu_cycles += 4;
+        cpu.cycle_count += 4;
 
         memory.read_cpu(ptrs, addr_indexed as u16)
     }
@@ -229,7 +229,7 @@ mod zero_page_indexed {
         let addr_indexed = addr.wrapping_add(index);
 
         cpu.pc += 2;
-        *ptrs.cpu_cycles += 6;
+        cpu.cycle_count += 6;
 
         let val = memory.read_cpu(ptrs, addr_indexed as u16);
         let res = operation(cpu, val);
@@ -250,7 +250,7 @@ mod indexed_indirect {
         let final_addr = self::calc_indexed_indirect(cpu, addr, memory, ptrs);
 
         cpu.pc += 2;
-        *ptrs.cpu_cycles += 6;
+        cpu.cycle_count += 6;
 
         memory.read_cpu(ptrs, final_addr)
     }
@@ -265,7 +265,7 @@ mod indexed_indirect {
         let final_addr = self::calc_indexed_indirect(cpu, addr, memory, ptrs);
 
         cpu.pc += 2;
-        *ptrs.cpu_cycles += 6;
+        cpu.cycle_count += 6;
 
         memory.write_cpu(ptrs, final_addr, val);
     }
@@ -296,7 +296,7 @@ mod indirect_indexed {
         let (final_addr, page_crossed) = self::calc_indirect_indexed(cpu, addr, memory, ptrs);
 
         cpu.pc += 2;
-        *ptrs.cpu_cycles += 5 + page_crossed as u64;
+        cpu.cycle_count += 5 + page_crossed as u64;
 
         memory.read_cpu(ptrs, final_addr)
     }
@@ -313,7 +313,7 @@ mod indirect_indexed {
         // TODO: dummy writes
 
         cpu.pc += 2;
-        *ptrs.cpu_cycles += 6;
+        cpu.cycle_count += 6;
 
         memory.write_cpu(ptrs, final_addr, val);
     }

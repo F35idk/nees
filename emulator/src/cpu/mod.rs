@@ -12,6 +12,7 @@ pub struct Cpu {
     pub p: u8,
     pub sp: u8,
     pub pc: u16,
+    pub cycle_count: u64,
     // TODO: keep track of when (at what cycle) the nmi/irq was triggered?
     pub nmi: bool,
     pub irq: u8,
@@ -23,6 +24,7 @@ impl Cpu {
             pc: 0xc000,
             p: 0x24,
             sp: 0xfd,
+            cycle_count: 7, // for whatever reason
             ..Default::default()
         }
     }
@@ -42,8 +44,8 @@ impl Cpu {
             match memory.read_cpu(ptrs, self.pc) {
                 // if the instruction at memory[pc] is CLI, SEI or PLP,
                 // execute this instruction before handling the interrupt
-                0x58 => self.cli(ptrs.cpu_cycles),
-                0x78 => self.sei(ptrs.cpu_cycles),
+                0x58 => self.cli(),
+                0x78 => self.sei(),
                 0x28 => self.plp(memory, ptrs),
                 _ => self.irq(memory, ptrs),
             }
@@ -74,7 +76,7 @@ impl Cpu {
             0x21 => self.and_indexed_indirect(memory, ptrs),
             0x31 => self.and_indirect_indexed(memory, ptrs),
             // ASL
-            0x0a => self.asl_a(ptrs.cpu_cycles),
+            0x0a => self.asl_a(),
             0x06 => self.asl_zero_page(memory, ptrs),
             0x16 => self.asl_zero_page_indexed(memory, ptrs),
             0x0e => self.asl_abs(memory, ptrs),
@@ -101,13 +103,13 @@ impl Cpu {
             // BRK
             0x00 => self.brk(memory, ptrs),
             // CLC
-            0x18 => self.clc(ptrs.cpu_cycles),
+            0x18 => self.clc(),
             // CLD
-            0xd8 => self.cld(ptrs.cpu_cycles),
+            0xd8 => self.cld(),
             // CLI
-            0x58 => self.cli(ptrs.cpu_cycles),
+            0x58 => self.cli(),
             // CLV
-            0xb8 => self.clv(ptrs.cpu_cycles),
+            0xb8 => self.clv(),
             // CMP
             0xc9 => self.compare_register_imm(self.a, memory, ptrs),
             0xc5 => self.compare_register_zero_page(self.a, memory, ptrs),
@@ -131,9 +133,9 @@ impl Cpu {
             0xce => self.dec_abs(memory, ptrs),
             0xde => self.dec_abs_indexed(memory, ptrs),
             // DEX
-            0xca => self.dex(ptrs.cpu_cycles),
+            0xca => self.dex(),
             // DEY
-            0x88 => self.dey(ptrs.cpu_cycles),
+            0x88 => self.dey(),
             // EOR
             0x49 => self.eor_imm(memory, ptrs),
             0x45 => self.eor_zero_page(memory, ptrs),
@@ -149,9 +151,9 @@ impl Cpu {
             0xee => self.inc_abs(memory, ptrs),
             0xfe => self.inc_abs_indexed(memory, ptrs),
             // INX
-            0xe8 => self.inx(ptrs.cpu_cycles),
+            0xe8 => self.inx(),
             // INY
-            0xc8 => self.iny(ptrs.cpu_cycles),
+            0xc8 => self.iny(),
             // JMP
             0x4c => self.jmp_abs(memory, ptrs),
             0x6c => self.jmp_abs_indirect(memory, ptrs),
@@ -179,19 +181,19 @@ impl Cpu {
             0xac => self.ldy_abs(memory, ptrs),
             0xbc => self.ldy_abs_indexed(self.x, memory, ptrs),
             // LSR
-            0x4a => self.lsr_a(ptrs.cpu_cycles),
+            0x4a => self.lsr_a(),
             0x46 => self.lsr_zero_page(memory, ptrs),
             0x56 => self.lsr_zero_page_indexed(memory, ptrs),
             0x4e => self.lsr_abs(memory, ptrs),
             0x5e => self.lsr_abs_indexed(memory, ptrs),
             // NOP
-            0xea => self.nop(ptrs.cpu_cycles),
+            0xea => self.nop(),
             // NOP (undocumented)
-            0x1a | 0x3a | 0x5a | 0x7a | 0xda | 0xfa => self.nop(ptrs.cpu_cycles),
+            0x1a | 0x3a | 0x5a | 0x7a | 0xda | 0xfa => self.nop(),
             // SKB/NOP (undocumented)
-            0x80 | 0x82 | 0x89 | 0xc2 | 0xe2 => self.nop_imm(ptrs.cpu_cycles),
+            0x80 | 0x82 | 0x89 | 0xc2 | 0xe2 => self.nop_imm(),
             // NOP/IGN (undocumented)
-            0x04 | 0x44 | 0x64 => self.nop_zero_page(ptrs.cpu_cycles),
+            0x04 | 0x44 | 0x64 => self.nop_zero_page(),
             0x14 | 0x34 | 0x54 | 0x74 | 0xd4 | 0xf4 => self.nop_zero_page_indexed(memory, ptrs),
             0x0c => self.nop_abs(memory, ptrs),
             0x1c | 0x3c | 0x5c | 0x7c | 0xdc | 0xfc => self.nop_abs_indexed(self.x, memory, ptrs),
@@ -213,13 +215,13 @@ impl Cpu {
             // PLP
             0x28 => self.plp(memory, ptrs),
             // ROL
-            0x2a => self.rol_a(ptrs.cpu_cycles),
+            0x2a => self.rol_a(),
             0x26 => self.rol_zero_page(memory, ptrs),
             0x36 => self.rol_zero_page_indexed(memory, ptrs),
             0x2e => self.rol_abs(memory, ptrs),
             0x3e => self.rol_abs_indexed(memory, ptrs),
             // ROR
-            0x6a => self.ror_a(ptrs.cpu_cycles),
+            0x6a => self.ror_a(),
             0x66 => self.ror_zero_page(memory, ptrs),
             0x76 => self.ror_zero_page_indexed(memory, ptrs),
             0x6e => self.ror_abs(memory, ptrs),
@@ -238,11 +240,11 @@ impl Cpu {
             0xe1 => self.sbc_indexed_indirect(memory, ptrs),
             0xf1 => self.sbc_indirect_indexed(memory, ptrs),
             // SEC
-            0x38 => self.sec(ptrs.cpu_cycles),
+            0x38 => self.sec(),
             // SED
-            0xf8 => self.sed(ptrs.cpu_cycles),
+            0xf8 => self.sed(),
             // SEI
-            0x78 => self.sei(ptrs.cpu_cycles),
+            0x78 => self.sei(),
             // STA
             0x85 => self.sta_zero_page(memory, ptrs),
             0x95 => self.sta_zero_page_indexed(memory, ptrs),
@@ -260,17 +262,17 @@ impl Cpu {
             0x94 => self.sty_zero_page_indexed(memory, ptrs),
             0x8c => self.sty_abs(memory, ptrs),
             // TAX
-            0xaa => self.tax(ptrs.cpu_cycles),
+            0xaa => self.tax(),
             // TAY
-            0xa8 => self.tay(ptrs.cpu_cycles),
+            0xa8 => self.tay(),
             // TSX
-            0xba => self.tsx(ptrs.cpu_cycles),
+            0xba => self.tsx(),
             // TXA
-            0x8a => self.txa(ptrs.cpu_cycles),
+            0x8a => self.txa(),
             // TXS
-            0x9a => self.txs(ptrs.cpu_cycles),
+            0x9a => self.txs(),
             // TYA
-            0x98 => self.tya(ptrs.cpu_cycles),
+            0x98 => self.tya(),
             _ => panic!("TODO: handle invalid opcode"),
         }
     }
@@ -496,9 +498,9 @@ impl Cpu {
         res
     }
 
-    fn asl_a(&mut self, cpu_cycles: &mut u64) {
+    fn asl_a(&mut self) {
         self.a = self.asl(self.a);
-        *cpu_cycles += 2;
+        self.cycle_count += 2;
         self.pc += 1;
     }
 
@@ -545,9 +547,9 @@ impl Cpu {
             // xor sign of 'offset' with 'carry' to determine whether a page boundary was crossed
             let boundary_crossed = ((offset as i8) < 0) ^ carry;
 
-            *ptrs.cpu_cycles += 3 + boundary_crossed as u64
+            self.cycle_count += 3 + boundary_crossed as u64
         } else {
-            *ptrs.cpu_cycles += 2;
+            self.cycle_count += 2;
         }
     }
 
@@ -594,7 +596,7 @@ impl Cpu {
         ]);
         self.pc = vector;
 
-        *ptrs.cpu_cycles += 7;
+        self.cycle_count += 7;
     }
 
     fn brk(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
@@ -624,35 +626,35 @@ impl Cpu {
             memory.read_cpu(ptrs, 0xfffbu16),
         ]);
 
-        *ptrs.cpu_cycles += 7;
+        self.cycle_count += 7;
     }
 
     fn reset(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
         // TODO: ..
     }
 
-    fn clc(&mut self, cpu_cycles: &mut u64) {
+    fn clc(&mut self) {
         self.pc += 1;
         self.set_c_from_bool(false);
-        *cpu_cycles += 2;
+        self.cycle_count += 2;
     }
 
-    fn cld(&mut self, cpu_cycles: &mut u64) {
+    fn cld(&mut self) {
         self.pc += 1;
         self.p = self.p & !8;
-        *cpu_cycles += 2;
+        self.cycle_count += 2;
     }
 
-    fn cli(&mut self, cpu_cycles: &mut u64) {
+    fn cli(&mut self) {
         self.pc += 1;
         self.set_i_from_bit(0);
-        *cpu_cycles += 2;
+        self.cycle_count += 2;
     }
 
-    fn clv(&mut self, cpu_cycles: &mut u64) {
+    fn clv(&mut self) {
         self.pc += 1;
         self.set_v_from_bit(0);
-        *cpu_cycles += 2;
+        self.cycle_count += 2;
     }
 
     // used for cmp, cpx, cpy instructions
@@ -767,16 +769,16 @@ impl Cpu {
         addressing::read_write_abs_indexed(self, self.x, memory, ptrs, Self::decrement_val);
     }
 
-    fn dex(&mut self, cpu_cycles: &mut u64) {
+    fn dex(&mut self) {
         self.x = self.decrement_val(self.x);
         self.pc += 1;
-        *cpu_cycles += 2;
+        self.cycle_count += 2;
     }
 
-    fn dey(&mut self, cpu_cycles: &mut u64) {
+    fn dey(&mut self) {
         self.y = self.decrement_val(self.y);
         self.pc += 1;
-        *cpu_cycles += 2;
+        self.cycle_count += 2;
     }
 
     fn eor(&mut self, val: u8) {
@@ -869,21 +871,21 @@ impl Cpu {
         addressing::read_write_abs_indexed(self, self.x, memory, ptrs, Self::increment_val);
     }
 
-    fn inx(&mut self, cpu_cycles: &mut u64) {
+    fn inx(&mut self) {
         self.x = self.increment_val(self.x);
         self.pc += 1;
-        *cpu_cycles += 2;
+        self.cycle_count += 2;
     }
 
-    fn iny(&mut self, cpu_cycles: &mut u64) {
+    fn iny(&mut self) {
         self.y = self.increment_val(self.y);
         self.pc += 1;
-        *cpu_cycles += 2;
+        self.cycle_count += 2;
     }
 
     fn jmp_abs(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
         self.pc = self.fetch_operand_u16(memory, ptrs);
-        *ptrs.cpu_cycles += 3;
+        self.cycle_count += 3;
     }
 
     fn jmp_abs_indirect(
@@ -899,7 +901,7 @@ impl Cpu {
         let final_addr_hi = memory.read_cpu(ptrs, u16::from_le_bytes(addr_bytes));
 
         self.pc = u16::from_le_bytes([final_addr_lo, final_addr_hi]);
-        *ptrs.cpu_cycles += 5;
+        self.cycle_count += 5;
     }
 
     fn jsr(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
@@ -914,7 +916,7 @@ impl Cpu {
 
         self.sp = self.sp.wrapping_sub(2);
         self.pc = addr;
-        *ptrs.cpu_cycles += 6;
+        self.cycle_count += 6;
     }
 
     fn lda(&mut self, val: u8) {
@@ -1064,10 +1066,10 @@ impl Cpu {
         res
     }
 
-    fn lsr_a(&mut self, cpu_cycles: &mut u64) {
+    fn lsr_a(&mut self) {
         self.a = self.lsr(self.a);
         self.pc += 1;
-        *cpu_cycles += 2;
+        self.cycle_count += 2;
     }
 
     fn lsr_zero_page(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
@@ -1094,21 +1096,21 @@ impl Cpu {
         addressing::read_write_abs_indexed(self, self.x, memory, ptrs, Self::lsr);
     }
 
-    fn nop(&mut self, cpu_cycles: &mut u64) {
+    fn nop(&mut self) {
         self.pc += 1;
-        *cpu_cycles += 2;
+        self.cycle_count += 2;
     }
 
-    fn nop_imm(&mut self, cpu_cycles: &mut u64) {
+    fn nop_imm(&mut self) {
         self.pc += 2;
-        *cpu_cycles += 2;
+        self.cycle_count += 2;
     }
 
-    fn nop_zero_page(&mut self, cpu_cycles: &mut u64) {
+    fn nop_zero_page(&mut self) {
         // NOTE: no need to call 'read_cpu()' here, as the nop won't have any side
         // effects when the address of its operand is restricted to the zero page
         self.pc += 2;
-        *cpu_cycles += 3;
+        self.cycle_count += 3;
     }
 
     fn nop_zero_page_indexed(
@@ -1200,7 +1202,7 @@ impl Cpu {
         ptrs: &mut util::PtrsWrapper,
     ) {
         self.pc += 1;
-        *ptrs.cpu_cycles += 3;
+        self.cycle_count += 3;
 
         memory.write_cpu(ptrs, self.sp as u16 + 0x100, val);
         self.sp = self.sp.wrapping_sub(1);
@@ -1223,7 +1225,7 @@ impl Cpu {
         ptrs: &mut util::PtrsWrapper,
     ) -> u8 {
         self.pc += 1;
-        *ptrs.cpu_cycles += 4;
+        self.cycle_count += 4;
 
         self.sp = self.sp.wrapping_add(1);
         memory.read_cpu(ptrs, self.sp as u16 + 0x100)
@@ -1250,10 +1252,10 @@ impl Cpu {
         res
     }
 
-    fn rol_a(&mut self, cpu_cycles: &mut u64) {
+    fn rol_a(&mut self) {
         self.a = self.rol(self.a);
         self.pc += 1;
-        *cpu_cycles += 2;
+        self.cycle_count += 2;
     }
 
     fn rol_zero_page(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
@@ -1291,10 +1293,10 @@ impl Cpu {
         res
     }
 
-    fn ror_a(&mut self, cpu_cycles: &mut u64) {
+    fn ror_a(&mut self) {
         self.a = self.ror(self.a);
         self.pc += 1;
-        *cpu_cycles += 2;
+        self.cycle_count += 2;
     }
 
     fn ror_zero_page(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
@@ -1335,7 +1337,7 @@ impl Cpu {
         let pc_hi = memory.read_cpu(ptrs, self.sp as u16 + 0x100);
 
         self.pc = u16::from_le_bytes([pc_low, pc_hi]);
-        *ptrs.cpu_cycles += 6;
+        self.cycle_count += 6;
     }
 
     fn rts(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
@@ -1347,7 +1349,7 @@ impl Cpu {
         // add 1 since pushed value is expected to be pc - 1 (from the jsr instruction)
         // FIXME: should discard carry from low 8 bits when adding?
         self.pc = u16::from_le_bytes([pc_low, pc_hi]).wrapping_add(1);
-        *ptrs.cpu_cycles += 6;
+        self.cycle_count += 6;
     }
 
     fn sbc(&mut self, val: u8) {
@@ -1417,22 +1419,22 @@ impl Cpu {
         self.sbc(val);
     }
 
-    fn sec(&mut self, cpu_cycles: &mut u64) {
+    fn sec(&mut self) {
         self.pc += 1;
         self.set_c_from_bit(1);
-        *cpu_cycles += 2;
+        self.cycle_count += 2;
     }
 
-    fn sed(&mut self, cpu_cycles: &mut u64) {
+    fn sed(&mut self) {
         self.pc += 1;
         self.p |= 8;
-        *cpu_cycles += 2;
+        self.cycle_count += 2;
     }
 
-    fn sei(&mut self, cpu_cycles: &mut u64) {
+    fn sei(&mut self) {
         self.pc += 1;
         self.set_i_from_bit(4);
-        *cpu_cycles += 2;
+        self.cycle_count += 2;
     }
 
     fn sta_zero_page(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
@@ -1508,47 +1510,47 @@ impl Cpu {
         addressing::write_abs(self, self.y, memory, ptrs);
     }
 
-    fn tax(&mut self, cpu_cycles: &mut u64) {
+    fn tax(&mut self) {
         self.pc += 1;
-        *cpu_cycles += 2;
+        self.cycle_count += 2;
         self.x = self.a;
         self.set_z_from_val(self.x);
         self.set_n_from_val(self.x);
     }
 
-    fn tay(&mut self, cpu_cycles: &mut u64) {
+    fn tay(&mut self) {
         self.pc += 1;
-        *cpu_cycles += 2;
+        self.cycle_count += 2;
         self.y = self.a;
         self.set_z_from_val(self.y);
         self.set_n_from_val(self.y);
     }
 
-    fn tsx(&mut self, cpu_cycles: &mut u64) {
+    fn tsx(&mut self) {
         self.pc += 1;
-        *cpu_cycles += 2;
+        self.cycle_count += 2;
         self.x = self.sp;
         self.set_z_from_val(self.x);
         self.set_n_from_val(self.x);
     }
 
-    fn txa(&mut self, cpu_cycles: &mut u64) {
+    fn txa(&mut self) {
         self.pc += 1;
-        *cpu_cycles += 2;
+        self.cycle_count += 2;
         self.a = self.x;
         self.set_z_from_val(self.a);
         self.set_n_from_val(self.a);
     }
 
-    fn txs(&mut self, cpu_cycles: &mut u64) {
+    fn txs(&mut self) {
         self.pc += 1;
-        *cpu_cycles += 2;
+        self.cycle_count += 2;
         self.sp = self.x;
     }
 
-    fn tya(&mut self, cpu_cycles: &mut u64) {
+    fn tya(&mut self) {
         self.pc += 1;
-        *cpu_cycles += 2;
+        self.cycle_count += 2;
         self.a = self.y;
         self.set_z_from_val(self.a);
         self.set_n_from_val(self.a);
@@ -1564,9 +1566,9 @@ impl Cpu {
         memory.write_cpu(ptrs, self.pc + 1, opc[1]);
         memory.write_cpu(ptrs, self.pc + 2, opc[2]);
 
-        let prev_cycles = *ptrs.cpu_cycles;
+        let prev_cycles = self.cycle_count;
         self.exec_instruction(memory, ptrs);
-        (*ptrs.cpu_cycles - prev_cycles) as u8
+        (self.cycle_count - prev_cycles) as u8
     }
 
     pub fn log_register_values(&self, ptrs: &mut util::PtrsWrapper) {
@@ -1575,6 +1577,6 @@ impl Cpu {
         log!("Y:{:0>2X} ", self.y);
         log!("P:{:0>2X} ", self.p);
         log!("SP:{:0>2X} ", self.sp);
-        log!("CYC:{}\n", *ptrs.cpu_cycles)
+        log!("CYC:{}\n", self.cycle_count)
     }
 }

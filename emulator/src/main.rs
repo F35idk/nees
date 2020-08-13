@@ -49,14 +49,8 @@ fn main() {
         let mut memory = mmap::Nrom128MemoryMap::new();
         let ref mut ppu = ppu::Ppu::default();
         let ref mut apu = apu::Apu {};
-        let ref mut cpu_cycles = 7; // for whatever reason
 
-        let ref mut ptrs = util::PtrsWrapper {
-            cpu,
-            ppu,
-            apu,
-            cpu_cycles,
-        };
+        let ref mut ptrs = util::PtrsWrapper { cpu, ppu, apu };
 
         let prg_size = 0x4000 * (parse::get_prg_size(&rom) as usize);
         memory.load_prg_rom(&rom[0x10..=prg_size + 0xf]);

@@ -41,6 +41,7 @@ fn get_color_from_index(mut index: u8) -> u32 {
 pub struct Ppu {
     // object attribute memory
     oam: Oam,
+    pub cycle_count: u64,
 
     // registers
     // TODO: remove pub
@@ -144,6 +145,7 @@ impl Default for Ppu {
             oam: Oam {
                 entries: [OamEntry::default(); 64],
             },
+            cycle_count: 0,
             ppuctrl: 0,
             ppumask: 0,
             ppustatus: 0,
@@ -400,7 +402,6 @@ impl Ppu {
     pub fn step(
         &mut self,
         cpu: &mut cpu::Cpu,
-        ppu_cycles: &mut u64,
         cycles_to_step: u32,
         memory: &mut mmap::Nrom128MemoryMap,
         framebuffer: &mut [u32],
@@ -408,10 +409,10 @@ impl Ppu {
         // pre-TODO: figure out what to start ppu vs cpu
         // cycle counts at (what distance between ticks)
 
-        let target_cycles = *ppu_cycles + cycles_to_step as u64;
+        let target_cycles = self.cycle_count + cycles_to_step as u64;
 
         // FIXME: this may overshoot target cycles somewhat. is this bad??
-        while *ppu_cycles < target_cycles {
+        while self.cycle_count < target_cycles {
             // TODO: match on tuple of scanline and current dot?
             match self.current_scanline {
                 // pre-render scanline
@@ -420,17 +421,17 @@ impl Ppu {
                     0 => {
                         self.current_scanline_dot += 1;
                         // don't increment cycles on odd frames (idle cycle is skipped)
-                        *ppu_cycles += self.even_frame as u64;
+                        self.cycle_count += self.even_frame as u64;
                     }
                     1 => {
                         // clear vblank flag
                         self.set_vblank(false);
 
-                        *ppu_cycles += 7;
+                        self.cycle_count += 7;
                         self.current_scanline_dot += 7;
                     }
                     2..=255 => {
-                        *ppu_cycles += 8;
+                        self.cycle_count += 8;
                         self.current_scanline_dot += 8;
                     }
                     256 => {
@@ -444,11 +445,11 @@ impl Ppu {
                         let temp_coarse_x = self.temp_vram_addr.get_coarse_x();
                         self.current_vram_addr.set_coarse_x(temp_coarse_x);
 
-                        *ppu_cycles += 8;
+                        self.cycle_count += 8;
                         self.current_scanline_dot += 8;
                     }
                     257..=279 => {
-                        *ppu_cycles += 8;
+                        self.cycle_count += 8;
                         self.current_scanline_dot += 8;
                     }
                     280 => {
@@ -460,15 +461,15 @@ impl Ppu {
                         let temp_fine_y = self.temp_vram_addr.get_fine_y();
                         self.current_vram_addr.set_fine_y(temp_fine_y);
 
-                        *ppu_cycles += 8;
+                        self.cycle_count += 8;
                         self.current_scanline_dot += 8;
                     }
                     281..=335 => {
-                        *ppu_cycles += 8;
+                        self.cycle_count += 8;
                         self.current_scanline_dot += 8;
                     }
                     336 => {
-                        *ppu_cycles += 5;
+                        self.cycle_count += 5;
                         self.current_scanline_dot = 0;
                         self.current_scanline = 0;
                     }
@@ -478,20 +479,20 @@ impl Ppu {
                 0..=239 => match self.current_scanline_dot {
                     0 => {
                         self.current_scanline_dot += 1;
-                        *ppu_cycles += 1;
+                        self.cycle_count += 1;
                     }
                     1..=256 => {
                         // if background rendering is disabled
                         if !self.is_background_enable() {
                             self.draw_tile_row_backdrop(memory, framebuffer);
-                            *ppu_cycles += 8;
+                            self.cycle_count += 8;
                             break;
                         }
                         // draw one row of a tile (or less, if the current tile
                         // straddles the screen boundary). this increments
                         // 'current_scanline_dot', and 'current_scanline'
                         let pixels_drawn = self.draw_tile_row(memory, framebuffer);
-                        *ppu_cycles += pixels_drawn as u64;
+                        self.cycle_count += pixels_drawn as u64;
 
                         // if last pixel drawn was 256th (end of scanline)
                         if self.current_scanline_dot == 257 {
@@ -508,15 +509,15 @@ impl Ppu {
                         self.current_vram_addr.set_nametable_select(temp_nametable);
                         self.current_vram_addr.set_coarse_x(temp_coarse_x);
 
-                        *ppu_cycles += 8;
+                        self.cycle_count += 8;
                         self.current_scanline_dot += 8;
                     }
                     258..=336 => {
-                        *ppu_cycles += 8;
+                        self.cycle_count += 8;
                         self.current_scanline_dot += 8;
                     }
                     337 => {
-                        *ppu_cycles += 4;
+                        self.cycle_count += 4;
                         self.current_scanline_dot = 0;
                         self.current_scanline += 1;
                     }
@@ -531,23 +532,23 @@ impl Ppu {
                         self.current_vram_addr.set_nametable_select(temp_nametable);
                         self.current_vram_addr.set_coarse_x(temp_coarse_x);
 
-                        *ppu_cycles += 8;
+                        self.cycle_count += 8;
                         self.current_scanline_dot += 8;
                     }
                     336 => {
-                        *ppu_cycles += 5;
+                        self.cycle_count += 5;
                         self.current_scanline_dot = 0;
                         self.current_scanline += 1;
                     }
                     _ => {
-                        *ppu_cycles += 8;
+                        self.cycle_count += 8;
                         self.current_scanline_dot += 8;
                     }
                 },
                 // vblank 'scanlines'
                 241..=260 => match self.current_scanline_dot {
                     0 => {
-                        *ppu_cycles += 1;
+                        self.cycle_count += 1;
                         self.current_scanline_dot += 1;
                     }
                     1 => {
@@ -556,7 +557,7 @@ impl Ppu {
                             cpu.nmi = true;
                         }
 
-                        *ppu_cycles += 7;
+                        self.cycle_count += 7;
                         self.current_scanline_dot += 7;
                     }
                     256 => {
@@ -566,11 +567,11 @@ impl Ppu {
                         self.current_vram_addr.set_nametable_select(temp_nametable);
                         self.current_vram_addr.set_coarse_x(temp_coarse_x);
 
-                        *ppu_cycles += 8;
+                        self.cycle_count += 8;
                         self.current_scanline_dot += 8;
                     }
                     336 => {
-                        *ppu_cycles += 5;
+                        self.cycle_count += 5;
                         self.current_scanline_dot = 0;
                         if self.current_scanline == 260 {
                             // reset scanline count
@@ -585,7 +586,7 @@ impl Ppu {
                         }
                     }
                     _ => {
-                        *ppu_cycles += 8;
+                        self.cycle_count += 8;
                         self.current_scanline_dot += 8;
                     }
                 },

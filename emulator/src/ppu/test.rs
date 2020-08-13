@@ -91,13 +91,7 @@ fn test_write_2000() {
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut ppu = super::Ppu::default();
     let ref mut apu = apu::Apu {};
-    let ref mut cpu_cycles = 0;
-    let ref mut ptrs = util::PtrsWrapper {
-        cpu,
-        ppu,
-        apu,
-        cpu_cycles,
-    };
+    let ref mut ptrs = util::PtrsWrapper { cpu, ppu, apu };
 
     // LDA #ff
     memory.write_cpu(ptrs, 0u16, 0xa9);
@@ -121,13 +115,7 @@ fn test_read_2002() {
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut ppu = super::Ppu::default();
     let ref mut apu = apu::Apu {};
-    let ref mut cpu_cycles = 0;
-    let ref mut ptrs = util::PtrsWrapper {
-        cpu,
-        ppu,
-        apu,
-        cpu_cycles,
-    };
+    let ref mut ptrs = util::PtrsWrapper { cpu, ppu, apu };
 
     // LDA $2002
     memory.write_cpu(ptrs, 0u16, 0xad);
@@ -147,13 +135,7 @@ fn test_write_2005() {
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut ppu = super::Ppu::default();
     let ref mut apu = apu::Apu {};
-    let ref mut cpu_cycles = 0;
-    let ref mut ptrs = util::PtrsWrapper {
-        cpu,
-        ppu,
-        apu,
-        cpu_cycles,
-    };
+    let ref mut ptrs = util::PtrsWrapper { cpu, ppu, apu };
 
     // LDA #7d (0b01111_101)
     memory.write_cpu(ptrs, 0u16, 0xa9);
@@ -195,13 +177,7 @@ fn test_write_2006() {
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut ppu = super::Ppu::default();
     let ref mut apu = apu::Apu {};
-    let ref mut cpu_cycles = 0;
-    let ref mut ptrs = util::PtrsWrapper {
-        cpu,
-        ppu,
-        apu,
-        cpu_cycles,
-    };
+    let ref mut ptrs = util::PtrsWrapper { cpu, ppu, apu };
 
     // LDA #ed (0b11101101)
     memory.write_cpu(ptrs, 0u16, 0xa9);
@@ -252,13 +228,7 @@ fn test_write_2003_read_2004() {
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut ppu = super::Ppu::default();
     let ref mut apu = apu::Apu {};
-    let ref mut cpu_cycles = 0;
-    let ref mut ptrs = util::PtrsWrapper {
-        cpu,
-        ppu,
-        apu,
-        cpu_cycles,
-    };
+    let ref mut ptrs = util::PtrsWrapper { cpu, ppu, apu };
 
     // LDA #ff
     memory.write_cpu(ptrs, 0u16, 0xa9);
@@ -366,13 +336,7 @@ fn test_misc() {
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut ppu = super::Ppu::default();
     let ref mut apu = apu::Apu {};
-    let ref mut cpu_cycles = 0;
-    let ref mut ptrs = util::PtrsWrapper {
-        cpu,
-        ppu,
-        apu,
-        cpu_cycles,
-    };
+    let ref mut ptrs = util::PtrsWrapper { cpu, ppu, apu };
 
     ppu.write_ppuaddr(0x24);
     ppu.write_ppuaddr(0x00);
@@ -403,7 +367,7 @@ pub fn test_draw(rom: &[u8]) {
         memory.palettes[8 + 3] = 0x02;
 
         for (i, byte) in memory.nametables.iter_mut().enumerate() {
-            // set nametable bytes to point to tiles 0..255 in the attribute table
+            // set nametable bytes to point to tiles 0-255 in the attribute table
             *byte = i as u8;
         }
 
@@ -435,21 +399,14 @@ pub fn test_draw(rom: &[u8]) {
 
         // step through pre-render scanline, all visible scanlines and idle scanline (scanline 240)
         for _ in -1..=240 {
-            let mut ppu_cycles = 0;
             // each scanline is 341 cycles long, except for the pre-render
             // scanline on odd frames, which is 340 cycles long
             let cycles_in_scanline = 341 - (!ppu.even_frame && ppu.current_scanline == -1) as u32;
             let framebuffer = util::pixels_to_u32(&mut renderer);
+            ppu.cycle_count = 0;
 
-            ppu.step(
-                &mut cpu,
-                &mut ppu_cycles,
-                cycles_in_scanline,
-                &mut memory,
-                framebuffer,
-            );
-
-            assert_eq!(ppu_cycles, cycles_in_scanline as u64);
+            ppu.step(&mut cpu, cycles_in_scanline, &mut memory, framebuffer);
+            assert_eq!(ppu.cycle_count, cycles_in_scanline as u64);
         }
 
         // increment fine x
@@ -469,19 +426,12 @@ pub fn test_draw(rom: &[u8]) {
 
         // step through vblank scanlines
         for _ in 0..20 {
-            let mut ppu_cycles = 0;
             let cycles_in_scanline = 341 - (!ppu.even_frame && ppu.current_scanline == -1) as u32;
             let framebuffer = util::pixels_to_u32(&mut renderer);
+            ppu.cycle_count = 0;
 
-            ppu.step(
-                &mut cpu,
-                &mut ppu_cycles,
-                cycles_in_scanline,
-                &mut memory,
-                framebuffer,
-            );
-
-            assert_eq!(ppu_cycles, cycles_in_scanline as u64);
+            ppu.step(&mut cpu, cycles_in_scanline, &mut memory, framebuffer);
+            assert_eq!(ppu.cycle_count, cycles_in_scanline as u64);
         }
 
         let frame_index = renderer.render_frame();
