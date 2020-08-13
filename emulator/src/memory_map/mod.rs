@@ -7,7 +7,7 @@ use super::{apu, ppu, util};
 // address spaces. allows implementing custom memory read/write
 // behavior for the various 'mappers' used by nes games/cartridges
 pub trait MemoryMap {
-    fn read_cpu(&self, ptrs: &mut util::PtrsWrapper, addr: u16) -> u8;
+    fn read_cpu(&mut self, ptrs: &mut util::PtrsWrapper, addr: u16) -> u8;
     fn write_cpu(&mut self, ptrs: &mut util::PtrsWrapper, addr: u16, val: u8);
     fn read_ppu(&self, addr: u16) -> u8;
     fn write_ppu(&mut self, addr: u16, val: u8);

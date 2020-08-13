@@ -91,7 +91,13 @@ fn test_write_2000() {
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut ppu = super::Ppu::default();
     let ref mut apu = apu::Apu {};
-    let ref mut ptrs = util::PtrsWrapper { cpu, ppu, apu };
+    let framebuffer = std::ptr::null_mut();
+    let ref mut ptrs = util::PtrsWrapper {
+        cpu,
+        ppu,
+        apu,
+        framebuffer,
+    };
 
     // LDA #ff
     memory.write_cpu(ptrs, 0u16, 0xa9);
@@ -115,7 +121,13 @@ fn test_read_2002() {
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut ppu = super::Ppu::default();
     let ref mut apu = apu::Apu {};
-    let ref mut ptrs = util::PtrsWrapper { cpu, ppu, apu };
+    let framebuffer = std::ptr::null_mut();
+    let ref mut ptrs = util::PtrsWrapper {
+        cpu,
+        ppu,
+        apu,
+        framebuffer,
+    };
 
     // LDA $2002
     memory.write_cpu(ptrs, 0u16, 0xad);
@@ -135,7 +147,13 @@ fn test_write_2005() {
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut ppu = super::Ppu::default();
     let ref mut apu = apu::Apu {};
-    let ref mut ptrs = util::PtrsWrapper { cpu, ppu, apu };
+    let framebuffer = std::ptr::null_mut();
+    let ref mut ptrs = util::PtrsWrapper {
+        cpu,
+        ppu,
+        apu,
+        framebuffer,
+    };
 
     // LDA #7d (0b01111_101)
     memory.write_cpu(ptrs, 0u16, 0xa9);
@@ -177,7 +195,13 @@ fn test_write_2006() {
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut ppu = super::Ppu::default();
     let ref mut apu = apu::Apu {};
-    let ref mut ptrs = util::PtrsWrapper { cpu, ppu, apu };
+    let framebuffer = std::ptr::null_mut();
+    let ref mut ptrs = util::PtrsWrapper {
+        cpu,
+        ppu,
+        apu,
+        framebuffer,
+    };
 
     // LDA #ed (0b11101101)
     memory.write_cpu(ptrs, 0u16, 0xa9);
@@ -228,7 +252,13 @@ fn test_write_2003_read_2004() {
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut ppu = super::Ppu::default();
     let ref mut apu = apu::Apu {};
-    let ref mut ptrs = util::PtrsWrapper { cpu, ppu, apu };
+    let framebuffer = std::ptr::null_mut();
+    let ref mut ptrs = util::PtrsWrapper {
+        cpu,
+        ppu,
+        apu,
+        framebuffer,
+    };
 
     // LDA #ff
     memory.write_cpu(ptrs, 0u16, 0xa9);
@@ -336,7 +366,13 @@ fn test_misc() {
     let ref mut memory = mmap::Nrom128MemoryMap::new();
     let ref mut ppu = super::Ppu::default();
     let ref mut apu = apu::Apu {};
-    let ref mut ptrs = util::PtrsWrapper { cpu, ppu, apu };
+    let framebuffer = std::ptr::null_mut();
+    let ref mut ptrs = util::PtrsWrapper {
+        cpu,
+        ppu,
+        apu,
+        framebuffer,
+    };
 
     ppu.write_ppuaddr(0x24);
     ppu.write_ppuaddr(0x00);

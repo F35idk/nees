@@ -280,7 +280,7 @@ impl Cpu {
     // returns the byte at pc+1
     pub fn fetch_operand_byte(
         &self,
-        memory: &mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) -> u8 {
         memory.read_cpu(ptrs, self.pc + 1)
@@ -289,7 +289,7 @@ impl Cpu {
     // returns the two bytes at [pc+1, pc+2] as a u16
     pub fn fetch_operand_u16(
         &self,
-        memory: &mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) -> u16 {
         u16::from_le_bytes([
@@ -301,7 +301,7 @@ impl Cpu {
     // returns the two bytes at [pc+1, pc+2]
     pub fn fetch_operand_bytes(
         &self,
-        memory: &mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) -> [u8; 2] {
         [
@@ -378,26 +378,26 @@ impl Cpu {
         self.set_n_from_val(res_2);
     }
 
-    fn adc_imm(&mut self, memory: &mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
+    fn adc_imm(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
         let val = addressing::read_imm(self, memory, ptrs);
         self.adc(val);
     }
 
-    fn adc_zero_page(&mut self, memory: &mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
+    fn adc_zero_page(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
         let val = addressing::read_zero_page(self, memory, ptrs);
         self.adc(val);
     }
 
     fn adc_zero_page_indexed(
         &mut self,
-        memory: &mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) {
         let val = addressing::read_zero_page_indexed(self, self.x, memory, ptrs);
         self.adc(val);
     }
 
-    fn adc_abs(&mut self, memory: &mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
+    fn adc_abs(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
         let val = addressing::read_abs(self, memory, ptrs);
         self.adc(val);
     }
@@ -405,7 +405,7 @@ impl Cpu {
     fn adc_abs_indexed(
         &mut self,
         index: u8,
-        memory: &mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) {
         let val = addressing::read_abs_indexed(self, index, memory, ptrs);
@@ -414,7 +414,7 @@ impl Cpu {
 
     fn adc_indexed_indirect(
         &mut self,
-        memory: &mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) {
         let val = addressing::read_indexed_indirect(self, memory, ptrs);
@@ -423,7 +423,7 @@ impl Cpu {
 
     fn adc_indirect_indexed(
         &mut self,
-        memory: &mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) {
         let val = addressing::read_indirect_indexed(self, memory, ptrs);
@@ -436,26 +436,26 @@ impl Cpu {
         self.set_z_from_val(self.a);
     }
 
-    fn and_imm(&mut self, memory: &mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
+    fn and_imm(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
         let val = addressing::read_imm(self, memory, ptrs);
         self.and(val);
     }
 
-    fn and_zero_page(&mut self, memory: &mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
+    fn and_zero_page(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
         let val = addressing::read_zero_page(self, memory, ptrs);
         self.and(val);
     }
 
     fn and_zero_page_indexed(
         &mut self,
-        memory: &mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) {
         let val = addressing::read_zero_page_indexed(self, self.x, memory, ptrs);
         self.and(val);
     }
 
-    fn and_abs(&mut self, memory: &mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
+    fn and_abs(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
         let val = addressing::read_abs(self, memory, ptrs);
         self.and(val);
     }
@@ -463,7 +463,7 @@ impl Cpu {
     fn and_abs_indexed(
         &mut self,
         index: u8,
-        memory: &mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) {
         let val = addressing::read_abs_indexed(self, index, memory, ptrs);
@@ -472,7 +472,7 @@ impl Cpu {
 
     fn and_indexed_indirect(
         &mut self,
-        memory: &mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) {
         let val = addressing::read_indexed_indirect(self, memory, ptrs);
@@ -481,7 +481,7 @@ impl Cpu {
 
     fn and_indirect_indexed(
         &mut self,
-        memory: &mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) {
         let val = addressing::read_indirect_indexed(self, memory, ptrs);
@@ -668,7 +668,7 @@ impl Cpu {
     fn compare_register_imm(
         &mut self,
         register: u8,
-        memory: &mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) {
         let val = addressing::read_imm(self, memory, ptrs);
@@ -678,7 +678,7 @@ impl Cpu {
     fn compare_register_zero_page(
         &mut self,
         register: u8,
-        memory: &mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) {
         let val = addressing::read_zero_page(self, memory, ptrs);
@@ -689,7 +689,7 @@ impl Cpu {
         &mut self,
         register: u8,
         index: u8,
-        memory: &mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) {
         let val = addressing::read_zero_page_indexed(self, index, memory, ptrs);
@@ -699,7 +699,7 @@ impl Cpu {
     fn compare_register_abs(
         &mut self,
         register: u8,
-        memory: &mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) {
         let val = addressing::read_abs(self, memory, ptrs);
@@ -710,7 +710,7 @@ impl Cpu {
         &mut self,
         register: u8,
         index: u8,
-        memory: &mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) {
         let val = addressing::read_abs_indexed(self, index, memory, ptrs);
@@ -720,7 +720,7 @@ impl Cpu {
     fn compare_register_indexed_indirect(
         &mut self,
         register: u8,
-        memory: &mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) {
         let val = addressing::read_indexed_indirect(self, memory, ptrs);
@@ -730,7 +730,7 @@ impl Cpu {
     fn compare_register_indirect_indexed(
         &mut self,
         register: u8,
-        memory: &mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) {
         let val = addressing::read_indirect_indexed(self, memory, ptrs);
@@ -787,26 +787,26 @@ impl Cpu {
         self.set_n_from_val(self.a);
     }
 
-    fn eor_imm(&mut self, memory: &mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
+    fn eor_imm(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
         let val = addressing::read_imm(self, memory, ptrs);
         self.eor(val);
     }
 
-    fn eor_zero_page(&mut self, memory: &mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
+    fn eor_zero_page(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
         let val = addressing::read_zero_page(self, memory, ptrs);
         self.eor(val);
     }
 
     fn eor_zero_page_indexed(
         &mut self,
-        memory: &mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) {
         let val = addressing::read_zero_page_indexed(self, self.x, memory, ptrs);
         self.eor(val);
     }
 
-    fn eor_abs(&mut self, memory: &mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
+    fn eor_abs(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
         let val = addressing::read_abs(self, memory, ptrs);
         self.eor(val);
     }
@@ -814,7 +814,7 @@ impl Cpu {
     fn eor_abs_indexed(
         &mut self,
         index: u8,
-        memory: &mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) {
         let val = addressing::read_abs_indexed(self, index, memory, ptrs);
@@ -823,7 +823,7 @@ impl Cpu {
 
     fn eor_indexed_indirect(
         &mut self,
-        memory: &mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) {
         let val = addressing::read_indexed_indirect(self, memory, ptrs);
@@ -832,7 +832,7 @@ impl Cpu {
 
     fn eor_indirect_indexed(
         &mut self,
-        memory: &mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) {
         let val = addressing::read_indirect_indexed(self, memory, ptrs);
@@ -925,26 +925,26 @@ impl Cpu {
         self.a = val;
     }
 
-    fn lda_imm(&mut self, memory: &mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
+    fn lda_imm(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
         let val = addressing::read_imm(self, memory, ptrs);
         self.lda(val);
     }
 
-    fn lda_zero_page(&mut self, memory: &mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
+    fn lda_zero_page(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
         let val = addressing::read_zero_page(self, memory, ptrs);
         self.lda(val);
     }
 
     fn lda_zero_page_indexed(
         &mut self,
-        memory: &mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) {
         let val = addressing::read_zero_page_indexed(self, self.x, memory, ptrs);
         self.lda(val);
     }
 
-    fn lda_abs(&mut self, memory: &mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
+    fn lda_abs(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
         let val = addressing::read_abs(self, memory, ptrs);
         self.lda(val);
     }
@@ -952,7 +952,7 @@ impl Cpu {
     fn lda_abs_indexed(
         &mut self,
         index: u8,
-        memory: &mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) {
         let val = addressing::read_abs_indexed(self, index, memory, ptrs);
@@ -961,7 +961,7 @@ impl Cpu {
 
     fn lda_indexed_indirect(
         &mut self,
-        memory: &mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) {
         let val = addressing::read_indexed_indirect(self, memory, ptrs);
@@ -970,7 +970,7 @@ impl Cpu {
 
     fn lda_indirect_indexed(
         &mut self,
-        memory: &mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) {
         let val = addressing::read_indirect_indexed(self, memory, ptrs);
@@ -988,21 +988,21 @@ impl Cpu {
         self.ldx(val);
     }
 
-    fn ldx_zero_page(&mut self, memory: &mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
+    fn ldx_zero_page(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
         let val = addressing::read_zero_page(self, memory, ptrs);
         self.ldx(val);
     }
 
     fn ldx_zero_page_indexed(
         &mut self,
-        memory: &mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) {
         let val = addressing::read_zero_page_indexed(self, self.y, memory, ptrs);
         self.ldx(val);
     }
 
-    fn ldx_abs(&mut self, memory: &mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
+    fn ldx_abs(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
         let val = addressing::read_abs(self, memory, ptrs);
         self.ldx(val);
     }
@@ -1010,7 +1010,7 @@ impl Cpu {
     fn ldx_abs_indexed(
         &mut self,
         index: u8,
-        memory: &mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) {
         let val = addressing::read_abs_indexed(self, index, memory, ptrs);
@@ -1028,21 +1028,21 @@ impl Cpu {
         self.ldy(val);
     }
 
-    fn ldy_zero_page(&mut self, memory: &mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
+    fn ldy_zero_page(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
         let val = addressing::read_zero_page(self, memory, ptrs);
         self.ldy(val);
     }
 
     fn ldy_zero_page_indexed(
         &mut self,
-        memory: &mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) {
         let val = addressing::read_zero_page_indexed(self, self.x, memory, ptrs);
         self.ldy(val);
     }
 
-    fn ldy_abs(&mut self, memory: &mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
+    fn ldy_abs(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
         let val = addressing::read_abs(self, memory, ptrs);
         self.ldy(val);
     }
@@ -1050,7 +1050,7 @@ impl Cpu {
     fn ldy_abs_indexed(
         &mut self,
         index: u8,
-        memory: &mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) {
         let val = addressing::read_abs_indexed(self, index, memory, ptrs);
@@ -1142,26 +1142,26 @@ impl Cpu {
         self.set_n_from_val(self.a);
     }
 
-    fn ora_imm(&mut self, memory: &mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
+    fn ora_imm(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
         let val = addressing::read_imm(self, memory, ptrs);
         self.ora(val);
     }
 
-    fn ora_zero_page(&mut self, memory: &mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
+    fn ora_zero_page(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
         let val = addressing::read_zero_page(self, memory, ptrs);
         self.ora(val);
     }
 
     fn ora_zero_page_indexed(
         &mut self,
-        memory: &mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) {
         let val = addressing::read_zero_page_indexed(self, self.x, memory, ptrs);
         self.ora(val);
     }
 
-    fn ora_abs(&mut self, memory: &mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
+    fn ora_abs(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
         let val = addressing::read_abs(self, memory, ptrs);
         self.ora(val);
     }
@@ -1169,7 +1169,7 @@ impl Cpu {
     fn ora_abs_indexed(
         &mut self,
         index: u8,
-        memory: &mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) {
         let val = addressing::read_abs_indexed(self, index, memory, ptrs);
@@ -1178,7 +1178,7 @@ impl Cpu {
 
     fn ora_indexed_indirect(
         &mut self,
-        memory: &mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) {
         let val = addressing::read_indexed_indirect(self, memory, ptrs);
@@ -1187,7 +1187,7 @@ impl Cpu {
 
     fn ora_indirect_indexed(
         &mut self,
-        memory: &mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) {
         let val = addressing::read_indirect_indexed(self, memory, ptrs);
@@ -1367,26 +1367,26 @@ impl Cpu {
         self.set_n_from_val(res_2);
     }
 
-    fn sbc_imm(&mut self, memory: &mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
+    fn sbc_imm(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
         let val = addressing::read_imm(self, memory, ptrs);
         self.sbc(val);
     }
 
-    fn sbc_zero_page(&mut self, memory: &mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
+    fn sbc_zero_page(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
         let val = addressing::read_zero_page(self, memory, ptrs);
         self.sbc(val);
     }
 
     fn sbc_zero_page_indexed(
         &mut self,
-        memory: &mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) {
         let val = addressing::read_zero_page_indexed(self, self.x, memory, ptrs);
         self.sbc(val);
     }
 
-    fn sbc_abs(&mut self, memory: &mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
+    fn sbc_abs(&mut self, memory: &mut mmap::Nrom128MemoryMap, ptrs: &mut util::PtrsWrapper) {
         let val = addressing::read_abs(self, memory, ptrs);
         self.sbc(val);
     }
@@ -1394,7 +1394,7 @@ impl Cpu {
     fn sbc_abs_indexed(
         &mut self,
         index: u8,
-        memory: &mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) {
         let val = addressing::read_abs_indexed(self, index, memory, ptrs);
@@ -1403,7 +1403,7 @@ impl Cpu {
 
     fn sbc_indexed_indirect(
         &mut self,
-        memory: &mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) {
         let val = addressing::read_indexed_indirect(self, memory, ptrs);
@@ -1412,7 +1412,7 @@ impl Cpu {
 
     fn sbc_indirect_indexed(
         &mut self,
-        memory: &mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) {
         let val = addressing::read_indirect_indexed(self, memory, ptrs);

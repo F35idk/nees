@@ -6,6 +6,7 @@ fn test_adc() {
     let ref mut cpu = Cpu::default();
     let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
+    let framebuffer = std::ptr::null_mut();
 
     cpu.p = 0x6e;
     cpu.adc(0x69);
@@ -28,7 +29,12 @@ fn test_adc() {
     assert_eq!(cpu.p, 0x27);
 
     let ref mut memory = mmap::Nrom128MemoryMap::new();
-    let ref mut ptrs = util::PtrsWrapper { cpu, ppu, apu };
+    let ref mut ptrs = util::PtrsWrapper {
+        cpu,
+        ppu,
+        apu,
+        framebuffer,
+    };
 
     memory.write_cpu(ptrs, 0x80u16, 00);
     memory.write_cpu(ptrs, 0x81u16, 02);
@@ -70,6 +76,7 @@ fn test_and() {
     let ref mut cpu = Cpu::default();
     let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
+    let framebuffer = std::ptr::null_mut();
 
     cpu.a = 0x55;
     cpu.p = 0;
@@ -80,7 +87,12 @@ fn test_and() {
     assert_eq!(cpu.p, 2); // zero-flag should be set
 
     let ref mut memory = mmap::Nrom128MemoryMap::new();
-    let ref mut ptrs = util::PtrsWrapper { cpu, ppu, apu };
+    let ref mut ptrs = util::PtrsWrapper {
+        cpu,
+        ppu,
+        apu,
+        framebuffer,
+    };
 
     memory.write_cpu(ptrs, 0x80u16, 0);
     memory.write_cpu(ptrs, 0x81u16, 02);
@@ -99,8 +111,14 @@ fn test_asl() {
     let ref mut cpu = Cpu::default();
     let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
+    let framebuffer = std::ptr::null_mut();
     let ref mut memory = mmap::Nrom128MemoryMap::new();
-    let ref mut ptrs = util::PtrsWrapper { cpu, ppu, apu };
+    let ref mut ptrs = util::PtrsWrapper {
+        cpu,
+        ppu,
+        apu,
+        framebuffer,
+    };
 
     cpu.a = 0x80;
     cpu.p = 0xe5;
@@ -136,8 +154,14 @@ fn test_branch_instrs() {
     let ref mut cpu = Cpu::default();
     let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
+    let framebuffer = std::ptr::null_mut();
     let ref mut memory = mmap::Nrom128MemoryMap::new();
-    let ref mut ptrs = util::PtrsWrapper { cpu, ppu, apu };
+    let ref mut ptrs = util::PtrsWrapper {
+        cpu,
+        ppu,
+        apu,
+        framebuffer,
+    };
 
     cpu.p = 0;
     cpu.pc = 0x100;
@@ -172,8 +196,14 @@ fn test_bit() {
     let ref mut cpu = Cpu::default();
     let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
+    let framebuffer = std::ptr::null_mut();
     let ref mut memory = mmap::Nrom128MemoryMap::new();
-    let ref mut ptrs = util::PtrsWrapper { cpu, ppu, apu };
+    let ref mut ptrs = util::PtrsWrapper {
+        cpu,
+        ppu,
+        apu,
+        framebuffer,
+    };
 
     cpu.p = 0xa4;
     cpu.a = 0xff;
@@ -200,8 +230,14 @@ fn test_dec_inc() {
     let ref mut cpu = Cpu::default();
     let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
+    let framebuffer = std::ptr::null_mut();
     let ref mut memory = mmap::Nrom128MemoryMap::new();
-    let ref mut ptrs = util::PtrsWrapper { cpu, ppu, apu };
+    let ref mut ptrs = util::PtrsWrapper {
+        cpu,
+        ppu,
+        apu,
+        framebuffer,
+    };
 
     memory.write_cpu(ptrs, 0x78u16, 0x80);
     cpu.p = 0xa4;
@@ -217,8 +253,14 @@ fn test_eor() {
     let ref mut cpu = Cpu::default();
     let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
+    let framebuffer = std::ptr::null_mut();
     let ref mut memory = mmap::Nrom128MemoryMap::new();
-    let ref mut ptrs = util::PtrsWrapper { cpu, ppu, apu };
+    let ref mut ptrs = util::PtrsWrapper {
+        cpu,
+        ppu,
+        apu,
+        framebuffer,
+    };
 
     cpu.p = 0x6c;
     cpu.a = 0x5f;
@@ -247,8 +289,14 @@ fn test_jmp() {
     let ref mut cpu = Cpu::default();
     let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
+    let framebuffer = std::ptr::null_mut();
     let ref mut memory = mmap::Nrom128MemoryMap::new();
-    let ref mut ptrs = util::PtrsWrapper { cpu, ppu, apu };
+    let ref mut ptrs = util::PtrsWrapper {
+        cpu,
+        ppu,
+        apu,
+        framebuffer,
+    };
 
     // JMP $c5f5
     cpu.debug_exec_opcode([0x4c, 0xf5, 0xc5], memory, ptrs);
@@ -268,8 +316,14 @@ fn test_jsr() {
     let ref mut cpu = Cpu::default();
     let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
+    let framebuffer = std::ptr::null_mut();
     let ref mut memory = mmap::Nrom128MemoryMap::new();
-    let ref mut ptrs = util::PtrsWrapper { cpu, ppu, apu };
+    let ref mut ptrs = util::PtrsWrapper {
+        cpu,
+        ppu,
+        apu,
+        framebuffer,
+    };
 
     cpu.pc = 0x300;
     cpu.sp = 0xff;
@@ -321,8 +375,14 @@ fn test_jsr_2() {
     let ref mut cpu = Cpu::default();
     let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
+    let framebuffer = std::ptr::null_mut();
     let ref mut memory = mmap::Nrom128MemoryMap::new();
-    let ref mut ptrs = util::PtrsWrapper { cpu, ppu, apu };
+    let ref mut ptrs = util::PtrsWrapper {
+        cpu,
+        ppu,
+        apu,
+        framebuffer,
+    };
 
     cpu.pc = 0x1620;
     cpu.sp = 0xfb;
@@ -347,8 +407,14 @@ fn test_ld() {
     let ref mut cpu = Cpu::default();
     let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
+    let framebuffer = std::ptr::null_mut();
     let ref mut memory = mmap::Nrom128MemoryMap::new();
-    let ref mut ptrs = util::PtrsWrapper { cpu, ppu, apu };
+    let ref mut ptrs = util::PtrsWrapper {
+        cpu,
+        ppu,
+        apu,
+        framebuffer,
+    };
 
     memory.write_cpu(ptrs, 0x89u16, 0x00);
     memory.write_cpu(ptrs, 0x8au16, 0x03);
@@ -385,8 +451,14 @@ fn test_push_pull() {
     let ref mut cpu = Cpu::default();
     let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
+    let framebuffer = std::ptr::null_mut();
     let ref mut memory = mmap::Nrom128MemoryMap::new();
-    let ref mut ptrs = util::PtrsWrapper { cpu, ppu, apu };
+    let ref mut ptrs = util::PtrsWrapper {
+        cpu,
+        ppu,
+        apu,
+        framebuffer,
+    };
 
     cpu.a = 0xff;
     cpu.sp = 0xfb;
@@ -419,8 +491,14 @@ fn test_rol_ror() {
     let ref mut cpu = Cpu::default();
     let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
+    let framebuffer = std::ptr::null_mut();
     let ref mut memory = mmap::Nrom128MemoryMap::new();
-    let ref mut ptrs = util::PtrsWrapper { cpu, ppu, apu };
+    let ref mut ptrs = util::PtrsWrapper {
+        cpu,
+        ppu,
+        apu,
+        framebuffer,
+    };
 
     cpu.a = 0x55;
     cpu.p = 0x24;
@@ -459,8 +537,14 @@ fn test_rts() {
     let ref mut cpu = Cpu::default();
     let ref mut ppu = ppu::Ppu::default();
     let ref mut apu = apu::Apu {};
+    let framebuffer = std::ptr::null_mut();
     let ref mut memory = mmap::Nrom128MemoryMap::new();
-    let ref mut ptrs = util::PtrsWrapper { cpu, ppu, apu };
+    let ref mut ptrs = util::PtrsWrapper {
+        cpu,
+        ppu,
+        apu,
+        framebuffer,
+    };
 
     cpu.pc = 0x0401;
     cpu.sp = 0xf0;

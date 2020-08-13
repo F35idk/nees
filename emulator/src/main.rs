@@ -46,11 +46,16 @@ fn main() {
     let nestest = false;
     if nestest {
         let ref mut cpu = cpu::Cpu::new_nestest();
-        let mut memory = mmap::Nrom128MemoryMap::new();
         let ref mut ppu = ppu::Ppu::default();
         let ref mut apu = apu::Apu {};
+        let mut memory = mmap::Nrom128MemoryMap::new();
 
-        let ref mut ptrs = util::PtrsWrapper { cpu, ppu, apu };
+        let ref mut ptrs = util::PtrsWrapper {
+            cpu,
+            ppu,
+            apu,
+            framebuffer: util::pixels_to_u32(&mut renderer).as_mut_ptr(),
+        };
 
         let prg_size = 0x4000 * (parse::get_prg_size(&rom) as usize);
         memory.load_prg_rom(&rom[0x10..=prg_size + 0xf]);

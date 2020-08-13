@@ -21,7 +21,7 @@ mod imm {
 
     pub fn read_imm(
         cpu: &mut Cpu,
-        memory: &mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) -> u8 {
         let val = cpu.fetch_operand_byte(memory, ptrs);
@@ -37,7 +37,7 @@ mod abs {
 
     pub fn read_abs(
         cpu: &mut Cpu,
-        memory: &mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) -> u8 {
         let addr = cpu.fetch_operand_u16(memory, ptrs);
@@ -102,7 +102,7 @@ mod abs_indexed {
     pub fn read_abs_indexed(
         cpu: &mut Cpu,
         index: u8,
-        memory: &mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) -> u8 {
         let addr_bytes = cpu.fetch_operand_bytes(memory, ptrs);
@@ -147,7 +147,7 @@ mod zero_page {
 
     pub fn read_zero_page(
         cpu: &mut Cpu,
-        memory: &mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) -> u8 {
         let addr = cpu.fetch_operand_byte(memory, ptrs);
@@ -206,7 +206,7 @@ mod zero_page_indexed {
     pub fn read_zero_page_indexed(
         cpu: &mut Cpu,
         index: u8,
-        memory: &mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) -> u8 {
         let addr = cpu.fetch_operand_byte(memory, ptrs);
@@ -243,7 +243,7 @@ mod indexed_indirect {
 
     pub fn read_indexed_indirect(
         cpu: &mut Cpu,
-        memory: &mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) -> u8 {
         let addr = cpu.fetch_operand_byte(memory, ptrs);
@@ -273,7 +273,7 @@ mod indexed_indirect {
     fn calc_indexed_indirect(
         cpu: &mut Cpu,
         addr: u8,
-        memory: &mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) -> u16 {
         let addr_indexed = addr.wrapping_add(cpu.x);
@@ -289,7 +289,7 @@ mod indirect_indexed {
 
     pub fn read_indirect_indexed(
         cpu: &mut Cpu,
-        memory: &mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) -> u8 {
         let addr = cpu.fetch_operand_byte(memory, ptrs);
@@ -321,7 +321,7 @@ mod indirect_indexed {
     fn calc_indirect_indexed(
         cpu: &Cpu,
         addr: u8,
-        memory: &mmap::Nrom128MemoryMap,
+        memory: &mut mmap::Nrom128MemoryMap,
         ptrs: &mut util::PtrsWrapper,
     ) -> (u16, bool) {
         // get address at memory[addr]

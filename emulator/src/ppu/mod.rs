@@ -399,12 +399,24 @@ impl Ppu {
         }
     }
 
+    // catches the ppu up to the cpu (approximately)
+    pub fn catch_up(
+        &mut self,
+        cpu: &mut cpu::Cpu,
+        memory: &mut mmap::Nrom128MemoryMap,
+        framebuffer: &mut [u32; 256 * 240],
+    ) {
+        let cycles_to_step = cpu.cycle_count * 3 - self.cycle_count;
+        self.step(cpu, cycles_to_step as u32, memory, framebuffer);
+    }
+
+    // steps the ppu for approx. 'cycles_to_step' cycles (may be off by 1-7 cycles)
     pub fn step(
         &mut self,
         cpu: &mut cpu::Cpu,
         cycles_to_step: u32,
         memory: &mut mmap::Nrom128MemoryMap,
-        framebuffer: &mut [u32],
+        framebuffer: &mut [u32; 256 * 240],
     ) {
         // pre-TODO: figure out what to start ppu vs cpu
         // cycle counts at (what distance between ticks)
@@ -600,7 +612,7 @@ impl Ppu {
     fn draw_tile_row_backdrop(
         &mut self,
         memory: &mut mmap::Nrom128MemoryMap,
-        framebuffer: &mut [u32],
+        framebuffer: &mut [u32; 256 * 240],
     ) {
         for _ in 0..8 {
             let color_index_addr = if self.current_vram_addr.get_addr() >= 0x3f00 {
@@ -633,7 +645,7 @@ impl Ppu {
     pub fn draw_tile_row(
         &mut self,
         memory: &mut mmap::Nrom128MemoryMap,
-        framebuffer: &mut [u32],
+        framebuffer: &mut [u32; 256 * 240],
     ) -> u8 {
         // NOTE: to help readability, this function is split into smaller subfunctions.
         // instead of factoring these subfunctions out into the outer 'Ppu' impl block,
