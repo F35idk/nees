@@ -403,7 +403,7 @@ impl Ppu {
         ppu_cycles: &mut u64,
         cycles_to_step: u32,
         memory: &mut mmap::Nrom128MemoryMap,
-        renderer: &mut PixelRenderer,
+        framebuffer: &mut [u32],
     ) {
         // pre-TODO: figure out what to start ppu vs cpu
         // cycle counts at (what distance between ticks)
@@ -483,14 +483,14 @@ impl Ppu {
                     1..=256 => {
                         // if background rendering is disabled
                         if !self.is_background_enable() {
-                            self.draw_tile_row_backdrop(memory, renderer);
+                            self.draw_tile_row_backdrop(memory, framebuffer);
                             *ppu_cycles += 8;
                             break;
                         }
                         // draw one row of a tile (or less, if the current tile
                         // straddles the screen boundary). this increments
                         // 'current_scanline_dot', and 'current_scanline'
-                        let pixels_drawn = self.draw_tile_row(memory, renderer);
+                        let pixels_drawn = self.draw_tile_row(memory, framebuffer);
                         *ppu_cycles += pixels_drawn as u64;
 
                         // if last pixel drawn was 256th (end of scanline)
@@ -599,7 +599,7 @@ impl Ppu {
     fn draw_tile_row_backdrop(
         &mut self,
         memory: &mut mmap::Nrom128MemoryMap,
-        renderer: &mut PixelRenderer,
+        framebuffer: &mut [u32],
     ) {
         for _ in 0..8 {
             let color_index_addr = if self.current_vram_addr.get_addr() >= 0x3f00 {
@@ -612,10 +612,9 @@ impl Ppu {
             let color_index = memory.read_ppu(color_index_addr);
             let color = get_color_from_index(color_index);
 
-            let pixels = util::pixels_to_u32(renderer);
             let screen_x = (self.current_scanline_dot - 1) as usize;
             let screen_y = self.current_scanline as usize;
-            pixels[screen_y * 256 + screen_x] = color;
+            framebuffer[screen_y * 256 + screen_x] = color;
 
             self.current_scanline_dot = self.current_scanline_dot.wrapping_add(1);
         }
@@ -633,7 +632,7 @@ impl Ppu {
     pub fn draw_tile_row(
         &mut self,
         memory: &mut mmap::Nrom128MemoryMap,
-        renderer: &mut PixelRenderer,
+        framebuffer: &mut [u32],
     ) -> u8 {
         // NOTE: to help readability, this function is split into smaller subfunctions.
         // instead of factoring these subfunctions out into the outer 'Ppu' impl block,
@@ -641,13 +640,13 @@ impl Ppu {
         // impression that they are needed anywhere else
 
         {
-            return draw_tile_row_main(self, memory, renderer);
+            return draw_tile_row_main(self, memory, framebuffer);
         }
 
         fn draw_tile_row_main(
             ppu: &mut Ppu,
             memory: &mut mmap::Nrom128MemoryMap,
-            renderer: &mut PixelRenderer,
+            framebuffer: &mut [u32],
         ) -> u8 {
             let current_tile = get_current_tile(ppu, memory);
             let palette_index = get_tile_palette_index(ppu, memory);
@@ -684,13 +683,12 @@ impl Ppu {
                     let color_index_high = ((bitplane_high >> (7 - i)) << 1) & 2;
                     let color_index = color_index_low | color_index_high;
 
-                    let pixels = util::pixels_to_u32(renderer);
                     let color = get_pixel_color(ppu, memory, palette_index, color_index);
 
                     let screen_x = (ppu.current_scanline_dot - 1) as usize;
                     let screen_y = ppu.current_scanline as usize;
                     // TODO: OPTIMIZE: unchecked indexing
-                    pixels[screen_y * 256 + screen_x] = color;
+                    framebuffer[screen_y * 256 + screen_x] = color;
 
                     log!("(x: {}, i: {}), ", ppu.current_scanline_dot - 1, i);
                     ppu.current_scanline_dot = ppu.current_scanline_dot.wrapping_add(1);

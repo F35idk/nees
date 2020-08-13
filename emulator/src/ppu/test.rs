@@ -439,13 +439,14 @@ pub fn test_draw(rom: &[u8]) {
             // each scanline is 341 cycles long, except for the pre-render
             // scanline on odd frames, which is 340 cycles long
             let cycles_in_scanline = 341 - (!ppu.even_frame && ppu.current_scanline == -1) as u32;
+            let framebuffer = util::pixels_to_u32(&mut renderer);
 
             ppu.step(
                 &mut cpu,
                 &mut ppu_cycles,
                 cycles_in_scanline,
                 &mut memory,
-                &mut renderer,
+                framebuffer,
             );
 
             assert_eq!(ppu_cycles, cycles_in_scanline as u64);
@@ -470,13 +471,14 @@ pub fn test_draw(rom: &[u8]) {
         for _ in 0..20 {
             let mut ppu_cycles = 0;
             let cycles_in_scanline = 341 - (!ppu.even_frame && ppu.current_scanline == -1) as u32;
+            let framebuffer = util::pixels_to_u32(&mut renderer);
 
             ppu.step(
                 &mut cpu,
                 &mut ppu_cycles,
                 cycles_in_scanline,
                 &mut memory,
-                &mut renderer,
+                framebuffer,
             );
 
             assert_eq!(ppu_cycles, cycles_in_scanline as u64);
