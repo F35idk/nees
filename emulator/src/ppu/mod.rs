@@ -328,22 +328,28 @@ impl Ppu {
     pub fn write_oamdma(
         &mut self,
         val: u8,
-        cpu_cycle_count: &mut u64,
+        cpu: &mut cpu::Cpu,
         memory: &mut mmap::Nrom128MemoryMap,
+        framebuffer: &mut [u32; 256 * 240],
     ) {
         // if 'val' is $XX, start address should be $XX00
         let start_addr = (val as u16) << 8;
 
-        for addr in (start_addr)..=(start_addr + 0xff) {
+        for (i, addr) in ((start_addr)..=(start_addr + 0xff)).enumerate() {
             let byte = memory.read_ppu(addr);
             unsafe { *self.oam.bytes.get_unchecked_mut(self.oamaddr as usize) = byte };
             self.oamaddr = self.oamaddr.wrapping_add(1);
+
+            cpu.cycle_count += 2;
+
+            // catch the ppu up to the cpu on every 4th iteration
+            if i % 4 == 0 {
+                self.catch_up(cpu, memory, framebuffer);
+            }
         }
 
-        // FIXME: should call 'step()' on the ppu while dma-ing??
-
-        // increment cycle count by 513 (or 514 if on an odd cpu cycle)
-        *cpu_cycle_count += 513 + (*cpu_cycle_count % 2);
+        // in total, dma should take 513 cpu cycles (or 514 if on an odd cpu cycle)
+        cpu.cycle_count += 1 + (cpu.cycle_count % 2);
     }
 
     // increments 'current_vram_addr' by 1 or 32, depending on the increment mode bit in ppuctrl
@@ -406,15 +412,15 @@ impl Ppu {
         memory: &mut mmap::Nrom128MemoryMap,
         framebuffer: &mut [u32; 256 * 240],
     ) {
-        let cycles_to_step = cpu.cycle_count * 3 - self.cycle_count;
-        self.step(cpu, cycles_to_step as u32, memory, framebuffer);
+        let cycles_to_step = (cpu.cycle_count * 3).saturating_sub(self.cycle_count);
+        self.step(cycles_to_step as u32, cpu, memory, framebuffer);
     }
 
     // steps the ppu for approx. 'cycles_to_step' cycles (may be off by 1-7 cycles)
     pub fn step(
         &mut self,
-        cpu: &mut cpu::Cpu,
         cycles_to_step: u32,
+        cpu: &mut cpu::Cpu,
         memory: &mut mmap::Nrom128MemoryMap,
         framebuffer: &mut [u32; 256 * 240],
     ) {
@@ -423,6 +429,7 @@ impl Ppu {
 
         let target_cycles = self.cycle_count + cycles_to_step as u64;
 
+        // println!("while {} < {}", self.cycle_count, target_cycles);
         // FIXME: this may overshoot target cycles somewhat. is this bad??
         while self.cycle_count < target_cycles {
             // TODO: match on tuple of scanline and current dot?

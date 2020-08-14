@@ -144,8 +144,13 @@ impl MemoryMap for Nrom128MemoryMap {
 
         // ppu oamdma register
         if addr == 0x4014 {
-            let cpu_cycles = unsafe { &mut (*ptrs.cpu).cycle_count };
-            ptrs.ppu.write_oamdma(val, cpu_cycles, self);
+            ptrs.ppu.write_oamdma(
+                val,
+                unsafe { transmute(ptrs.cpu) }, //
+                self,
+                unsafe { transmute(ptrs.framebuffer) },
+            );
+
             return;
         }
 
