@@ -429,7 +429,6 @@ impl Ppu {
 
         let target_cycles = self.cycle_count + cycles_to_step as u64;
 
-        // println!("while {} < {}", self.cycle_count, target_cycles);
         // FIXME: this may overshoot target cycles somewhat. is this bad??
         while self.cycle_count < target_cycles {
             // TODO: match on tuple of scanline and current dot?
@@ -505,20 +504,20 @@ impl Ppu {
                         if !self.is_background_enable() {
                             self.draw_tile_row_backdrop(memory, framebuffer);
                             self.cycle_count += 8;
-                            break;
-                        }
-                        // draw one row of a tile (or less, if the current tile
-                        // straddles the screen boundary). this increments
-                        // 'current_scanline_dot', and 'current_scanline'
-                        let pixels_drawn = self.draw_tile_row(memory, framebuffer);
-                        self.cycle_count += pixels_drawn as u64;
-
-                        // if last pixel drawn was 256th (end of scanline)
-                        if self.current_scanline_dot == 257 {
-                            // increment fine y
-                            self.increment_vram_addr_y();
                         } else {
-                            self.increment_vram_addr_coarse_x();
+                            // draw one row of a tile (or less, if the current tile
+                            // straddles the screen boundary). this increments
+                            // 'current_scanline_dot', and 'current_scanline'
+                            let pixels_drawn = self.draw_tile_row(memory, framebuffer);
+                            self.cycle_count += pixels_drawn as u64;
+
+                            // if last pixel drawn was 256th (end of scanline)
+                            if self.current_scanline_dot == 257 {
+                                // increment fine y
+                                self.increment_vram_addr_y();
+                            } else {
+                                self.increment_vram_addr_coarse_x();
+                            }
                         }
                     }
                     257 => {
