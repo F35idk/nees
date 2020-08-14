@@ -412,22 +412,20 @@ impl Ppu {
         memory: &mut mmap::Nrom128MemoryMap,
         framebuffer: &mut [u32; 256 * 240],
     ) {
-        let cycles_to_step = (cpu.cycle_count * 3).saturating_sub(self.cycle_count);
-        self.step(cycles_to_step as u32, cpu, memory, framebuffer);
+        let target_cycles = cpu.cycle_count * 3;
+        self.step(target_cycles, cpu, memory, framebuffer);
     }
 
     // steps the ppu for approx. 'cycles_to_step' cycles (may be off by 1-7 cycles)
     pub fn step(
         &mut self,
-        cycles_to_step: u32,
+        target_cycles: u64,
         cpu: &mut cpu::Cpu,
         memory: &mut mmap::Nrom128MemoryMap,
         framebuffer: &mut [u32; 256 * 240],
     ) {
         // pre-TODO: figure out what to start ppu vs cpu
         // cycle counts at (what distance between ticks)
-
-        let target_cycles = self.cycle_count + cycles_to_step as u64;
 
         // FIXME: this may overshoot target cycles somewhat. is this bad??
         while self.cycle_count < target_cycles {
