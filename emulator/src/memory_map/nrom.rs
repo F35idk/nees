@@ -1,8 +1,5 @@
-#[macro_use]
-use super::MemoryMap;
-use super::super::cpu;
-use super::{apu, ppu, util};
-use std::mem::transmute;
+use super::super::{apu, context, cpu, memory_map as mmap, ppu, util, win, PixelRenderer};
+use super::{MemoryMap, MemoryMapContext};
 
 // the cpu and ppu memory maps for games that use the 'NROM-128' cartridge/mapper (ines mapper 0)
 pub struct Nrom128MemoryMap {
@@ -42,18 +39,18 @@ impl Nrom128MemoryMap {
     }
 
     pub fn load_prg_rom(&mut self, rom: &[u8]) {
-        assert!(rom.len() == 0x4000);
+        assert_eq!(rom.len(), 0x4000);
         self.cpu_memory[0x800..=0x47ff].copy_from_slice(rom);
     }
 
     pub fn load_chr_ram(&mut self, ram: &[u8]) {
-        assert!(ram.len() == 0x2000);
+        assert_eq!(ram.len(), 0x2000);
         self.chr_ram.copy_from_slice(ram);
     }
 }
 
 impl MemoryMap for Nrom128MemoryMap {
-    fn read_cpu(&mut self, ptrs: &mut util::PtrsWrapper, mut addr: u16) -> u8 {
+    fn read_cpu(&mut self, mut addr: u16, ctx: &mut MemoryMapContext) -> u8 {
         // address lines a13-a15 = 000 (0-0x1fff) => internal ram
         if (addr >> 13) == 0 {
             // mask off bit 11 and 12 for mirroring
@@ -65,17 +62,15 @@ impl MemoryMap for Nrom128MemoryMap {
         // address lines a13-a15 = 001 (0x2000-0x3fff) => ppu registers
         if (addr >> 13) == 1 {
             // catch the ppu up to the cpu before reading
-            ptrs.ppu.catch_up(
-                // SAFETY: none
-                // FIXME: safety
-                unsafe { transmute(ptrs.cpu) }, //
+            ctx.ppu.catch_up(
+                &mut ctx.cpu, //
                 self,
-                unsafe { transmute(ptrs.framebuffer) },
+                util::pixels_to_u32(&mut ctx.renderer),
             );
 
             // ignore all but low 3 bits
             addr &= 0b111;
-            return ptrs.ppu.read_register_by_index(addr as u8, self);
+            return ctx.ppu.read_register_by_index(addr as u8, self);
         }
 
         // address lines a13-a15 = 011 (0x6000-0x7fff) => prg ram
@@ -102,7 +97,7 @@ impl MemoryMap for Nrom128MemoryMap {
         0
     }
 
-    fn write_cpu(&mut self, ptrs: &mut util::PtrsWrapper, addr: u16, val: u8) {
+    fn write_cpu(&mut self, addr: u16, val: u8, ctx: &mut MemoryMapContext) {
         // NOTE: see 'calc_cpu_read_addr()' for comments explaining address calculation
         if (addr >> 13) == 0 {
             unsafe {
@@ -116,18 +111,14 @@ impl MemoryMap for Nrom128MemoryMap {
 
         if (addr >> 13) == 1 {
             // catch the ppu up to the cpu before writing
-            ptrs.ppu.catch_up(
-                unsafe { transmute(ptrs.cpu) }, //
+            ctx.ppu.catch_up(
+                &mut ctx.cpu, //
                 self,
-                unsafe { transmute(ptrs.framebuffer) },
+                util::pixels_to_u32(&mut ctx.renderer),
             );
 
-            ptrs.ppu.write_register_by_index(
-                addr as u8 & 0b111,
-                val,
-                unsafe { std::mem::transmute(ptrs.cpu) },
-                self,
-            );
+            ctx.ppu
+                .write_register_by_index(addr as u8 & 0b111, val, &mut ctx.cpu, self);
 
             return;
         }
@@ -144,11 +135,11 @@ impl MemoryMap for Nrom128MemoryMap {
 
         // ppu oamdma register
         if addr == 0x4014 {
-            ptrs.ppu.write_oamdma(
+            ctx.ppu.write_oamdma(
                 val,
-                unsafe { transmute(ptrs.cpu) }, //
+                &mut ctx.cpu,
                 self,
-                unsafe { transmute(ptrs.framebuffer) },
+                util::pixels_to_u32(&mut ctx.renderer),
             );
 
             return;
@@ -225,7 +216,7 @@ impl Nrom256MemoryMap {
 }
 
 impl MemoryMap for Nrom256MemoryMap {
-    fn read_cpu(&mut self, ptrs: &mut util::PtrsWrapper, mut addr: u16) -> u8 {
+    fn read_cpu(&mut self, mut addr: u16, ctx: &mut MemoryMapContext) -> u8 {
         if (addr >> 13) == 0 {
             addr &= !0b1100000000000;
             return unsafe { *self.cpu_memory.get(addr as usize).unwrap() };
@@ -233,7 +224,7 @@ impl MemoryMap for Nrom256MemoryMap {
 
         if (addr >> 13) == 1 {
             addr &= 0b111;
-            // return ptrs.ppu.read_register_by_index(addr as u8, self);
+            // return ctx.ppu.read_register_by_index(addr as u8, self);
             return 0;
         }
 
@@ -251,7 +242,7 @@ impl MemoryMap for Nrom256MemoryMap {
         0
     }
 
-    fn write_cpu(&mut self, ptrs: &mut util::PtrsWrapper, addr: u16, val: u8) {
+    fn write_cpu(&mut self, addr: u16, val: u8, ctx: &mut MemoryMapContext) {
         if (addr >> 13) == 0 {
             unsafe {
                 *self
@@ -311,17 +302,18 @@ fn test_calc_addr_128() {
         0
     }
 
-    let mut memory = Nrom128MemoryMap::new();
-    let ref mut cpu = cpu::Cpu::default();
-    let ref mut ppu = ppu::Ppu::default();
-    let ref mut apu = apu::Apu {};
-    let framebuffer = std::ptr::null_mut();
-    let ref mut ptrs = util::PtrsWrapper {
-        cpu,
-        ppu,
-        apu,
-        framebuffer,
+    let mut win = win::XcbWindowWrapper::new("mynes", 1200, 600).unwrap();
+    let renderer = PixelRenderer::new(&mut win.connection, win.win, 256, 240).unwrap();
+
+    let mut nes = super::super::Nes {
+        cpu: cpu::Cpu::new_nestest(),
+        ppu: ppu::Ppu::default(),
+        apu: apu::Apu {},
+        memory: mmap::Nrom128MemoryMap::new(),
+        renderer,
     };
+
+    let ctx = context::NesContext::new(&mut nes);
 
     // internal ram reads
     assert_eq!(calc_cpu_read_addr(0xa0e), 0x20e);
@@ -333,10 +325,10 @@ fn test_calc_addr_128() {
     assert_eq!(calc_cpu_read_addr(0x5000), 0);
 
     // prg ram writes
-    memory.write_cpu(ptrs, 0x7fffu16, 0xfe);
-    memory.write_cpu(ptrs, 0x6000u16, 0xce);
-    assert_eq!(memory.cpu_memory[0x57ff], 0xfe);
-    assert_eq!(memory.cpu_memory[0x4800], 0xce);
+    ctx.memory.write_cpu(0x7fffu16, 0xfe, &mut ctx.memory_ctx);
+    ctx.memory.write_cpu(0x6000u16, 0xce, &mut ctx.memory_ctx);
+    assert_eq!(ctx.memory.cpu_memory[0x57ff], 0xfe);
+    assert_eq!(ctx.memory.cpu_memory[0x4800], 0xce);
 
     // special io stuff, should just return 0
     assert_eq!(calc_cpu_read_addr(0x401f), 0);
@@ -346,9 +338,9 @@ fn test_calc_addr_128() {
     assert_eq!(calc_cpu_read_addr(0xffff), 0x47ff);
 
     // prg rom writes
-    memory.write_cpu(ptrs, 0xcfffu16, 0xff);
+    ctx.memory.write_cpu(0xcfffu16, 0xff, &mut ctx.memory_ctx);
     // should not take effect
-    assert_ne!(memory.read_cpu(ptrs, 0xcfffu16), 0xff);
+    assert_ne!(ctx.memory.read_cpu(0xcfffu16, &mut ctx.memory_ctx), 0xff);
 }
 
 #[test]

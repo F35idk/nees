@@ -1,6 +1,7 @@
 #[macro_use]
 mod util;
 mod apu;
+mod context;
 mod cpu;
 mod memory_map;
 mod parse;
@@ -12,6 +13,15 @@ use mmap::MemoryMap;
 
 use pixel_renderer;
 use pixel_renderer::PixelRenderer;
+
+#[repr(C)]
+pub struct Nes {
+    cpu: cpu::Cpu,
+    ppu: ppu::Ppu,
+    apu: apu::Apu,
+    memory: mmap::Nrom128MemoryMap,
+    renderer: PixelRenderer,
+}
 
 fn main() {
     let rom = std::fs::read("Super_Mario_Bros.nes").unwrap();
@@ -45,24 +55,22 @@ fn main() {
 
     let nestest = false;
     if nestest {
-        let ref mut cpu = cpu::Cpu::new_nestest();
-        let ref mut ppu = ppu::Ppu::default();
-        let ref mut apu = apu::Apu {};
-        let mut memory = mmap::Nrom128MemoryMap::new();
-
-        let ref mut ptrs = util::PtrsWrapper {
-            cpu,
-            ppu,
-            apu,
-            framebuffer: util::pixels_to_u32(&mut renderer).as_mut_ptr(),
+        let rom = std::fs::read("nestest.nes").unwrap();
+        let mut nes = Nes {
+            cpu: cpu::Cpu::new_nestest(),
+            ppu: ppu::Ppu::default(),
+            apu: apu::Apu {},
+            memory: mmap::Nrom128MemoryMap::new(),
+            renderer,
         };
 
+        let ctx = context::NesContext::new(&mut nes);
         let prg_size = 0x4000 * (parse::get_prg_size(&rom) as usize);
-        memory.load_prg_rom(&rom[0x10..=prg_size + 0xf]);
+        ctx.memory.load_prg_rom(&rom[0x10..=prg_size + 0xf]);
 
         loop {
-            cpu.log_register_values(ptrs);
-            cpu.exec_instruction(&mut memory, ptrs);
+            ctx.cpu.log_register_values();
+            ctx.cpu.exec_instruction(&mut ctx.memory, &mut ctx.cpu_ctx);
         }
     }
 }
