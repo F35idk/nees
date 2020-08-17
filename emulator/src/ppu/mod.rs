@@ -699,7 +699,11 @@ impl Ppu {
             (attribute >> shift_amt) & 0b11
         }
 
-        fn get_pixel_color(ppu: &mut Ppu, palette_index: u8, color_index: u8) -> u32 {
+        fn get_pixel_color(ppu: &mut Ppu, palette_index: u8, mut color_index: u8) -> u32 {
+            if ppu.is_greyscale_enabled() {
+                color_index &= 0x30;
+            }
+
             let mut addr = 0x3f00 | ((palette_index as u16) << 2);
             addr |= color_index as u16;
 
