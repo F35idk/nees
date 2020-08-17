@@ -225,100 +225,107 @@ impl Ppu {
     }
 
     pub fn write_register_by_index(&mut self, index: u8, val: u8, cpu: &mut cpu::Cpu) {
-        match index {
-            // ppuctrl
-            0 => self.write_ppuctrl(val, cpu),
-            // ppumask
-            1 => self.ppumask = val,
-            // ppustatus, ignore attemps to write
-            2 => return,
-            // oamaddr
-            3 => self.oamaddr = val,
-            // oamdata
-            4 => self.write_oamdata(val),
-            // ppuscroll
-            5 => self.write_ppuscroll(val),
-            // ppuaddr
-            6 => self.write_ppuaddr(val),
-            // ppudata
-            7 => self.write_ppudata(val),
-            _ => (),
-        }
-    }
+        // NOTE: to help readability, this function is split into smaller subfunctions.
+        // instead of factoring these subfunctions out into the outer 'Ppu' impl block,
+        // i decided to keep them inside of 'write_register_by_index()', so as to not
+        // give the impression that they are needed anywhere else
 
-    fn write_ppuctrl(&mut self, val: u8, cpu: &mut cpu::Cpu) {
-        // set bits 10-11 of 'temp_vram_addr' equal to the low 2 bits of 'val'
-        self.temp_vram_addr.set_nametable_select(val & 0b11);
-        self.ppuctrl = val;
-
-        if self.is_vblank_nmi_enabled() && self.is_vblank() {
-            cpu.nmi = true;
-        }
-    }
-
-    fn write_oamdata(&mut self, val: u8) {
-        if self.is_currently_rendering() {
-            // ignore attemps to write when rendering
-            return;
+        {
+            match index {
+                // ppuctrl
+                0 => write_ppuctrl(self, val, cpu),
+                // ppumask
+                1 => self.ppumask = val,
+                // ppustatus, ignore attemps to write
+                2 => return,
+                // oamaddr
+                3 => self.oamaddr = val,
+                // oamdata
+                4 => write_oamdata(self, val),
+                // ppuscroll
+                5 => write_ppuscroll(self, val),
+                // ppuaddr
+                6 => write_ppuaddr(self, val),
+                // ppudata
+                7 => write_ppudata(self, val),
+                _ => (),
+            }
         }
 
-        unsafe { *self.oam.bytes.get_unchecked_mut(self.oamaddr as usize) = val };
-        self.oamaddr = self.oamaddr.wrapping_add(1);
-    }
+        fn write_ppuctrl(ppu: &mut Ppu, val: u8, cpu: &mut cpu::Cpu) {
+            // set bits 10-11 of 'temp_vram_addr' equal to the low 2 bits of 'val'
+            ppu.temp_vram_addr.set_nametable_select(val & 0b11);
+            ppu.ppuctrl = val;
 
-    fn write_ppuscroll(&mut self, val: u8) {
-        // low bits toggle = 0 => x coordinate is being written
-        if !self.low_bits_toggle {
-            // write low 3 bits (fine x) to 'self.fine_x_scroll'
-            self.set_fine_x_scroll(val & 0b111);
-            // write high 5 bits (coarse x) to low 5 bits
-            // of temporary vram address register
-            self.temp_vram_addr.set_coarse_x(val >> 3);
-        }
-        // low bits toggle = 1 => y coordinate is being written
-        else {
-            // write high 5 bits (coarse y) to
-            // bits 5-10 of 'temp_vram_addr'
-            self.temp_vram_addr.set_coarse_y(val >> 3);
-            // write low 3 bits (fine y) to bits
-            // 12-14 of 'temp_vram_addr'
-            self.temp_vram_addr.set_fine_y(val & 0b111);
+            if ppu.is_vblank_nmi_enabled() && ppu.is_vblank() {
+                cpu.nmi = true;
+            }
         }
 
-        // reset low bits toggle
-        self.low_bits_toggle = !self.low_bits_toggle;
-    }
+        fn write_oamdata(ppu: &mut Ppu, val: u8) {
+            if ppu.is_currently_rendering() {
+                // ignore attemps to write when rendering
+                return;
+            }
 
-    fn write_ppuaddr(&mut self, val: u8) {
-        let mut temp_vram_addr_bytes = self.temp_vram_addr.inner.to_le_bytes();
-
-        if !self.low_bits_toggle {
-            // write low 6 bits into bits 8-13 of temporary
-            // vram address register while clearing bit 14
-            temp_vram_addr_bytes[1] = val & 0b0111111;
-            // store back
-            self.temp_vram_addr.inner = u16::from_le_bytes(temp_vram_addr_bytes);
-        } else {
-            // set all low bits of temporary vram register equal to 'val'
-            temp_vram_addr_bytes[0] = val;
-            self.temp_vram_addr.inner = u16::from_le_bytes(temp_vram_addr_bytes);
-
-            // set 'current_vram_addr' equal to 'temp_vram_addr'
-            self.current_vram_addr = self.temp_vram_addr;
+            unsafe { *ppu.oam.bytes.get_unchecked_mut(ppu.oamaddr as usize) = val };
+            ppu.oamaddr = ppu.oamaddr.wrapping_add(1);
         }
 
-        self.low_bits_toggle = !self.low_bits_toggle;
-    }
+        fn write_ppuscroll(ppu: &mut Ppu, val: u8) {
+            // low bits toggle = 0 => x coordinate is being written
+            if !ppu.low_bits_toggle {
+                // write low 3 bits (fine x) to 'ppu.fine_x_scroll'
+                ppu.set_fine_x_scroll(val & 0b111);
+                // write high 5 bits (coarse x) to low 5 bits
+                // of temporary vram address register
+                ppu.temp_vram_addr.set_coarse_x(val >> 3);
+            }
+            // low bits toggle = 1 => y coordinate is being written
+            else {
+                // write high 5 bits (coarse y) to
+                // bits 5-10 of 'temp_vram_addr'
+                ppu.temp_vram_addr.set_coarse_y(val >> 3);
+                // write low 3 bits (fine y) to bits
+                // 12-14 of 'temp_vram_addr'
+                ppu.temp_vram_addr.set_fine_y(val & 0b111);
+            }
 
-    fn write_ppudata(&mut self, val: u8) {
-        self.memory.write(self.current_vram_addr.get_addr(), val);
+            // reset low bits toggle
+            ppu.low_bits_toggle = !ppu.low_bits_toggle;
+        }
 
-        // increment 'current_vram_addr' (same as when reading ppudata)
-        if !self.is_currently_rendering() {
-            self.increment_vram_addr();
-        } else {
-            self.increment_vram_addr_coarse_x();
-            self.increment_vram_addr_y();
+        fn write_ppuaddr(ppu: &mut Ppu, val: u8) {
+            let mut temp_vram_addr_bytes = ppu.temp_vram_addr.inner.to_le_bytes();
+
+            if !ppu.low_bits_toggle {
+                // write low 6 bits into bits 8-13 of temporary
+                // vram address register while clearing bit 14
+                temp_vram_addr_bytes[1] = val & 0b0111111;
+                // store back
+                ppu.temp_vram_addr.inner = u16::from_le_bytes(temp_vram_addr_bytes);
+            } else {
+                // set all low bits of temporary vram register equal to 'val'
+                temp_vram_addr_bytes[0] = val;
+                ppu.temp_vram_addr.inner = u16::from_le_bytes(temp_vram_addr_bytes);
+
+                // set 'current_vram_addr' equal to 'temp_vram_addr'
+                ppu.current_vram_addr = ppu.temp_vram_addr;
+            }
+
+            ppu.low_bits_toggle = !ppu.low_bits_toggle;
+        }
+
+        fn write_ppudata(ppu: &mut Ppu, val: u8) {
+            ppu.memory.write(ppu.current_vram_addr.get_addr(), val);
+
+            // increment 'current_vram_addr' (same as when reading ppudata)
+            if !ppu.is_currently_rendering() {
+                ppu.increment_vram_addr();
+            } else {
+                ppu.increment_vram_addr_coarse_x();
+                ppu.increment_vram_addr_y();
+            }
         }
     }
 
@@ -480,6 +487,8 @@ impl Ppu {
                     1..=256 => {
                         // if background rendering is disabled
                         if !self.is_background_enable() {
+                            // NOTE: if the background is disabled mid-scanline,
+                            // there will be weird artifacts
                             self.draw_tile_row_backdrop();
                             self.cycle_count += 8;
                         } else {
@@ -592,42 +601,13 @@ impl Ppu {
         }
     }
 
-    // draws 8 pixels of backdrop color (or if 'current_vram_addr'
-    // >= 0x3f00, draws the color 'current_vram_addr' points to)
-    fn draw_tile_row_backdrop(&mut self) {
-        for _ in 0..8 {
-            let color_index_addr = if self.current_vram_addr.get_addr() >= 0x3f00 {
-                logln!("background palette hack triggered");
-                self.current_vram_addr.get_addr()
-            } else {
-                0x3f00
-            };
-
-            let color_index = self.memory.read(color_index_addr);
-            let color = get_color_from_index(color_index);
-
-            let screen_x = (self.current_scanline_dot - 1) as usize;
-            let screen_y = self.current_scanline as usize;
-            let framebuffer = util::pixels_to_u32(&mut self.renderer);
-            framebuffer[screen_y * 256 + screen_x] = color;
-
-            self.current_scanline_dot = self.current_scanline_dot.wrapping_add(1);
-        }
-
-        if self.current_scanline_dot == 0 {
-            self.current_scanline += 1;
-        }
-    }
-
-    // draws a horizontal line of pixels starting at 'current_scanline_dot' - 1
-    // and stopping at the end of the current tile in the background nametable
-    // (or the end of the screen, if the current tile happens to poke outside
-    // of it). returns whether drawing is finished (entire frame is drawn)
-    pub fn draw_tile_row(&mut self) -> u8 {
-        // NOTE: to help readability, this function is split into smaller subfunctions.
-        // instead of factoring these subfunctions out into the outer 'Ppu' impl block,
-        // i decided to keep them inside of 'draw_tile_row()', so as to not give the
-        // impression that they are needed anywhere else
+    // draws a horizontal line of pixels starting at 'current_scanline_dot'
+    // - 1 and stopping at the end of the current tile in the background
+    // nametable (or the end of the screen, if the current tile happens to
+    // poke outside of it). returns how many pixels were drawn
+    fn draw_tile_row(&mut self) -> u8 {
+        // NOTE: as with 'write_register_by_index()', this functions
+        // is split into smaller subfunctions to help readability
 
         {
             return draw_tile_row_main(self);
@@ -732,6 +712,33 @@ impl Ppu {
 
             let final_color_index = ppu.memory.read(addr);
             get_color_from_index(final_color_index)
+        }
+    }
+
+    // draws 8 pixels of backdrop color (or if 'current_vram_addr'
+    // >= 0x3f00, draws the color 'current_vram_addr' points to)
+    fn draw_tile_row_backdrop(&mut self) {
+        for _ in 0..8 {
+            let color_index_addr = if self.current_vram_addr.get_addr() >= 0x3f00 {
+                logln!("background palette hack triggered");
+                self.current_vram_addr.get_addr()
+            } else {
+                0x3f00
+            };
+
+            let color_index = self.memory.read(color_index_addr);
+            let color = get_color_from_index(color_index);
+
+            let screen_x = (self.current_scanline_dot - 1) as usize;
+            let screen_y = self.current_scanline as usize;
+            let framebuffer = util::pixels_to_u32(&mut self.renderer);
+            framebuffer[screen_y * 256 + screen_x] = color;
+
+            self.current_scanline_dot = self.current_scanline_dot.wrapping_add(1);
+        }
+
+        if self.current_scanline_dot == 0 {
+            self.current_scanline += 1;
         }
     }
 

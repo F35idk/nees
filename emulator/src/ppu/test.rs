@@ -315,16 +315,6 @@ fn test_oamdma() {
     assert_eq!(ppu.oamaddr, 0xee);
 }
 
-#[test]
-fn test_misc() {
-    let mmap::Nrom128CpuMemory { ref mut ppu, .. } = init_nes().1;
-
-    ppu.write_ppuaddr(0x24);
-    ppu.write_ppuaddr(0x00);
-
-    assert_eq!(ppu.current_vram_addr.inner, 0x2400);
-}
-
 // draws the pattern table at address 0x1000 of 'rom'
 pub fn test_draw(rom: &[u8]) {
     assert!(parse::is_valid(&rom));
