@@ -1,7 +1,7 @@
 #[macro_use]
 use super::{cpu, memory_map as mmap, util};
 use super::pixel_renderer::PixelRenderer;
-use mmap::MemoryMap;
+use mmap::PpuMemoryMap;
 
 pub mod test;
 
@@ -42,44 +42,46 @@ pub struct Ppu {
     // object attribute memory
     oam: Oam,
     pub cycle_count: u64,
+    pub renderer: PixelRenderer,
+    pub memory: mmap::Nrom128PpuMemory,
 
     // registers
     // TODO: remove pub
     pub ppuctrl: u8,
-    ppumask: u8,
+    pub ppumask: u8,
     // NOTE: first 5 bits of this register contain the least significant
-    // significant bits of any value previously written into a ppu
-    // register. shouldn't need to emulate this, but may be worth noting
-    ppustatus: u8,
+    // bits of any value previously written into a ppu register.
+    // shouldn't need to emulate this, but may be worth noting
+    pub ppustatus: u8,
     // NOTE: on some ppu chips, there are bugs relating to
     // writing to oamaddr. not sure if these need to be
     // emulated either, but it may be worth keeping in mind
-    oamaddr: u8,
-    ppudata_read_buffer: u8,
+    pub oamaddr: u8,
+    pub ppudata_read_buffer: u8,
 
     // internal registers
     // used to toggle whether reads and writes to 'ppuscroll'
     // and 'ppuaddr' access the high or low bits of the register.
     // referred to as 'w' in the nesdev.com 'ppu scrolling' article
     // OPTIMIZE: pack these together (bitfields, somehow?)
-    low_bits_toggle: bool,
-    even_frame: bool,
+    pub low_bits_toggle: bool,
+    pub even_frame: bool,
     // address of the current tile to be fetched and drawn. points
     // to a byte in one of the nametables in vram. referred to
     // as 'v' in the nesdev.com 'ppu scrolling' article
-    pub current_vram_addr: VramAddrRegister,
+    current_vram_addr: VramAddrRegister,
     // temporary address, same as above but  doesn't get
     // incremented while drawing. this register is shared
     // by 'ppuscroll' and 'ppuaddr' (so writes to these
     // registers go into this). referred to as 't' in the
     // nesdev.com 'ppu scrolling' article
-    pub temp_vram_addr: VramAddrRegister,
+    temp_vram_addr: VramAddrRegister,
     // low 3 bits consist of fine x scroll value
     pub fine_x_scroll: u8,
 
     // counter variables used for rendering
-    current_scanline: i16,
-    current_scanline_dot: u16,
+    pub current_scanline: i16,
+    pub current_scanline_dot: u16,
 }
 
 union Oam {
@@ -139,9 +141,9 @@ impl VramAddrRegister {
     }
 }
 
-impl Default for Ppu {
-    fn default() -> Self {
-        Ppu {
+impl Ppu {
+    pub fn new(renderer: PixelRenderer, memory: mmap::Nrom128PpuMemory) -> Self {
+        Self {
             oam: Oam {
                 entries: [OamEntry::default(); 64],
             },
@@ -158,13 +160,13 @@ impl Default for Ppu {
             current_scanline: -1,
             current_scanline_dot: 0,
             even_frame: true,
+            renderer,
+            memory,
         }
     }
-}
 
-impl Ppu {
     // used for reading the registers located in the cpu memory map at 0x2000-0x2007
-    pub fn read_register_by_index(&mut self, index: u8, memory: &mmap::Nrom128MemoryMap) -> u8 {
+    pub fn read_register_by_index(&mut self, index: u8) -> u8 {
         match index {
             // ppuctrl
             0 => 0,
@@ -191,16 +193,17 @@ impl Ppu {
                 let val = if (self.current_vram_addr.inner >> 8) == 0b111111 {
                     // read directly from vram if address is in range
                     // 0x3f00-0x3ff (palette ram)
-                    let val = memory.read_ppu(self.current_vram_addr.get_addr());
+                    let val = self.memory.read(self.current_vram_addr.get_addr());
                     // store value at mirrored address (down to 0x2f00-0x2fff)
                     // in read buffer
-                    self.ppudata_read_buffer =
-                        memory.read_ppu(self.current_vram_addr.get_addr() & !0b01000000000000);
+                    self.ppudata_read_buffer = self
+                        .memory
+                        .read(self.current_vram_addr.get_addr() & !0b01000000000000);
                     val
                 } else {
                     // read from read buffer if address is in range 0-0x0x3eff
                     let val = self.ppudata_read_buffer;
-                    self.ppudata_read_buffer = memory.read_ppu(self.current_vram_addr.get_addr());
+                    self.ppudata_read_buffer = self.memory.read(self.current_vram_addr.get_addr());
                     val
                 };
 
@@ -221,13 +224,7 @@ impl Ppu {
         }
     }
 
-    pub fn write_register_by_index(
-        &mut self,
-        index: u8,
-        val: u8,
-        cpu: &mut cpu::Cpu,
-        memory: &mut mmap::Nrom128MemoryMap,
-    ) {
+    pub fn write_register_by_index(&mut self, index: u8, val: u8, cpu: &mut cpu::Cpu) {
         match index {
             // ppuctrl
             0 => self.write_ppuctrl(val, cpu),
@@ -244,7 +241,7 @@ impl Ppu {
             // ppuaddr
             6 => self.write_ppuaddr(val),
             // ppudata
-            7 => self.write_ppudata(val, memory),
+            7 => self.write_ppudata(val),
             _ => (),
         }
     }
@@ -313,8 +310,8 @@ impl Ppu {
         self.low_bits_toggle = !self.low_bits_toggle;
     }
 
-    fn write_ppudata(&mut self, val: u8, memory: &mut mmap::Nrom128MemoryMap) {
-        memory.write_ppu(self.current_vram_addr.get_addr(), val);
+    fn write_ppudata(&mut self, val: u8) {
+        self.memory.write(self.current_vram_addr.get_addr(), val);
 
         // increment 'current_vram_addr' (same as when reading ppudata)
         if !self.is_currently_rendering() {
@@ -325,18 +322,12 @@ impl Ppu {
         }
     }
 
-    pub fn write_oamdma(
-        &mut self,
-        val: u8,
-        cpu: &mut cpu::Cpu,
-        memory: &mut mmap::Nrom128MemoryMap,
-        framebuffer: &mut [u32; 256 * 240],
-    ) {
+    pub fn write_oamdma(&mut self, val: u8, cpu: &mut cpu::Cpu) {
         // if 'val' is $XX, start address should be $XX00
         let start_addr = (val as u16) << 8;
 
         for (i, addr) in ((start_addr)..=(start_addr + 0xff)).enumerate() {
-            let byte = memory.read_ppu(addr);
+            let byte = self.memory.read(addr);
             unsafe { *self.oam.bytes.get_unchecked_mut(self.oamaddr as usize) = byte };
             self.oamaddr = self.oamaddr.wrapping_add(1);
 
@@ -344,7 +335,7 @@ impl Ppu {
 
             // catch the ppu up to the cpu on every 4th iteration
             if i % 4 == 0 {
-                self.catch_up(cpu, memory, framebuffer);
+                self.catch_up(cpu);
             }
         }
 
@@ -391,7 +382,7 @@ impl Ppu {
     }
 
     // increments the coarse x scroll/position bits in 'current_vram_addr'
-    // (corresponds to moving one tile forwards in the current nametable)
+    // (corresponds to moving one tile to the right in the current nametable)
     fn increment_vram_addr_coarse_x(&mut self) {
         if self.current_vram_addr.get_coarse_x() == 0b11111 {
             // if the coarse x component of 'current_vram_addr' is the highest
@@ -406,24 +397,13 @@ impl Ppu {
     }
 
     // catches the ppu up to the cpu (approximately)
-    pub fn catch_up(
-        &mut self,
-        cpu: &mut cpu::Cpu,
-        memory: &mut mmap::Nrom128MemoryMap,
-        framebuffer: &mut [u32; 256 * 240],
-    ) {
+    pub fn catch_up(&mut self, cpu: &mut cpu::Cpu) {
         let target_cycles = cpu.cycle_count * 3;
-        self.step(target_cycles, cpu, memory, framebuffer);
+        self.step(target_cycles, cpu);
     }
 
     // steps the ppu for approx. 'cycles_to_step' cycles (may be off by 1-7 cycles)
-    pub fn step(
-        &mut self,
-        target_cycles: u64,
-        cpu: &mut cpu::Cpu,
-        memory: &mut mmap::Nrom128MemoryMap,
-        framebuffer: &mut [u32; 256 * 240],
-    ) {
+    pub fn step(&mut self, target_cycles: u64, cpu: &mut cpu::Cpu) {
         // pre-TODO: figure out what to start ppu vs cpu
         // cycle counts at (what distance between ticks)
 
@@ -500,13 +480,13 @@ impl Ppu {
                     1..=256 => {
                         // if background rendering is disabled
                         if !self.is_background_enable() {
-                            self.draw_tile_row_backdrop(memory, framebuffer);
+                            self.draw_tile_row_backdrop();
                             self.cycle_count += 8;
                         } else {
                             // draw one row of a tile (or less, if the current tile
                             // straddles the screen boundary). this increments
                             // 'current_scanline_dot', and 'current_scanline'
-                            let pixels_drawn = self.draw_tile_row(memory, framebuffer);
+                            let pixels_drawn = self.draw_tile_row();
                             self.cycle_count += pixels_drawn as u64;
 
                             // if last pixel drawn was 256th (end of scanline)
@@ -589,6 +569,7 @@ impl Ppu {
                     336 => {
                         self.cycle_count += 5;
                         self.current_scanline_dot = 0;
+
                         if self.current_scanline == 260 {
                             // reset scanline count
                             self.current_scanline = -1;
@@ -613,11 +594,7 @@ impl Ppu {
 
     // draws 8 pixels of backdrop color (or if 'current_vram_addr'
     // >= 0x3f00, draws the color 'current_vram_addr' points to)
-    fn draw_tile_row_backdrop(
-        &mut self,
-        memory: &mut mmap::Nrom128MemoryMap,
-        framebuffer: &mut [u32; 256 * 240],
-    ) {
+    fn draw_tile_row_backdrop(&mut self) {
         for _ in 0..8 {
             let color_index_addr = if self.current_vram_addr.get_addr() >= 0x3f00 {
                 logln!("background palette hack triggered");
@@ -626,11 +603,12 @@ impl Ppu {
                 0x3f00
             };
 
-            let color_index = memory.read_ppu(color_index_addr);
+            let color_index = self.memory.read(color_index_addr);
             let color = get_color_from_index(color_index);
 
             let screen_x = (self.current_scanline_dot - 1) as usize;
             let screen_y = self.current_scanline as usize;
+            let framebuffer = util::pixels_to_u32(&mut self.renderer);
             framebuffer[screen_y * 256 + screen_x] = color;
 
             self.current_scanline_dot = self.current_scanline_dot.wrapping_add(1);
@@ -645,28 +623,19 @@ impl Ppu {
     // and stopping at the end of the current tile in the background nametable
     // (or the end of the screen, if the current tile happens to poke outside
     // of it). returns whether drawing is finished (entire frame is drawn)
-    // TODO: set vblank when drawing is finished
-    pub fn draw_tile_row(
-        &mut self,
-        memory: &mut mmap::Nrom128MemoryMap,
-        framebuffer: &mut [u32; 256 * 240],
-    ) -> u8 {
+    pub fn draw_tile_row(&mut self) -> u8 {
         // NOTE: to help readability, this function is split into smaller subfunctions.
         // instead of factoring these subfunctions out into the outer 'Ppu' impl block,
         // i decided to keep them inside of 'draw_tile_row()', so as to not give the
         // impression that they are needed anywhere else
 
         {
-            return draw_tile_row_main(self, memory, framebuffer);
+            return draw_tile_row_main(self);
         }
 
-        fn draw_tile_row_main(
-            ppu: &mut Ppu,
-            memory: &mut mmap::Nrom128MemoryMap,
-            framebuffer: &mut [u32],
-        ) -> u8 {
-            let current_tile = get_current_tile(ppu, memory);
-            let palette_index = get_tile_palette_index(ppu, memory);
+        fn draw_tile_row_main(ppu: &mut Ppu) -> u8 {
+            let current_tile = get_current_tile(ppu);
+            let palette_index = get_tile_palette_index(ppu);
 
             // get the high and low bitplanes for the current row of the current tile
             let fine_y = ppu.current_vram_addr.get_fine_y();
@@ -700,10 +669,11 @@ impl Ppu {
                     let color_index_high = ((bitplane_high >> (7 - i)) << 1) & 2;
                     let color_index = color_index_low | color_index_high;
 
-                    let color = get_pixel_color(ppu, memory, palette_index, color_index);
+                    let color = get_pixel_color(ppu, palette_index, color_index);
 
                     let screen_x = (ppu.current_scanline_dot - 1) as usize;
                     let screen_y = ppu.current_scanline as usize;
+                    let framebuffer = util::pixels_to_u32(&mut ppu.renderer);
                     // TODO: OPTIMIZE: unchecked indexing
                     framebuffer[screen_y * 256 + screen_x] = color;
 
@@ -714,23 +684,24 @@ impl Ppu {
                 .count() as u8
         }
 
-        fn get_current_tile(ppu: &mut Ppu, memory: &mut mmap::Nrom128MemoryMap) -> [u8; 16] {
+        fn get_current_tile(ppu: &mut Ppu) -> [u8; 16] {
             // get tile index from nametable using 'current_vram_addr' + 0x2000
             let addr = (ppu.current_vram_addr.inner & 0xfff) | 0x2000;
-            let tile_index = memory.read_ppu(addr);
-            let background_table_ptr = memory.get_pattern_tables();
+            let tile_index = ppu.memory.read(addr);
+            let background_table_addr = ppu.get_background_pattern_table_addr() as usize;
+            let background_table_ptr = ppu.memory.get_pattern_tables();
 
             unsafe {
                 // get tile from pattern table using the tile index
                 // SAFETY: 'current_tile_index' * 16 cannot be
                 // larger than 0x1000 (the size of a pattern table)
-                *((background_table_ptr.get_unchecked_mut(
-                    ppu.get_background_pattern_table_addr() as usize + tile_index as usize * 16,
-                )) as *mut _ as *mut [u8; 16])
+                *((background_table_ptr
+                    .get_unchecked_mut(background_table_addr + tile_index as usize * 16))
+                    as *mut _ as *mut [u8; 16])
             }
         }
 
-        fn get_tile_palette_index(ppu: &mut Ppu, memory: &mut mmap::Nrom128MemoryMap) -> u8 {
+        fn get_tile_palette_index(ppu: &mut Ppu) -> u8 {
             let coarse_y = ppu.current_vram_addr.get_coarse_y();
             let coarse_x = ppu.current_vram_addr.get_coarse_x();
 
@@ -741,19 +712,14 @@ impl Ppu {
                 | (coarse_x >> 2) as u16;
 
             // get the 'attribute' byte from the attribute table
-            let attribute = memory.read_ppu(attribute_addr);
+            let attribute = ppu.memory.read(attribute_addr);
             // calculate how much to shift 'attribute' by to get the current tile's palette index
             let shift_amt = ((coarse_y << 1) & 0b100) | (coarse_x & 0b10);
 
             (attribute >> shift_amt) & 0b11
         }
 
-        fn get_pixel_color(
-            ppu: &mut Ppu,
-            memory: &mut mmap::Nrom128MemoryMap,
-            palette_index: u8,
-            color_index: u8,
-        ) -> u32 {
+        fn get_pixel_color(ppu: &mut Ppu, palette_index: u8, color_index: u8) -> u32 {
             let mut addr = 0x3f00 | ((palette_index as u16) << 2);
             addr |= color_index as u16;
 
@@ -764,7 +730,7 @@ impl Ppu {
                 addr = 0x3f00;
             }
 
-            let final_color_index = memory.read_ppu(addr);
+            let final_color_index = ppu.memory.read(addr);
             get_color_from_index(final_color_index)
         }
     }
