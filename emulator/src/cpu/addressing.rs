@@ -1,4 +1,3 @@
-use super::super::memory_map as mmap;
 use super::super::memory_map::CpuMemoryMap;
 use super::Cpu;
 
@@ -18,7 +17,7 @@ pub use zero_page_indexed::*;
 mod imm {
     use super::*;
 
-    pub fn read_imm(cpu: &mut Cpu, memory: &mut mmap::Nrom128CpuMemory) -> u8 {
+    pub fn read_imm(cpu: &mut Cpu, memory: &mut dyn CpuMemoryMap) -> u8 {
         let val = cpu.fetch_operand_byte(memory);
         cpu.pc += 2;
         cpu.cycle_count += 2;
@@ -30,14 +29,14 @@ mod imm {
 mod abs {
     use super::*;
 
-    pub fn read_abs(cpu: &mut Cpu, memory: &mut mmap::Nrom128CpuMemory) -> u8 {
+    pub fn read_abs(cpu: &mut Cpu, memory: &mut dyn CpuMemoryMap) -> u8 {
         let addr = cpu.fetch_operand_u16(memory);
         cpu.pc += 3;
         cpu.cycle_count += 4;
         memory.read(addr, cpu)
     }
 
-    pub fn write_abs(cpu: &mut Cpu, val: u8, memory: &mut mmap::Nrom128CpuMemory) {
+    pub fn write_abs(cpu: &mut Cpu, val: u8, memory: &mut dyn CpuMemoryMap) {
         let addr = cpu.fetch_operand_u16(memory);
         cpu.pc += 3;
         cpu.cycle_count += 4;
@@ -49,7 +48,7 @@ mod abs {
     // value at the address and stores it back
     pub fn read_write_abs(
         cpu: &mut Cpu,
-        memory: &mut mmap::Nrom128CpuMemory,
+        memory: &mut dyn CpuMemoryMap,
 
         operation: fn(&mut Cpu, u8) -> u8,
     ) {
@@ -68,12 +67,7 @@ mod abs {
 mod abs_indexed {
     use super::*;
 
-    pub fn write_abs_indexed(
-        cpu: &mut Cpu,
-        val: u8,
-        index: u8,
-        memory: &mut mmap::Nrom128CpuMemory,
-    ) {
+    pub fn write_abs_indexed(cpu: &mut Cpu, val: u8, index: u8, memory: &mut dyn CpuMemoryMap) {
         let addr = cpu.fetch_operand_u16(memory);
         let addr_indexed = addr.wrapping_add(index as u16);
 
@@ -84,7 +78,7 @@ mod abs_indexed {
         memory.write(addr_indexed, val, cpu);
     }
 
-    pub fn read_abs_indexed(cpu: &mut Cpu, index: u8, memory: &mut mmap::Nrom128CpuMemory) -> u8 {
+    pub fn read_abs_indexed(cpu: &mut Cpu, index: u8, memory: &mut dyn CpuMemoryMap) -> u8 {
         let addr_bytes = cpu.fetch_operand_bytes(memory);
         let (addr_indexed, page_crossed) = self::calc_abs_indexed(addr_bytes, index);
 
@@ -97,7 +91,7 @@ mod abs_indexed {
     pub fn read_write_abs_indexed(
         cpu: &mut Cpu,
         index: u8,
-        memory: &mut mmap::Nrom128CpuMemory,
+        memory: &mut dyn CpuMemoryMap,
 
         operation: fn(&mut Cpu, u8) -> u8,
     ) {
@@ -125,7 +119,7 @@ mod abs_indexed {
 mod zero_page {
     use super::*;
 
-    pub fn read_zero_page(cpu: &mut Cpu, memory: &mut mmap::Nrom128CpuMemory) -> u8 {
+    pub fn read_zero_page(cpu: &mut Cpu, memory: &mut dyn CpuMemoryMap) -> u8 {
         let addr = cpu.fetch_operand_byte(memory);
         cpu.cycle_count += 3;
         cpu.pc += 2;
@@ -133,7 +127,7 @@ mod zero_page {
         memory.read(addr as u16, cpu)
     }
 
-    pub fn write_zero_page(cpu: &mut Cpu, val: u8, memory: &mut mmap::Nrom128CpuMemory) {
+    pub fn write_zero_page(cpu: &mut Cpu, val: u8, memory: &mut dyn CpuMemoryMap) {
         let addr = cpu.fetch_operand_byte(memory);
         cpu.pc += 2;
         cpu.cycle_count += 3;
@@ -142,7 +136,7 @@ mod zero_page {
 
     pub fn read_write_zero_page(
         cpu: &mut Cpu,
-        memory: &mut mmap::Nrom128CpuMemory,
+        memory: &mut dyn CpuMemoryMap,
 
         operation: fn(&mut Cpu, u8) -> u8,
     ) {
@@ -164,7 +158,7 @@ mod zero_page_indexed {
         cpu: &mut Cpu,
         val: u8,
         index: u8,
-        memory: &mut mmap::Nrom128CpuMemory,
+        memory: &mut dyn CpuMemoryMap,
     ) {
         let addr = cpu.fetch_operand_byte(memory);
         let addr_indexed = addr.wrapping_add(index);
@@ -173,11 +167,7 @@ mod zero_page_indexed {
         memory.write(addr_indexed as u16, val, cpu);
     }
 
-    pub fn read_zero_page_indexed(
-        cpu: &mut Cpu,
-        index: u8,
-        memory: &mut mmap::Nrom128CpuMemory,
-    ) -> u8 {
+    pub fn read_zero_page_indexed(cpu: &mut Cpu, index: u8, memory: &mut dyn CpuMemoryMap) -> u8 {
         let addr = cpu.fetch_operand_byte(memory);
         let addr_indexed = addr.wrapping_add(index);
 
@@ -190,7 +180,7 @@ mod zero_page_indexed {
     pub fn read_write_zero_page_indexed(
         cpu: &mut Cpu,
         index: u8,
-        memory: &mut mmap::Nrom128CpuMemory,
+        memory: &mut dyn CpuMemoryMap,
 
         operation: fn(&mut Cpu, u8) -> u8,
     ) {
@@ -210,7 +200,7 @@ mod zero_page_indexed {
 mod indexed_indirect {
     use super::*;
 
-    pub fn read_indexed_indirect(cpu: &mut Cpu, memory: &mut mmap::Nrom128CpuMemory) -> u8 {
+    pub fn read_indexed_indirect(cpu: &mut Cpu, memory: &mut dyn CpuMemoryMap) -> u8 {
         let addr = cpu.fetch_operand_byte(memory);
         let final_addr = self::calc_indexed_indirect(cpu, addr, memory);
 
@@ -220,7 +210,7 @@ mod indexed_indirect {
         memory.read(final_addr, cpu)
     }
 
-    pub fn write_indexed_indirect(cpu: &mut Cpu, val: u8, memory: &mut mmap::Nrom128CpuMemory) {
+    pub fn write_indexed_indirect(cpu: &mut Cpu, val: u8, memory: &mut dyn CpuMemoryMap) {
         let addr = cpu.fetch_operand_byte(memory);
         let final_addr = self::calc_indexed_indirect(cpu, addr, memory);
 
@@ -230,7 +220,7 @@ mod indexed_indirect {
         memory.write(final_addr, val, cpu);
     }
 
-    fn calc_indexed_indirect(cpu: &mut Cpu, addr: u8, memory: &mut mmap::Nrom128CpuMemory) -> u16 {
+    fn calc_indexed_indirect(cpu: &mut Cpu, addr: u8, memory: &mut dyn CpuMemoryMap) -> u16 {
         let addr_indexed = addr.wrapping_add(cpu.x);
         u16::from_le_bytes([
             memory.read(addr_indexed as u16, cpu),
@@ -242,7 +232,7 @@ mod indexed_indirect {
 mod indirect_indexed {
     use super::*;
 
-    pub fn read_indirect_indexed(cpu: &mut Cpu, memory: &mut mmap::Nrom128CpuMemory) -> u8 {
+    pub fn read_indirect_indexed(cpu: &mut Cpu, memory: &mut dyn CpuMemoryMap) -> u8 {
         let addr = cpu.fetch_operand_byte(memory);
         let (final_addr, page_crossed) = self::calc_indirect_indexed(cpu, addr, memory);
 
@@ -252,7 +242,7 @@ mod indirect_indexed {
         memory.read(final_addr, cpu)
     }
 
-    pub fn write_indirect_indexed(cpu: &mut Cpu, val: u8, memory: &mut mmap::Nrom128CpuMemory) {
+    pub fn write_indirect_indexed(cpu: &mut Cpu, val: u8, memory: &mut dyn CpuMemoryMap) {
         let addr = cpu.fetch_operand_byte(memory);
         // OPTIMIZE: don't use 'calc_indirect_indexed()', since carry doesn't matter
         let (final_addr, _) = self::calc_indirect_indexed(cpu, addr, memory);
@@ -267,7 +257,7 @@ mod indirect_indexed {
     fn calc_indirect_indexed(
         cpu: &mut Cpu,
         addr: u8,
-        memory: &mut mmap::Nrom128CpuMemory,
+        memory: &mut dyn CpuMemoryMap,
     ) -> (u16, bool) {
         // get address at memory[addr]
         let dest_addr = [

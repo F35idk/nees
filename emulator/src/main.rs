@@ -38,12 +38,12 @@ fn main() {
         _ => (),
     }
 
-    let nestest = false;
+    let nestest = true;
     if nestest {
         let mut win = win::XcbWindowWrapper::new("mynes", 1200, 600).unwrap();
         let renderer = PixelRenderer::new(&mut win.connection, win.win, 256, 240).unwrap();
-        let ppu_memory = mmap::Nrom128PpuMemory::new();
-        let ppu = ppu::Ppu::new(renderer, ppu_memory);
+        let mut ppu_memory = mmap::Nrom128PpuMemory::new();
+        let ppu = ppu::Ppu::new(renderer, &mut ppu_memory);
         let apu = apu::Apu {};
         let mut cpu = cpu::Cpu::new_nestest();
         let mut cpu_memory = mmap::Nrom128CpuMemory::new(ppu, apu);

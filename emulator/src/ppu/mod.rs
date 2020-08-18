@@ -1,7 +1,7 @@
 #[macro_use]
-use super::{cpu, memory_map as mmap, util};
+use super::{cpu, util};
+use super::memory_map::PpuMemoryMap;
 use super::pixel_renderer::PixelRenderer;
-use mmap::PpuMemoryMap;
 
 pub mod test;
 
@@ -38,12 +38,14 @@ fn get_color_from_index(mut index: u8) -> u32 {
     }
 }
 
-pub struct Ppu {
+pub struct Ppu<'a> {
     // object attribute memory
     oam: Oam,
     pub cycle_count: u64,
     pub renderer: PixelRenderer,
-    pub memory: mmap::Nrom128PpuMemory,
+    // TODO: investigate how much code bloat generics would cause
+    // - would it be worth it over using a trait object?
+    pub memory: &'a mut dyn PpuMemoryMap,
 
     // registers
     // TODO: remove pub
@@ -141,8 +143,8 @@ impl VramAddrRegister {
     }
 }
 
-impl Ppu {
-    pub fn new(renderer: PixelRenderer, memory: mmap::Nrom128PpuMemory) -> Self {
+impl<'a> Ppu<'a> {
+    pub fn new(renderer: PixelRenderer, memory: &'a mut dyn PpuMemoryMap) -> Self {
         Self {
             oam: Oam {
                 entries: [OamEntry::default(); 64],

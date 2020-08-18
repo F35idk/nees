@@ -1,13 +1,14 @@
 use super::super::PixelRenderer;
 use super::super::{apu, cpu, memory_map as mmap, parse, util, win};
 use mmap::{CpuMemoryMap, PpuMemoryMap};
+use std::ops::DerefMut;
 use std::ops::Sub;
 
-fn init_nes() -> (cpu::Cpu, mmap::Nrom128CpuMemory) {
+fn init_nes() -> (cpu::Cpu, mmap::Nrom128CpuMemory<'static>) {
     let mut win = win::XcbWindowWrapper::new("test", 20, 20).unwrap();
     let renderer = PixelRenderer::new(&mut win.connection, win.win, 256, 240).unwrap();
 
-    let ppu_memory = mmap::Nrom128PpuMemory::new();
+    let ppu_memory = Box::leak(Box::new(mmap::Nrom128PpuMemory::new()));
     let ppu = super::Ppu::new(renderer, ppu_memory);
     let apu = apu::Apu {};
     let cpu = cpu::Cpu::default();
@@ -319,41 +320,43 @@ fn test_oamdma() {
 pub fn test_draw(rom: &[u8]) {
     assert!(parse::is_valid(&rom));
 
-    let mut win = win::XcbWindowWrapper::new("test", 1200, 600).unwrap();
-    let renderer = PixelRenderer::new(&mut win.connection, win.win, 256, 240).unwrap();
-
-    let ppu_memory = mmap::Nrom128PpuMemory::new();
-    let mut ppu = super::Ppu::new(renderer, ppu_memory);
-    let ref mut cpu = cpu::Cpu::new_nestest();
-
     let prg_size = 0x4000 * (parse::get_prg_size(&rom) as usize);
     let chr_size = 0x2000 * (parse::get_chr_size(&rom) as usize);
 
-    ppu.memory
-        .load_chr_ram(&rom[0x10 + prg_size..=prg_size + chr_size + 0xf]);
+    let mut ppu_memory = mmap::Nrom128PpuMemory::new();
+
+    // load 'rom' into chr ram
+    ppu_memory.load_chr_ram(&rom[0x10 + prg_size..=prg_size + chr_size + 0xf]);
 
     {
         // set universal background color = black
-        ppu.memory.palettes[0] = 0x0f;
+        ppu_memory.palettes[0] = 0x0f;
         // set palette 2 = [red, green, blue]
-        ppu.memory.palettes[8 + 1] = 0x06;
-        ppu.memory.palettes[8 + 2] = 0x19;
-        ppu.memory.palettes[8 + 3] = 0x02;
-        for (i, byte) in ppu.memory.nametables.iter_mut().enumerate() {
+        ppu_memory.palettes[8 + 1] = 0x06;
+        ppu_memory.palettes[8 + 2] = 0x19;
+        ppu_memory.palettes[8 + 3] = 0x02;
+        for (i, byte) in ppu_memory.nametables.iter_mut().enumerate() {
             // set nametable bytes to point to tiles 0-255 in the attribute table
             *byte = i as u8;
         }
-        for attr in ppu.memory.nametables[0x3c0..0x400].iter_mut() {
+        for attr in ppu_memory.nametables[0x3c0..0x400].iter_mut() {
             // ensure all tiles will use palette 2
             *attr = 0b10101010;
         }
-        for attr in ppu.memory.nametables[0x400 + 0x3c0..].iter_mut() {
+        for attr in ppu_memory.nametables[0x400 + 0x3c0..].iter_mut() {
             *attr = 0b10101010;
         }
     }
 
     // set nametable mirroring mask = vertical mirroring
-    ppu.memory.nametable_mirroring_mask = !0x800;
+    ppu_memory.nametable_mirroring_mask = !0x800;
+
+    let mut win = win::XcbWindowWrapper::new("test", 1200, 600).unwrap();
+    let renderer = PixelRenderer::new(&mut win.connection, win.win, 256, 240).unwrap();
+
+    let mut ppu = super::Ppu::new(renderer, &mut ppu_memory);
+    let ref mut cpu = cpu::Cpu::new_nestest();
+
     // set background pattern table addr = 0x1000 and base nametable addr = 0x2400
     ppu.write_register_by_index(0, 0b100001, cpu);
     // set coarse x scroll = 0 (offset by 0 in the nametable)

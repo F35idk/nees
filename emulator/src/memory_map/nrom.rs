@@ -2,8 +2,8 @@ use super::super::{apu, cpu, ppu, util, win, PixelRenderer};
 use super::{CpuMemoryMap, PpuMemoryMap};
 
 // the cpu and ppu memory maps for games that use the 'NROM-128' cartridge/mapper (ines mapper 0)
-pub struct Nrom128CpuMemory {
-    pub ppu: ppu::Ppu,
+pub struct Nrom128CpuMemory<'a> {
+    pub ppu: ppu::Ppu<'a>,
     pub apu: apu::Apu,
     // the addresses passed to the read/write calls translate
     // to these ranges in the 'memory' array:
@@ -21,8 +21,8 @@ pub struct Nrom128PpuMemory {
     pub nametable_mirroring_mask: u16,
 }
 
-impl Nrom128CpuMemory {
-    pub fn new(ppu: ppu::Ppu, apu: apu::Apu) -> Self {
+impl<'a> Nrom128CpuMemory<'a> {
+    pub fn new(ppu: ppu::Ppu<'a>, apu: apu::Apu) -> Self {
         Self {
             ppu,
             apu,
@@ -52,7 +52,7 @@ impl Nrom128PpuMemory {
     }
 }
 
-impl CpuMemoryMap for Nrom128CpuMemory {
+impl<'a> CpuMemoryMap for Nrom128CpuMemory<'a> {
     fn read(&mut self, mut addr: u16, cpu: &mut cpu::Cpu) -> u8 {
         // address lines a13-a15 = 000 (0-0x1fff) => internal ram
         if (addr >> 13) == 0 {
@@ -312,7 +312,7 @@ fn test_calc_addr_128() {
     let mut win = win::XcbWindowWrapper::new("mynes", 1200, 600).unwrap();
     let renderer = PixelRenderer::new(&mut win.connection, win.win, 256, 240).unwrap();
 
-    let ppu_memory = Nrom128PpuMemory::new();
+    let ref mut ppu_memory = Nrom128PpuMemory::new();
     let ppu = ppu::Ppu::new(renderer, ppu_memory);
     let apu = apu::Apu {};
     let ref mut cpu = cpu::Cpu::default();
