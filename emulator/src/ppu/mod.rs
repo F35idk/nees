@@ -3,40 +3,8 @@ use super::{cpu, util};
 use super::memory_map::PpuMemoryMap;
 use super::pixel_renderer::PixelRenderer;
 
+mod palette;
 pub mod test;
-
-#[rustfmt::skip]
-// 'Wavebeam' color palette
-static COLORS: [[u8; 3]; 64] = [
-    [0x6b, 0x6b, 0x6b], [0x00, 0x1b, 0x87], [0x21, 0x00, 0x9a], [0x40, 0x00, 0x8c],
-    [0x60, 0x00, 0x67], [0x64, 0x00, 0x1e], [0x59, 0x08, 0x00], [0x46, 0x16, 0x00],
-    [0x26, 0x36, 0x00], [0x00, 0x45, 0x00], [0x00, 0x47, 0x08], [0x00, 0x42, 0x1d],
-    [0x00, 0x36, 0x59], [0x00, 0x00, 0x00], [0x00, 0x00, 0x00], [0x00, 0x00, 0x00],
-    [0xb4, 0xb4, 0xb4], [0x15, 0x55, 0xce], [0x43, 0x37, 0xea], [0x71, 0x24, 0xda],
-    [0x9c, 0x1a, 0xb6], [0xaa, 0x11, 0x64], [0xa8, 0x2e, 0x00], [0x87, 0x4b, 0x00],
-    [0x66, 0x6b, 0x00], [0x21, 0x83, 0x00], [0x00, 0x8a, 0x00], [0x00, 0x81, 0x44],
-    [0x00, 0x76, 0x91], [0x00, 0x00, 0x00], [0x00, 0x00, 0x00], [0x00, 0x00, 0x00],
-    [0xff, 0xff, 0xff], [0x63, 0xaf, 0xff], [0x82, 0x96, 0xff], [0xc0, 0x7d, 0xfe],
-    [0xe9, 0x77, 0xff], [0xf5, 0x72, 0xcd], [0xf4, 0x88, 0x6b], [0xdd, 0xa0, 0x29],
-    [0xbd, 0xbd, 0x0a], [0x89, 0xd2, 0x0e], [0x5c, 0xde, 0x3e], [0x4b, 0xd8, 0x86],
-    [0x4d, 0xcf, 0xd2], [0x50, 0x50, 0x50], [0x00, 0x00, 0x00], [0x00, 0x00, 0x00],
-    [0xff, 0xff, 0xff], [0xbe, 0xe1, 0xff], [0xd4, 0xd4, 0xff], [0xe3, 0xca, 0xff],
-    [0xf0, 0xc9, 0xff], [0xff, 0xc6, 0xe3], [0xff, 0xce, 0xc9], [0xf4, 0xdc, 0xaf],
-    [0xeb, 0xe5, 0xa1], [0xd2, 0xef, 0xa2], [0xbe, 0xf4, 0xb5], [0xb8, 0xf1, 0xd0],
-    [0xb8, 0xed, 0xf1], [0xbd, 0xbd, 0xbd], [0x00, 0x00, 0x00], [0x00, 0x00, 0x00],
-];
-
-fn get_color_from_index(mut index: u8) -> u32 {
-    index &= 0x3f;
-    unsafe {
-        u32::from_le_bytes([
-            COLORS.get_unchecked(index as usize)[0],
-            COLORS.get_unchecked(index as usize)[1],
-            COLORS.get_unchecked(index as usize)[2],
-            1,
-        ])
-    }
-}
 
 pub struct Ppu<'a> {
     // object attribute memory
@@ -44,7 +12,7 @@ pub struct Ppu<'a> {
     pub cycle_count: u64,
     pub renderer: PixelRenderer,
     // TODO: investigate how much code bloat generics would cause
-    // - would it be worth it over using a trait object?
+    // - would it be worth using it over a trait object?
     pub memory: &'a mut dyn PpuMemoryMap,
 
     // registers
@@ -86,6 +54,7 @@ pub struct Ppu<'a> {
     pub current_scanline_dot: u16,
 }
 
+// FIXME: don't need the union (as of writing)
 union Oam {
     entries: [OamEntry; 64],
     bytes: [u8; 64 * 4],
@@ -603,6 +572,31 @@ impl<'a> Ppu<'a> {
         }
     }
 
+    fn get_color_from_index(&self, mut index: u8) -> u32 {
+        if self.is_greyscale_enabled() {
+            index &= 0x30;
+        } else {
+            index &= 0x3f;
+        }
+
+        let emphasis = self.ppumask >> 5;
+
+        unsafe {
+            u32::from_le_bytes([
+                palette::COLORS
+                    .get_unchecked(emphasis as usize)
+                    .get_unchecked(index as usize)[0],
+                palette::COLORS
+                    .get_unchecked(emphasis as usize)
+                    .get_unchecked(index as usize)[1],
+                palette::COLORS
+                    .get_unchecked(emphasis as usize)
+                    .get_unchecked(index as usize)[2],
+                1,
+            ])
+        }
+    }
+
     // draws a horizontal line of pixels starting at 'current_scanline_dot'
     // - 1 and stopping at the end of the current tile in the background
     // nametable (or the end of the screen, if the current tile happens to
@@ -701,11 +695,7 @@ impl<'a> Ppu<'a> {
             (attribute >> shift_amt) & 0b11
         }
 
-        fn get_pixel_color(ppu: &mut Ppu, palette_index: u8, mut color_index: u8) -> u32 {
-            if ppu.is_greyscale_enabled() {
-                color_index &= 0x30;
-            }
-
+        fn get_pixel_color(ppu: &mut Ppu, palette_index: u8, color_index: u8) -> u32 {
             let mut addr = 0x3f00 | ((palette_index as u16) << 2);
             addr |= color_index as u16;
 
@@ -717,7 +707,7 @@ impl<'a> Ppu<'a> {
             }
 
             let final_color_index = ppu.memory.read(addr);
-            get_color_from_index(final_color_index)
+            ppu.get_color_from_index(final_color_index)
         }
     }
 
@@ -733,7 +723,7 @@ impl<'a> Ppu<'a> {
             };
 
             let color_index = self.memory.read(color_index_addr);
-            let color = get_color_from_index(color_index);
+            let color = self.get_color_from_index(color_index);
 
             let screen_x = (self.current_scanline_dot - 1) as usize;
             let screen_y = self.current_scanline as usize;

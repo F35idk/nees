@@ -364,7 +364,9 @@ pub fn test_draw(rom: &[u8]) {
     // set fine x scroll = 0
     ppu.fine_x_scroll = 0b000;
     // ensure ppu will show background and sprites
-    ppu.ppumask = 0b11110;
+    ppu.ppumask = 0b00011110;
+    // set color emphasis = red
+    ppu.ppumask |= 0b00100000;
 
     win.map_and_flush();
 
