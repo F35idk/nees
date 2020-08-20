@@ -1,7 +1,7 @@
 use super::super::{apu, cpu, ppu, util, win, PixelRenderer};
 use super::{CpuMemoryMap, PpuMemoryMap};
 
-// the cpu and ppu memory maps for games that use the 'NROM-128' cartridge/mapper (ines mapper 0)
+// the cpu memory map for games that use the 'NROM-128' cartridge/mapper (ines mapper 0)
 pub struct Nrom128CpuMemory<'a> {
     pub ppu: ppu::Ppu<'a>,
     pub apu: apu::Apu,
@@ -14,7 +14,8 @@ pub struct Nrom128CpuMemory<'a> {
     pub memory: [u8; 0x5800],
 }
 
-pub struct Nrom128PpuMemory {
+// the ppu memory map for both 'NROM-128' and 'NROM-256'
+pub struct NromPpuMemory {
     pub chr_ram: [u8; 0x2000],
     pub nametables: [u8; 0x800],
     pub palettes: [u8; 32],
@@ -36,7 +37,7 @@ impl<'a> Nrom128CpuMemory<'a> {
     }
 }
 
-impl Nrom128PpuMemory {
+impl NromPpuMemory {
     pub fn new() -> Self {
         Self {
             chr_ram: [0; 0x2000],
@@ -139,7 +140,7 @@ impl<'a> CpuMemoryMap for Nrom128CpuMemory<'a> {
     }
 }
 
-impl PpuMemoryMap for Nrom128PpuMemory {
+impl PpuMemoryMap for NromPpuMemory {
     // NOTE: passing addresses higher than 0x3fff will read from palette ram
     fn read(&self, mut addr: u16) -> u8 {
         if cfg!(not(test)) {
@@ -194,19 +195,20 @@ impl PpuMemoryMap for Nrom128PpuMemory {
 }
 
 // 'NROM-256' (also ines mapper 0)
-pub struct Nrom256CpuMemory {
+pub struct Nrom256CpuMemory<'a> {
+    pub ppu: ppu::Ppu<'a>,
+    pub apu: apu::Apu,
     // [0..=0x7ff] = internal ram
     // [0x800..=0x87ff] = prg rom
     // [0x8800..=0x97ff] = prg ram
-    // TODO: 0x2000 * chr rom/possibly ram
     memory: [u8; 0x9800],
 }
 
-pub struct Nrom256PpuMemory {}
-
-impl Nrom256CpuMemory {
-    pub fn new() -> Self {
-        Nrom256CpuMemory {
+impl<'a> Nrom256CpuMemory<'a> {
+    pub fn new(ppu: ppu::Ppu<'a>, apu: apu::Apu) -> Self {
+        Self {
+            ppu,
+            apu,
             memory: [0; 0x9800],
         }
     }
@@ -217,7 +219,7 @@ impl Nrom256CpuMemory {
     }
 }
 
-impl CpuMemoryMap for Nrom256CpuMemory {
+impl<'a> CpuMemoryMap for Nrom256CpuMemory<'a> {
     fn read(&mut self, mut addr: u16, cpu: &mut cpu::Cpu) -> u8 {
         if (addr >> 13) == 0 {
             addr &= !0b1100000000000;
@@ -225,9 +227,9 @@ impl CpuMemoryMap for Nrom256CpuMemory {
         }
 
         if (addr >> 13) == 1 {
+            self.ppu.catch_up(cpu);
             addr &= 0b111;
-            // return ctx.ppu.read_register_by_index(addr as u8, self);
-            return 0;
+            return self.ppu.read_register_by_index(addr as u8);
         }
 
         if (addr >> 13) == 3 {
@@ -256,118 +258,170 @@ impl CpuMemoryMap for Nrom256CpuMemory {
         }
 
         if (addr >> 13) == 1 {
+            self.ppu.catch_up(cpu);
+            self.ppu
+                .write_register_by_index(addr as u8 & 0b111, val, cpu);
+
+            return;
+        }
+
+        if (addr >> 13) == 3 {
             unsafe {
                 *self
                     .memory
-                    .get_mut(((addr & 0b111) | 0x9800) as usize)
+                    .get_mut(((addr & !0b1000000000000) + 0x2800) as usize)
                     .unwrap() = val;
             }
-
             return;
         }
 
-        if (addr >> 13) == 3 {
-            // TODO: ppu registers
+        if addr == 0x4014 {
+            self.ppu.write_oamdma(val, cpu);
+
             return;
         }
     }
 }
 
-impl PpuMemoryMap for Nrom256PpuMemory {
-    fn read(&self, addr: u16) -> u8 {
-        unimplemented!()
+mod test {
+    use super::*;
+
+    fn init_ppu_apu_cpu(ppu_memory: &mut dyn PpuMemoryMap) -> (ppu::Ppu, apu::Apu, cpu::Cpu) {
+        let mut win = win::XcbWindowWrapper::new("test", 20, 20).unwrap();
+        let renderer = PixelRenderer::new(&mut win.connection, win.win, 256, 240).unwrap();
+
+        let ppu = ppu::Ppu::new(renderer, ppu_memory);
+        let apu = apu::Apu {};
+        let cpu = cpu::Cpu::default();
+
+        (ppu, apu, cpu)
     }
 
-    fn write(&mut self, addr: u16, val: u8) {
-        unimplemented!()
+    #[test]
+    fn test_cpu_calc_addr_128() {
+        fn calc_cpu_read_addr(addr: u16) -> u16 {
+            if (addr >> 13) == 0 {
+                return addr & !0b1100000000000;
+            }
+
+            if (addr >> 13) == 1 {
+                return (addr & 0b111) | 0x5800;
+            }
+
+            if (addr >> 13) == 3 {
+                return (addr & !0b1000000000000) - 0x1800;
+            }
+
+            if (addr & 0x8000) != 0 {
+                return (addr & !0b100000000000000) - 0x7800;
+            }
+
+            0
+        }
+
+        let ref mut ppu_memory = NromPpuMemory::new();
+        let (ppu, apu, mut cpu) = init_ppu_apu_cpu(ppu_memory);
+        let mut cpu_memory = Nrom128CpuMemory::new(ppu, apu);
+
+        // internal ram reads
+        assert_eq!(calc_cpu_read_addr(0xa0e), 0x20e);
+        assert_eq!(calc_cpu_read_addr(0x1000), 0);
+        assert_eq!(calc_cpu_read_addr(0x18f0), 0xf0);
+
+        // 'unmapped' area reads, should return 0
+        assert_eq!(calc_cpu_read_addr(0x48f0), 0);
+        assert_eq!(calc_cpu_read_addr(0x5000), 0);
+
+        // prg ram writes
+        cpu_memory.write(0x7fffu16, 0xfe, &mut cpu);
+        cpu_memory.write(0x6000u16, 0xce, &mut cpu);
+        assert_eq!(cpu_memory.memory[0x57ff], 0xfe);
+        assert_eq!(cpu_memory.memory[0x4800], 0xce);
+
+        // special io stuff, should just return 0
+        assert_eq!(calc_cpu_read_addr(0x401f), 0);
+
+        // prg rom reads
+        assert_eq!(calc_cpu_read_addr(0x8000), 0x800);
+        assert_eq!(calc_cpu_read_addr(0xffff), 0x47ff);
+
+        // prg rom writes
+        cpu_memory.write(0xcfffu16, 0xff, &mut cpu);
+        // should not take effect
+        assert_ne!(cpu_memory.read(0xcfffu16, &mut cpu), 0xff);
+    }
+    #[test]
+    // TODO: when more mappers are added, make mapper-agnostic test functions
+    fn test_cpu_calc_addr_256() {
+        fn calc_cpu_read_addr(addr: u16) -> u16 {
+            if (addr >> 13) == 0 {
+                return addr & !0b1100000000000;
+            }
+
+            if (addr >> 13) == 1 {
+                // ppu registers
+                return addr & 0b111;
+            }
+
+            if (addr >> 13) == 3 {
+                return (addr & !0b1000000000000) - 0x2800;
+            }
+
+            if (addr & 0x8000) != 0 {
+                return addr - 0x7800;
+            }
+
+            0
+        }
+
+        let ref mut ppu_memory = NromPpuMemory::new();
+        let (ppu, apu, mut cpu) = init_ppu_apu_cpu(ppu_memory);
+        let mut cpu_memory = Nrom256CpuMemory::new(ppu, apu);
+
+        // internal ram reads
+        assert_eq!(calc_cpu_read_addr(0xa0e), 0x20e);
+        assert_eq!(calc_cpu_read_addr(0x1000), 0);
+        assert_eq!(calc_cpu_read_addr(0x18f0), 0xf0);
+
+        // prg rom reads
+        assert_eq!(calc_cpu_read_addr(0x8000), 0x800);
+        assert_eq!(calc_cpu_read_addr(0xffff), 0x87ff);
+        assert_eq!(calc_cpu_read_addr(0xc000), 0x4800);
+
+        // 'unmapped' area reads, should return 0
+        assert_eq!(calc_cpu_read_addr(0x48f0), 0);
+        assert_eq!(calc_cpu_read_addr(0x5000), 0);
+
+        // prg ram writes
+        cpu_memory.write(0x7fff, 0xfe, &mut cpu);
+        cpu_memory.write(0x6000, 0xce, &mut cpu);
+        assert_eq!(cpu_memory.memory[0x97ff], 0xfe);
+        assert_eq!(cpu_memory.memory[0x8800], 0xce);
+
+        // prg rom writes
+        cpu_memory.write(0xcfff, 0xff, &mut cpu);
+        // should not take effect
+        assert_ne!(cpu_memory.read(0xcfff, &mut cpu), 0xff);
     }
 
-    fn get_pattern_tables(&mut self) -> &mut [u8; 0x2000] {
-        unimplemented!()
+    #[test]
+    fn test_ppu_calc_addr() {
+        let mut memory = NromPpuMemory::new();
+
+        // set mirroring mask to vertical
+        memory.nametable_mirroring_mask = !0x800;
+        // test nametable writes
+        memory.write(0x2fff, 0xee);
+        assert_eq!(memory.nametables[0x27ff - 0x2000], 0xee);
+        memory.write(0x2bff, 0xcc);
+        assert_eq!(memory.nametables[0x23ff - 0x2000], 0xcc);
+
+        // palette ram reads/writes
+        memory.write(0x3f20, 0x30);
+        assert_eq!(memory.palettes[0], 0x30);
+        // write out of bounds
+        memory.write(0xffff, 0x20);
+        // should end up in palette ram
+        assert_eq!(memory.palettes[31], 0x20);
     }
-}
-
-#[test]
-fn test_calc_addr_128() {
-    fn calc_cpu_read_addr(addr: u16) -> u16 {
-        if (addr >> 13) == 0 {
-            return addr & !0b1100000000000;
-        }
-        //
-        if (addr >> 13) == 1 {
-            return (addr & 0b111) | 0x5800;
-        }
-        //
-        if (addr >> 13) == 3 {
-            return (addr & !0b1000000000000) - 0x1800;
-        }
-        //
-        if (addr & 0x8000) != 0 {
-            return (addr & !0b100000000000000) - 0x7800;
-        }
-        //
-        0
-    }
-
-    let mut win = win::XcbWindowWrapper::new("mynes", 1200, 600).unwrap();
-    let renderer = PixelRenderer::new(&mut win.connection, win.win, 256, 240).unwrap();
-
-    let ref mut ppu_memory = Nrom128PpuMemory::new();
-    let ppu = ppu::Ppu::new(renderer, ppu_memory);
-    let apu = apu::Apu {};
-    let ref mut cpu = cpu::Cpu::default();
-    let mut cpu_memory = Nrom128CpuMemory::new(ppu, apu);
-    //
-    // internal ram reads
-    assert_eq!(calc_cpu_read_addr(0xa0e), 0x20e);
-    assert_eq!(calc_cpu_read_addr(0x1000), 0);
-    assert_eq!(calc_cpu_read_addr(0x18f0), 0xf0);
-    //
-    // 'unmapped' area reads, should return 0
-    assert_eq!(calc_cpu_read_addr(0x48f0), 0);
-    assert_eq!(calc_cpu_read_addr(0x5000), 0);
-    //
-    // prg ram writes
-    cpu_memory.write(0x7fffu16, 0xfe, cpu);
-    cpu_memory.write(0x6000u16, 0xce, cpu);
-    assert_eq!(cpu_memory.memory[0x57ff], 0xfe);
-    assert_eq!(cpu_memory.memory[0x4800], 0xce);
-    //
-    // special io stuff, should just return 0
-    assert_eq!(calc_cpu_read_addr(0x401f), 0);
-    //
-    // prg rom reads
-    assert_eq!(calc_cpu_read_addr(0x8000), 0x800);
-    assert_eq!(calc_cpu_read_addr(0xffff), 0x47ff);
-    //
-    // prg rom writes
-    cpu_memory.write(0xcfffu16, 0xff, cpu);
-    // should not take effect
-    assert_ne!(cpu_memory.read(0xcfffu16, cpu), 0xff);
-}
-
-#[test]
-fn test_calc_addr_256() {
-    // TODO: ..
-}
-
-#[test]
-fn test_ppu_calc_addr_128() {
-    let mut memory = Nrom128PpuMemory::new();
-
-    // set mirroring mask to vertical
-    memory.nametable_mirroring_mask = !0x800;
-    // test nametable writes
-    memory.write(0x2fff, 0xee);
-    assert_eq!(memory.nametables[0x27ff - 0x2000], 0xee);
-    memory.write(0x2bff, 0xcc);
-    assert_eq!(memory.nametables[0x23ff - 0x2000], 0xcc);
-
-    // palette ram reads/writes
-    memory.write(0x3f20, 0x30);
-    assert_eq!(memory.palettes[0], 0x30);
-    // write out of bounds
-    memory.write(0xffff, 0x20);
-    // should end up in palette ram
-    assert_eq!(memory.palettes[31], 0x20);
 }

@@ -8,7 +8,7 @@ fn init_nes() -> (cpu::Cpu, mmap::Nrom128CpuMemory<'static>) {
     let mut win = win::XcbWindowWrapper::new("test", 20, 20).unwrap();
     let renderer = PixelRenderer::new(&mut win.connection, win.win, 256, 240).unwrap();
 
-    let ppu_memory = Box::leak(Box::new(mmap::Nrom128PpuMemory::new()));
+    let ppu_memory = Box::leak(Box::new(mmap::NromPpuMemory::new()));
     let ppu = super::Ppu::new(renderer, ppu_memory);
     let apu = apu::Apu {};
     let cpu = cpu::Cpu::default();
@@ -323,7 +323,7 @@ pub fn test_draw(rom: &[u8]) {
     let prg_size = 0x4000 * (parse::get_prg_size(&rom) as usize);
     let chr_size = 0x2000 * (parse::get_chr_size(&rom) as usize);
 
-    let mut ppu_memory = mmap::Nrom128PpuMemory::new();
+    let mut ppu_memory = mmap::NromPpuMemory::new();
 
     // load 'rom' into chr ram
     ppu_memory.load_chr_ram(&rom[0x10 + prg_size..=prg_size + chr_size + 0xf]);

@@ -7,7 +7,7 @@ fn init_nes() -> (Cpu, mmap::Nrom128CpuMemory<'static>) {
     let mut win = win::XcbWindowWrapper::new("test", 20, 20).unwrap();
     let renderer = PixelRenderer::new(&mut win.connection, win.win, 256, 240).unwrap();
 
-    let ppu_memory = Box::leak(Box::new(mmap::Nrom128PpuMemory::new()));
+    let ppu_memory = Box::leak(Box::new(mmap::NromPpuMemory::new()));
     let ppu = ppu::Ppu::new(renderer, ppu_memory);
     let apu = apu::Apu {};
     let cpu = Cpu::default();

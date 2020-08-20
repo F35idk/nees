@@ -1,6 +1,6 @@
 mod nrom;
 
-pub use nrom::{Nrom128CpuMemory, Nrom128PpuMemory};
+pub use nrom::{Nrom128CpuMemory, Nrom256CpuMemory, NromPpuMemory};
 
 use super::cpu;
 
