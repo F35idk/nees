@@ -378,9 +378,10 @@ pub fn test_draw(rom: &[u8]) {
             // each scanline is 341 cycles long, except for the pre-render
             // scanline on odd frames, which is 340 cycles long
             let cycles_in_scanline = 341 - (!ppu.even_frame && ppu.current_scanline == -1) as u64;
-
             ppu.cycle_count = 0;
-            ppu.step(cycles_in_scanline, cpu);
+            while ppu.cycle_count < cycles_in_scanline {
+                ppu.step(cpu);
+            }
             assert_eq!(ppu.cycle_count, cycles_in_scanline as u64);
         }
 
@@ -403,7 +404,9 @@ pub fn test_draw(rom: &[u8]) {
         for _ in 0..20 {
             let cycles_in_scanline = 341 - (!ppu.even_frame && ppu.current_scanline == -1) as u64;
             ppu.cycle_count = 0;
-            ppu.step(cycles_in_scanline, cpu);
+            while ppu.cycle_count < cycles_in_scanline {
+                ppu.step(cpu);
+            }
             assert_eq!(ppu.cycle_count, cycles_in_scanline as u64);
         }
 
