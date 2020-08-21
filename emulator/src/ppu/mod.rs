@@ -227,6 +227,7 @@ impl<'a> Ppu<'a> {
             // set bits 10-11 of 'temp_vram_addr' equal to the low 2 bits of 'val'
             ppu.temp_vram_addr.set_nametable_select(val & 0b11);
             ppu.ppuctrl = val;
+            ppu.set_ppustatus_low_bits(val);
 
             if ppu.is_vblank_nmi_enabled() && ppu.is_vblank() {
                 cpu.nmi = true;
@@ -241,6 +242,7 @@ impl<'a> Ppu<'a> {
 
             unsafe { *ppu.oam.bytes.get_unchecked_mut(ppu.oamaddr as usize) = val };
             ppu.oamaddr = ppu.oamaddr.wrapping_add(1);
+            ppu.set_ppustatus_low_bits(val);
         }
 
         fn write_ppuscroll(ppu: &mut Ppu, val: u8) {
@@ -262,6 +264,7 @@ impl<'a> Ppu<'a> {
                 ppu.temp_vram_addr.set_fine_y(val & 0b111);
             }
 
+            ppu.set_ppustatus_low_bits(val);
             // reset low bits toggle
             ppu.low_bits_toggle = !ppu.low_bits_toggle;
         }
@@ -284,11 +287,13 @@ impl<'a> Ppu<'a> {
                 ppu.current_vram_addr = ppu.temp_vram_addr;
             }
 
+            ppu.set_ppustatus_low_bits(val);
             ppu.low_bits_toggle = !ppu.low_bits_toggle;
         }
 
         fn write_ppudata(ppu: &mut Ppu, val: u8) {
             ppu.memory.write(ppu.current_vram_addr.get_addr(), val);
+            ppu.set_ppustatus_low_bits(val);
 
             // increment 'current_vram_addr' (same as when reading ppudata)
             if !ppu.is_currently_rendering() {
@@ -301,6 +306,7 @@ impl<'a> Ppu<'a> {
     }
 
     pub fn write_oamdma(&mut self, val: u8, cpu: &mut cpu::Cpu) {
+        self.set_ppustatus_low_bits(val);
         // if 'val' is $XX, start address should be $XX00
         let start_addr = (val as u16) << 8;
 
@@ -779,6 +785,12 @@ impl<'a> Ppu<'a> {
         if self.current_scanline_dot == 0 {
             self.current_scanline += 1;
         }
+    }
+
+    // sets the low 5 bits of 'ppustatus' equal to the lwo 5 bits of 'val'
+    fn set_ppustatus_low_bits(&mut self, val: u8) {
+        self.ppustatus &= !0b11111;
+        self.ppustatus |= val & 0b11111;
     }
 
     // NOTE: this expects the fine x value to be in the low 3 bits of 'fine_x'
