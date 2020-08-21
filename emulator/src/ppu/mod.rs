@@ -578,9 +578,11 @@ impl<'a> Ppu<'a> {
                     self.current_scanline_dot += 1;
                 }
                 1 => {
-                    self.set_vblank(true);
-                    if self.is_vblank_nmi_enabled() {
-                        cpu.nmi = true;
+                    if self.current_scanline == 241 {
+                        self.set_vblank(true);
+                        if self.is_vblank_nmi_enabled() {
+                            cpu.nmi = true;
+                        }
                     }
 
                     self.cycle_count += 7;
