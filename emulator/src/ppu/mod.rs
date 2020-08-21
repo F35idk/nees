@@ -872,7 +872,7 @@ impl<'a> Ppu<'a> {
     }
 
     fn set_sprite_overflow(&mut self, overflow: bool) {
-        self.ppustatus |= (overflow as u8) << 5;
+        self.ppustatus = (self.ppustatus & !0b100000) | ((overflow as u8) << 5);
     }
 
     fn is_sprite_zero_hit(&self) -> bool {
@@ -880,7 +880,7 @@ impl<'a> Ppu<'a> {
     }
 
     fn set_sprite_zero_hit(&mut self, hit: bool) {
-        self.ppustatus |= (hit as u8) << 6;
+        self.ppustatus = (self.ppustatus & !0b1000000) | ((hit as u8) << 6);
     }
 
     fn is_vblank(&self) -> bool {
@@ -888,7 +888,7 @@ impl<'a> Ppu<'a> {
     }
 
     fn set_vblank(&mut self, vblank: bool) {
-        self.ppustatus |= (vblank as u8) << 7;
+        self.ppustatus = (self.ppustatus & !0b10000000) | ((vblank as u8) << 7);
     }
 
     fn is_currently_rendering(&self) -> bool {
