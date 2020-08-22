@@ -148,6 +148,12 @@ impl PpuMemoryMap for NromPpuMemory {
         if addr >= 0x3f00 {
             // ignore all but lowest 5 bits (32 palettes)
             addr &= 0b11111;
+
+            // ensure 0x10, 0x14, 0x18, 0x1c are mirrored down
+            if matches!(addr, 0x10 | 0x14 | 0x18 | 0x1c) {
+                addr &= 0xf;
+            }
+
             return unsafe { *self.palettes.get_unchecked(addr as usize) };
         }
 
@@ -180,6 +186,11 @@ impl PpuMemoryMap for NromPpuMemory {
 
         if addr >= 0x3f00 {
             addr &= 0b11111;
+
+            if matches!(addr, 0x10 | 0x14 | 0x18 | 0x1c) {
+                addr &= 0xf;
+            }
+
             unsafe { *self.palettes.get_unchecked_mut(addr as usize) = val };
             return;
         }
