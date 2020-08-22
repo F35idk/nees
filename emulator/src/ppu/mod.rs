@@ -461,15 +461,17 @@ impl<'a> Ppu<'a> {
                     self.current_scanline_dot += 8;
                 }
                 256 => {
-                    // copy nametable select bits from 'temp_vram_addr'
-                    // into 'current_vram_addr'
-                    let temp_nametable = self.temp_vram_addr.get_nametable_select();
-                    self.current_vram_addr.set_nametable_select(temp_nametable);
+                    if self.is_sprites_enable() || self.is_background_enable() {
+                        // copy nametable select bits from 'temp_vram_addr'
+                        // into 'current_vram_addr'
+                        let temp_nametable = self.temp_vram_addr.get_nametable_select();
+                        self.current_vram_addr.set_nametable_select(temp_nametable);
 
-                    // copy coarse x scroll/position bits from 'temp_vram_addr'
-                    // into 'current_vram_addr'
-                    let temp_coarse_x = self.temp_vram_addr.get_coarse_x();
-                    self.current_vram_addr.set_coarse_x(temp_coarse_x);
+                        // copy coarse x scroll/position bits from 'temp_vram_addr'
+                        // into 'current_vram_addr'
+                        let temp_coarse_x = self.temp_vram_addr.get_coarse_x();
+                        self.current_vram_addr.set_coarse_x(temp_coarse_x);
+                    }
 
                     self.cycle_count += 8;
                     self.current_scanline_dot += 8;
@@ -479,13 +481,15 @@ impl<'a> Ppu<'a> {
                     self.current_scanline_dot += 8;
                 }
                 280 => {
-                    // copy coarse y bits from 'temp_vram_addr' into 'current_vram_addr'
-                    let temp_coarse_y = self.temp_vram_addr.get_coarse_y();
-                    self.current_vram_addr.set_coarse_y(temp_coarse_y);
+                    if self.is_sprites_enable() || self.is_background_enable() {
+                        // copy coarse y bits from 'temp_vram_addr' into 'current_vram_addr'
+                        let temp_coarse_y = self.temp_vram_addr.get_coarse_y();
+                        self.current_vram_addr.set_coarse_y(temp_coarse_y);
 
-                    // copy fine y bits from 'temp_vram_addr' into 'current_vram_addr'
-                    let temp_fine_y = self.temp_vram_addr.get_fine_y();
-                    self.current_vram_addr.set_fine_y(temp_fine_y);
+                        // copy fine y bits from 'temp_vram_addr' into 'current_vram_addr'
+                        let temp_fine_y = self.temp_vram_addr.get_fine_y();
+                        self.current_vram_addr.set_fine_y(temp_fine_y);
+                    }
 
                     self.cycle_count += 8;
                     self.current_scanline_dot += 8;
@@ -531,11 +535,13 @@ impl<'a> Ppu<'a> {
                     }
                 }
                 257 => {
-                    let temp_nametable = self.temp_vram_addr.get_nametable_select();
-                    let temp_coarse_x = self.temp_vram_addr.get_coarse_x();
+                    if self.is_sprites_enable() || self.is_background_enable() {
+                        let temp_nametable = self.temp_vram_addr.get_nametable_select();
+                        let temp_coarse_x = self.temp_vram_addr.get_coarse_x();
 
-                    self.current_vram_addr.set_nametable_select(temp_nametable);
-                    self.current_vram_addr.set_coarse_x(temp_coarse_x);
+                        self.current_vram_addr.set_nametable_select(temp_nametable);
+                        self.current_vram_addr.set_coarse_x(temp_coarse_x);
+                    }
 
                     self.cycle_count += 8;
                     self.current_scanline_dot += 8;
@@ -554,11 +560,13 @@ impl<'a> Ppu<'a> {
             // idle scanline
             240 => match self.current_scanline_dot {
                 256 => {
-                    let temp_nametable = self.temp_vram_addr.get_nametable_select();
-                    let temp_coarse_x = self.temp_vram_addr.get_coarse_x();
+                    if self.is_sprites_enable() || self.is_background_enable() {
+                        let temp_nametable = self.temp_vram_addr.get_nametable_select();
+                        let temp_coarse_x = self.temp_vram_addr.get_coarse_x();
 
-                    self.current_vram_addr.set_nametable_select(temp_nametable);
-                    self.current_vram_addr.set_coarse_x(temp_coarse_x);
+                        self.current_vram_addr.set_nametable_select(temp_nametable);
+                        self.current_vram_addr.set_coarse_x(temp_coarse_x);
+                    }
 
                     self.cycle_count += 8;
                     self.current_scanline_dot += 8;
@@ -591,11 +599,13 @@ impl<'a> Ppu<'a> {
                     self.current_scanline_dot += 7;
                 }
                 256 => {
-                    let temp_nametable = self.temp_vram_addr.get_nametable_select();
-                    let temp_coarse_x = self.temp_vram_addr.get_coarse_x();
+                    if self.is_sprites_enable() || self.is_background_enable() {
+                        let temp_nametable = self.temp_vram_addr.get_nametable_select();
+                        let temp_coarse_x = self.temp_vram_addr.get_coarse_x();
 
-                    self.current_vram_addr.set_nametable_select(temp_nametable);
-                    self.current_vram_addr.set_coarse_x(temp_coarse_x);
+                        self.current_vram_addr.set_nametable_select(temp_nametable);
+                        self.current_vram_addr.set_coarse_x(temp_coarse_x);
+                    }
 
                     self.cycle_count += 8;
                     self.current_scanline_dot += 8;
