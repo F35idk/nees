@@ -293,6 +293,7 @@ impl<'a> Ppu<'a> {
 
         fn write_ppudata(ppu: &mut Ppu, val: u8) {
             ppu.memory.write(ppu.current_vram_addr.get_addr(), val);
+
             ppu.set_ppustatus_low_bits(val);
 
             // increment 'current_vram_addr' (same as when reading ppudata)
@@ -334,6 +335,7 @@ impl<'a> Ppu<'a> {
         } else {
             1
         };
+
         self.current_vram_addr.inner = (self.current_vram_addr.inner + increment) & 0x3fff;
     }
 
@@ -894,6 +896,6 @@ impl<'a> Ppu<'a> {
     }
 
     fn is_currently_rendering(&self) -> bool {
-        !self.is_vblank() && (self.is_sprites_enable() || self.is_background_enable())
+        self.current_scanline < 241 && (self.is_sprites_enable() || self.is_background_enable())
     }
 }
