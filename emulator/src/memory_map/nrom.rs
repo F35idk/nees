@@ -1,4 +1,4 @@
-use super::super::{apu, cpu, ppu, util, win, PixelRenderer};
+use super::super::{apu, cpu, ppu, win, PixelRenderer};
 use super::{CpuMemoryMap, PpuMemoryMap};
 
 // the cpu memory map for games that use the 'NROM-128' cartridge/mapper (ines mapper 0)
@@ -19,7 +19,7 @@ pub struct NromPpuMemory {
     pub chr_ram: [u8; 0x2000],
     pub nametables: [u8; 0x800],
     pub palettes: [u8; 32],
-    pub nametable_mirroring_mask: u16,
+    pub hor_mirroring: bool,
 }
 
 impl<'a> Nrom128CpuMemory<'a> {
@@ -43,7 +43,7 @@ impl NromPpuMemory {
             chr_ram: [0; 0x2000],
             nametables: [0; 0x800],
             palettes: [0; 32],
-            nametable_mirroring_mask: 0,
+            hor_mirroring: false,
         }
     }
 
@@ -65,9 +65,7 @@ impl<'a> CpuMemoryMap for Nrom128CpuMemory<'a> {
 
         // address lines a13-a15 = 001 (0x2000-0x3fff) => ppu registers
         if (addr >> 13) == 1 {
-            // catch the ppu up to the cpu before reading
-            self.ppu.catch_up(cpu);
-
+            // FIXME: catch the ppu up to the cpu before reading?
             // ignore all but low 3 bits
             addr &= 0b111;
             return self.ppu.read_register_by_index(addr as u8);
@@ -110,8 +108,7 @@ impl<'a> CpuMemoryMap for Nrom128CpuMemory<'a> {
         }
 
         if (addr >> 13) == 1 {
-            // catch the ppu up to the cpu before writing
-            self.ppu.catch_up(cpu);
+            // FIXME: catch the ppu up to the cpu before writing?
             self.ppu
                 .write_register_by_index(addr as u8 & 0b111, val, cpu);
 
@@ -158,9 +155,17 @@ impl PpuMemoryMap for NromPpuMemory {
         if addr >= 0x2000 {
             // mirror down to 0-0xfff
             addr &= !0x3000;
-            // apply vertical or horizontal nametable mirroring
-            addr &= self.nametable_mirroring_mask;
-            return unsafe { *self.nametables.get_unchecked(addr as usize) };
+
+            // apply horizontal nametable mirroring
+            if self.hor_mirroring {
+                let high_bits = addr & 0b110000000000;
+                addr -= (high_bits.count_ones() as u16) << 10;
+            }
+
+            addr &= 0x7ff;
+
+            // return unsafe { *self.nametables.get_unchecked(addr as usize) };
+            return self.nametables[addr as usize];
         }
 
         // address is in the range 0-0x1fff (chr ram)
@@ -181,8 +186,16 @@ impl PpuMemoryMap for NromPpuMemory {
 
         if addr >= 0x2000 {
             addr &= !0x3000;
-            addr &= self.nametable_mirroring_mask;
-            unsafe { *self.nametables.get_unchecked_mut(addr as usize) = val };
+
+            if self.hor_mirroring {
+                let high_bits = addr & 0b110000000000;
+                addr -= (high_bits.count_ones() as u16) << 10;
+            }
+
+            addr &= 0x7ff;
+
+            // unsafe { *self.nametables.get_unchecked_mut(addr as usize) = val };
+            self.nametables[addr as usize] = val;
             return;
         }
 
@@ -227,7 +240,7 @@ impl<'a> CpuMemoryMap for Nrom256CpuMemory<'a> {
         }
 
         if (addr >> 13) == 1 {
-            self.ppu.catch_up(cpu);
+            // FIXME: catch up ppu to cpu?
             addr &= 0b111;
             return self.ppu.read_register_by_index(addr as u8);
         }
@@ -258,7 +271,7 @@ impl<'a> CpuMemoryMap for Nrom256CpuMemory<'a> {
         }
 
         if (addr >> 13) == 1 {
-            self.ppu.catch_up(cpu);
+            // FIXME: catch up ppu to cpu?
             self.ppu
                 .write_register_by_index(addr as u8 & 0b111, val, cpu);
 
@@ -408,13 +421,84 @@ mod test {
     fn test_ppu_calc_addr() {
         let mut memory = NromPpuMemory::new();
 
-        // set mirroring mask to vertical
-        memory.nametable_mirroring_mask = !0x800;
+        // set mirroring = vertical
+        memory.hor_mirroring = false;
         // test nametable writes
         memory.write(0x2fff, 0xee);
-        assert_eq!(memory.nametables[0x27ff - 0x2000], 0xee);
+        assert_eq!(memory.nametables[0x7ff], 0xee);
         memory.write(0x2bff, 0xcc);
-        assert_eq!(memory.nametables[0x23ff - 0x2000], 0xcc);
+        assert_eq!(memory.nametables[0x3ff], 0xcc);
+        memory.write(0x2800, 0x66);
+        assert_eq!(memory.nametables[0], 0x66);
+        memory.write(0x28ff, 0x99);
+        assert_eq!(memory.nametables[0x0ff], 0x99);
+
+        for i in memory.nametables.iter_mut() {
+            *i = 0;
+        }
+
+        // set mirroring = horizontal
+        memory.hor_mirroring = true;
+        // test nametable writes
+        memory.write(0x2fff, 0xee);
+        assert_eq!(memory.nametables[0x7ff], 0xee);
+        assert_eq!(memory.read(0x2bff), 0xee);
+        memory.write(0x2bff, 0xdd);
+        assert_eq!(memory.nametables[0x7ff], 0xdd);
+        assert_eq!(memory.read(0x2fff), 0xdd);
+
+        memory.write(0x2cf0, 0xaa);
+        assert_eq!(memory.nametables[0x4f0], 0xaa);
+        assert_eq!(memory.read(0x28f0), 0xaa);
+        memory.write(0x28f0, 0x88);
+        assert_eq!(memory.nametables[0x4f0], 0x88);
+        assert_eq!(memory.read(0x2cf0), 0x88);
+
+        for addr in 0x2800..=0x2bff {
+            memory.write(addr as u16, 0xaa);
+            assert_eq!(memory.nametables[addr - 0x2400], 0xaa);
+            assert_eq!(memory.read(addr as u16), 0xaa);
+            assert_eq!(memory.read(addr as u16 + 0x400), 0xaa);
+            memory.write(addr as u16, 0);
+        }
+
+        for addr in 0x2c00..=0x2fff {
+            memory.write(addr as u16, 0xaa);
+            assert_eq!(memory.nametables[addr - 0x2800], 0xaa);
+            assert_eq!(memory.read(addr as u16), 0xaa);
+            assert_eq!(memory.read(addr as u16 - 0x400), 0xaa);
+            memory.write(addr as u16, 0);
+        }
+
+        for addr in 0x2000..=0x23ff {
+            memory.write(addr as u16, 0xaa);
+            assert_eq!(memory.nametables[addr - 0x2000], 0xaa);
+            assert_eq!(memory.read(addr as u16), 0xaa);
+            assert_eq!(memory.read(addr as u16 + 0x400), 0xaa);
+            memory.write(addr as u16, 0);
+        }
+
+        for addr in 0x2400..=0x27ff {
+            memory.write(addr as u16, 0xaa);
+            assert_eq!(memory.nametables[addr - 0x2400], 0xaa);
+            assert_eq!(memory.read(addr as u16), 0xaa);
+            assert_eq!(memory.read(addr as u16 - 0x400), 0xaa);
+            memory.write(addr as u16, 0);
+        }
+
+        memory.write(0x2400, 0xcc);
+        assert_eq!(memory.nametables[0], 0xcc);
+        assert_eq!(memory.read(0x2000), 0xcc);
+        memory.write(0x2000, 0x44);
+        assert_eq!(memory.nametables[0], 0x44);
+        assert_eq!(memory.read(0x2400), 0x44);
+
+        memory.write(0x27ff, 0x11);
+        assert_eq!(memory.nametables[0x3ff], 0x11);
+        assert_eq!(memory.read(0x23ff), 0x11);
+        memory.write(0x23ff, 0xff);
+        assert_eq!(memory.nametables[0x3ff], 0xff);
+        assert_eq!(memory.read(0x27ff), 0xff);
 
         // palette ram reads/writes
         memory.write(0x3f20, 0x30);
