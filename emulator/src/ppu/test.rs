@@ -89,12 +89,36 @@ fn test_registers() {
 
 #[test]
 fn test_write_2007() {
-    // cpu_memory.ppu.current_vram_addr.inner = 0;
-    // // write 0xff to ppudata
-    // cpu_memory.ppu.write_register_by_index(7, 0xff, cpu_memory);
-    // cpu_memory.ppu.current_vram_addr.inner = 0;
-    // // read from ppudata
-    // assert_eq!(cpu_memory.ppu.read_register_by_index(7, cpu_memory), 0xff);
+    let (ref mut cpu, ref mut cpu_memory) = init_nes();
+
+    // LDA #ee
+    cpu_memory.write(0u16, 0xa9, cpu);
+    cpu_memory.write(1u16, 0xee, cpu);
+    // STA $2007
+    cpu_memory.write(2u16, 0x8d, cpu);
+    cpu_memory.write(3u16, 07, cpu);
+    cpu_memory.write(4u16, 0x20, cpu);
+
+    // disable renderering
+    cpu_memory.ppu.ppumask = 0;
+    // set scanline = visible
+    cpu_memory.ppu.current_scanline = 222;
+
+    // set increment mode = 32
+    cpu_memory.ppu.ppuctrl = 0b100;
+
+    cpu.pc = 0;
+    for _ in 0..2 {
+        cpu.exec_instruction(cpu_memory);
+    }
+
+    assert_eq!(cpu_memory.ppu.current_vram_addr.inner, 32);
+    cpu_memory.ppu.current_vram_addr.inner = 0;
+
+    // first read should yield nothing
+    assert_eq!(cpu_memory.ppu.read_register_by_index(7), 0);
+    // second read should get contents at addr
+    assert_eq!(cpu_memory.ppu.read_register_by_index(7), 0xee);
 }
 
 #[test]
@@ -252,7 +276,7 @@ fn test_write_2003_read_2004() {
 #[test]
 fn test_increment_vram_addr() {
     let (ref mut cpu, mmap::Nrom128CpuMemory { ref mut ppu, .. }) = init_nes();
-    //
+
     ppu.current_vram_addr.inner = 0;
     // set increment mode to 32
     ppu.write_register_by_index(0, 0b00000100, cpu);
@@ -275,6 +299,11 @@ fn test_increment_vram_addr() {
     ppu.write_register_by_index(0, 0b00000100, cpu);
     ppu.increment_vram_addr();
     assert_eq!(ppu.current_vram_addr.inner, 0);
+
+    ppu.current_vram_addr.inner = 0x200a;
+    ppu.write_register_by_index(0, 0b00000000, cpu);
+    ppu.increment_vram_addr();
+    assert_eq!(ppu.current_vram_addr.inner, 0x200b);
 }
 
 #[test]
@@ -348,8 +377,8 @@ pub fn test_draw(rom: &[u8]) {
         }
     }
 
-    // set nametable mirroring mask = vertical mirroring
-    ppu_memory.nametable_mirroring_mask = !0x800;
+    // set nametable mirroring = vertical
+    ppu_memory.hor_mirroring = false;
 
     let mut win = win::XcbWindowWrapper::new("test", 1200, 600).unwrap();
     let renderer = PixelRenderer::new(&mut win.connection, win.win, 256, 240).unwrap();
