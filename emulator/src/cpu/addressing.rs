@@ -31,17 +31,17 @@ mod abs {
 
     pub fn read_abs(cpu: &mut Cpu, memory: &mut dyn CpuMemoryMap) -> u8 {
         let addr = cpu.fetch_operand_u16(memory);
+        let res = memory.read(addr, cpu);
         cpu.pc += 3;
         cpu.cycle_count += 4;
-        memory.read(addr, cpu)
+        res
     }
 
     pub fn write_abs(cpu: &mut Cpu, val: u8, memory: &mut dyn CpuMemoryMap) {
         let addr = cpu.fetch_operand_u16(memory);
+        memory.write(addr, val, cpu);
         cpu.pc += 3;
         cpu.cycle_count += 4;
-
-        memory.write(addr, val, cpu);
     }
 
     // fetches the absolute address at pc+1, performs 'operation' on the
@@ -55,11 +55,11 @@ mod abs {
         let addr = cpu.fetch_operand_u16(memory);
         let val = memory.read(addr, cpu);
 
-        cpu.pc += 3;
-        cpu.cycle_count += 6;
-
         let res = operation(cpu, val);
         memory.write(addr, res, cpu);
+
+        cpu.pc += 3;
+        cpu.cycle_count += 6;
     }
 }
 
@@ -70,22 +70,22 @@ mod abs_indexed {
     pub fn write_abs_indexed(cpu: &mut Cpu, val: u8, index: u8, memory: &mut dyn CpuMemoryMap) {
         let addr = cpu.fetch_operand_u16(memory);
         let addr_indexed = addr.wrapping_add(index as u16);
+        // FIXME: dummy writes
+        memory.write(addr_indexed, val, cpu);
 
         cpu.pc += 3;
         cpu.cycle_count += 5;
-
-        // FIXME: dummy writes
-        memory.write(addr_indexed, val, cpu);
     }
 
     pub fn read_abs_indexed(cpu: &mut Cpu, index: u8, memory: &mut dyn CpuMemoryMap) -> u8 {
         let addr_bytes = cpu.fetch_operand_bytes(memory);
         let (addr_indexed, page_crossed) = self::calc_abs_indexed(addr_bytes, index);
 
+        let res = memory.read(addr_indexed, cpu);
+
         cpu.pc += 3;
         cpu.cycle_count += 4 + page_crossed as u64;
-
-        memory.read(addr_indexed, cpu)
+        res
     }
 
     pub fn read_write_abs_indexed(
@@ -100,11 +100,11 @@ mod abs_indexed {
         // TODO: dummy reads (read from carry-less address first, etc.)
         let val = memory.read(addr_indexed, cpu);
 
-        cpu.pc += 3;
-        cpu.cycle_count += 7;
-
         let res = operation(cpu, val);
         memory.write(addr_indexed, res, cpu);
+
+        cpu.pc += 3;
+        cpu.cycle_count += 7;
     }
 
     fn calc_abs_indexed(addr_bytes: [u8; 2], index: u8) -> (u16, bool) {
@@ -121,17 +121,18 @@ mod zero_page {
 
     pub fn read_zero_page(cpu: &mut Cpu, memory: &mut dyn CpuMemoryMap) -> u8 {
         let addr = cpu.fetch_operand_byte(memory);
+        let res = memory.read(addr as u16, cpu);
+
         cpu.cycle_count += 3;
         cpu.pc += 2;
-
-        memory.read(addr as u16, cpu)
+        res
     }
 
     pub fn write_zero_page(cpu: &mut Cpu, val: u8, memory: &mut dyn CpuMemoryMap) {
         let addr = cpu.fetch_operand_byte(memory);
+        memory.write(addr as u16, val, cpu);
         cpu.pc += 2;
         cpu.cycle_count += 3;
-        memory.write(addr as u16, val, cpu);
     }
 
     pub fn read_write_zero_page(
@@ -143,11 +144,11 @@ mod zero_page {
         let addr = cpu.fetch_operand_byte(memory);
         let val = memory.read(addr as u16, cpu);
 
-        cpu.pc += 2;
-        cpu.cycle_count += 5;
-
         let res = operation(cpu, val);
         memory.write(addr as u16, res, cpu);
+
+        cpu.pc += 2;
+        cpu.cycle_count += 5;
     }
 }
 
@@ -162,19 +163,19 @@ mod zero_page_indexed {
     ) {
         let addr = cpu.fetch_operand_byte(memory);
         let addr_indexed = addr.wrapping_add(index);
+        memory.write(addr_indexed as u16, val, cpu);
         cpu.pc += 2;
         cpu.cycle_count += 4;
-        memory.write(addr_indexed as u16, val, cpu);
     }
 
     pub fn read_zero_page_indexed(cpu: &mut Cpu, index: u8, memory: &mut dyn CpuMemoryMap) -> u8 {
         let addr = cpu.fetch_operand_byte(memory);
         let addr_indexed = addr.wrapping_add(index);
+        let res = memory.read(addr_indexed as u16, cpu);
 
         cpu.pc += 2;
         cpu.cycle_count += 4;
-
-        memory.read(addr_indexed as u16, cpu)
+        res
     }
 
     pub fn read_write_zero_page_indexed(
@@ -187,13 +188,12 @@ mod zero_page_indexed {
         let addr = cpu.fetch_operand_byte(memory);
         let addr_indexed = addr.wrapping_add(index);
 
-        cpu.pc += 2;
-        cpu.cycle_count += 6;
-
         let val = memory.read(addr_indexed as u16, cpu);
         let res = operation(cpu, val);
-
         memory.write(addr_indexed as u16, res, cpu);
+
+        cpu.pc += 2;
+        cpu.cycle_count += 6;
     }
 }
 
@@ -203,21 +203,20 @@ mod indexed_indirect {
     pub fn read_indexed_indirect(cpu: &mut Cpu, memory: &mut dyn CpuMemoryMap) -> u8 {
         let addr = cpu.fetch_operand_byte(memory);
         let final_addr = self::calc_indexed_indirect(cpu, addr, memory);
+        let res = memory.read(final_addr, cpu);
 
         cpu.pc += 2;
         cpu.cycle_count += 6;
-
-        memory.read(final_addr, cpu)
+        res
     }
 
     pub fn write_indexed_indirect(cpu: &mut Cpu, val: u8, memory: &mut dyn CpuMemoryMap) {
         let addr = cpu.fetch_operand_byte(memory);
         let final_addr = self::calc_indexed_indirect(cpu, addr, memory);
+        memory.write(final_addr, val, cpu);
 
         cpu.pc += 2;
         cpu.cycle_count += 6;
-
-        memory.write(final_addr, val, cpu);
     }
 
     fn calc_indexed_indirect(cpu: &mut Cpu, addr: u8, memory: &mut dyn CpuMemoryMap) -> u16 {
@@ -235,11 +234,11 @@ mod indirect_indexed {
     pub fn read_indirect_indexed(cpu: &mut Cpu, memory: &mut dyn CpuMemoryMap) -> u8 {
         let addr = cpu.fetch_operand_byte(memory);
         let (final_addr, page_crossed) = self::calc_indirect_indexed(cpu, addr, memory);
+        let res = memory.read(final_addr, cpu);
 
         cpu.pc += 2;
         cpu.cycle_count += 5 + page_crossed as u64;
-
-        memory.read(final_addr, cpu)
+        res
     }
 
     pub fn write_indirect_indexed(cpu: &mut Cpu, val: u8, memory: &mut dyn CpuMemoryMap) {
@@ -247,11 +246,10 @@ mod indirect_indexed {
         // OPTIMIZE: don't use 'calc_indirect_indexed()', since carry doesn't matter
         let (final_addr, _) = self::calc_indirect_indexed(cpu, addr, memory);
         // TODO: dummy writes
+        memory.write(final_addr, val, cpu);
 
         cpu.pc += 2;
         cpu.cycle_count += 6;
-
-        memory.write(final_addr, val, cpu);
     }
 
     fn calc_indirect_indexed(

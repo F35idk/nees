@@ -261,7 +261,7 @@ impl Cpu {
             0x9a => self.txs(),
             // TYA
             0x98 => self.tya(),
-            _ => panic!("TODO: handle invalid opcode"),
+            o => panic!("TODO: handle invalid opcode: 0x{:>01x}", o),
         }
 
         // ensure pending irqs will be delayed if the executed instruction was CLI, SEI or PLP
@@ -1002,11 +1002,11 @@ impl Cpu {
 
     // used for pha, php instructions
     fn push_val(&mut self, val: u8, memory: &mut dyn CpuMemoryMap) {
-        self.pc += 1;
-        self.cycle_count += 3;
-
         memory.write(self.sp as u16 + 0x100, val, self);
         self.sp = self.sp.wrapping_sub(1);
+
+        self.pc += 1;
+        self.cycle_count += 3;
     }
 
     fn pha(&mut self, memory: &mut dyn CpuMemoryMap) {
@@ -1021,11 +1021,12 @@ impl Cpu {
 
     // used for pla, plp instructions
     fn pull_val(&mut self, memory: &mut dyn CpuMemoryMap) -> u8 {
+        self.sp = self.sp.wrapping_add(1);
+        let res = memory.read(self.sp as u16 + 0x100, self);
+
         self.pc += 1;
         self.cycle_count += 4;
-
-        self.sp = self.sp.wrapping_add(1);
-        memory.read(self.sp as u16 + 0x100, self)
+        res
     }
 
     fn pla(&mut self, memory: &mut dyn CpuMemoryMap) {

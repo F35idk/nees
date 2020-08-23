@@ -65,7 +65,8 @@ impl<'a> CpuMemoryMap for Nrom128CpuMemory<'a> {
 
         // address lines a13-a15 = 001 (0x2000-0x3fff) => ppu registers
         if (addr >> 13) == 1 {
-            // FIXME: catch the ppu up to the cpu before reading?
+            // catch ppu up to cpu before reading
+            self.ppu.catch_up(cpu);
             // ignore all but low 3 bits
             addr &= 0b111;
             return self.ppu.read_register_by_index(addr as u8);
@@ -108,7 +109,8 @@ impl<'a> CpuMemoryMap for Nrom128CpuMemory<'a> {
         }
 
         if (addr >> 13) == 1 {
-            // FIXME: catch the ppu up to the cpu before writing?
+            // catch ppu up to cpu before writing
+            self.ppu.catch_up(cpu);
             self.ppu
                 .write_register_by_index(addr as u8 & 0b111, val, cpu);
 
@@ -251,7 +253,9 @@ impl<'a> CpuMemoryMap for Nrom256CpuMemory<'a> {
         }
 
         if (addr >> 13) == 1 {
-            // FIXME: catch up ppu to cpu?
+            // catch ppu up to cpu before reading
+            self.ppu.catch_up(cpu);
+
             addr &= 0b111;
             return self.ppu.read_register_by_index(addr as u8);
         }
@@ -282,7 +286,7 @@ impl<'a> CpuMemoryMap for Nrom256CpuMemory<'a> {
         }
 
         if (addr >> 13) == 1 {
-            // FIXME: catch up ppu to cpu?
+            self.ppu.catch_up(cpu);
             self.ppu
                 .write_register_by_index(addr as u8 & 0b111, val, cpu);
 
