@@ -392,31 +392,49 @@ impl<'a> Ppu<'a> {
         }
     }
 
+    // transfers the coarse and fine y bits from 'temp_vram_addr' to 'current_vram_addr'
+    fn transfer_temp_y(&mut self) {
+        let temp_coarse_y = self.temp_vram_addr.get_coarse_y();
+        self.current_vram_addr.set_coarse_y(temp_coarse_y);
+
+        let temp_fine_y = self.temp_vram_addr.get_fine_y();
+        self.current_vram_addr.set_fine_y(temp_fine_y);
+    }
+
+    // transfers the coarse x and nametable select bits from 'temp_vram_addr'
+    // to 'current_vram_addr'
+    fn transfer_temp_x_and_nt_select(&mut self) {
+        let temp_nametable = self.temp_vram_addr.get_nametable_select();
+        self.current_vram_addr.set_nametable_select(temp_nametable);
+
+        let temp_coarse_x = self.temp_vram_addr.get_coarse_x();
+        self.current_vram_addr.set_coarse_x(temp_coarse_x);
+    }
+
     // catches the ppu up to the cpu (approximately)
     pub fn catch_up(&mut self, cpu: &mut cpu::Cpu) -> PpuState {
         let target_cycles = cpu.cycle_count as u32 * 3;
-        // let cycles_to_catch_up = target_cycles - self.cycle_count;
+        let cycles_to_catch_up = target_cycles.saturating_sub(self.cycle_count);
 
-        // if cycles_to_catch_up > 2 * 341 {
-        if false {
-            // if the ppu is behind the cpu by more than 2 scanlines
-            // worth of cycles, use a separate scanline algorithm
-
+        // if the ppu is behind the cpu by more than 2 scanlines worth of cycles,
+        // start by using a separate scanline algorithm to catch up
+        if cycles_to_catch_up > 341 * 2 {
             // line up with the next scanline
             while self.current_scanline_dot != 0 {
                 self.step(cpu);
             }
 
-            // use scanline algorithm
-            while self.cycle_count < target_cycles {
+            // step using scanline algorithm
+            let n_scanlines = (target_cycles - self.cycle_count) / 341;
+            for _ in 0..n_scanlines {
                 self.step_scanline(cpu);
             }
-        } else {
-            // FIXME: this may overshoot target cycles somewhat. is this bad??
-            while self.cycle_count < target_cycles {
-                if let PpuState::FrameDone = self.step(cpu) {
-                    return PpuState::FrameDone;
-                }
+        }
+
+        // step normally
+        while self.cycle_count < target_cycles {
+            if let PpuState::FrameDone = self.step(cpu) {
+                return PpuState::FrameDone;
             }
         }
 
@@ -425,24 +443,91 @@ impl<'a> Ppu<'a> {
 
     fn step_scanline(&mut self, cpu: &mut cpu::Cpu) -> PpuState {
         match self.current_scanline {
-            //
+            // pre-render scanline
             -1 => {
                 self.set_vblank(false);
 
-                let temp_nametable = self.temp_vram_addr.get_nametable_select();
-                self.current_vram_addr.set_nametable_select(temp_nametable);
-
-                let temp_coarse_x = self.temp_vram_addr.get_coarse_x();
-                self.current_vram_addr.set_coarse_x(temp_coarse_x);
-
-                let temp_coarse_y = self.temp_vram_addr.get_coarse_y();
-                self.current_vram_addr.set_coarse_y(temp_coarse_y);
-
-                let temp_fine_y = self.temp_vram_addr.get_fine_y();
-                self.current_vram_addr.set_fine_y(temp_fine_y);
+                if self.is_sprites_enable() || self.is_background_enable() {
+                    self.transfer_temp_x_and_nt_select();
+                    self.transfer_temp_y();
+                }
 
                 self.current_scanline = 0;
                 self.cycle_count += 340 + self.even_frame as u32;
+            }
+            // visible scanlines
+            0..=239 => {
+                self.current_scanline_dot = 1;
+
+                // if background rendering is disabled
+                if !self.is_background_enable() {
+                    for _ in 0..32 {
+                        self.draw_tile_row_backdrop();
+                    }
+                } else {
+                    for _ in 0..32 {
+                        //  OPTIMIZE: make separate drawing
+                        // algorithm for drawing entire scanlines
+                        self.draw_tile_row();
+                        self.increment_vram_addr_coarse_x();
+                    }
+
+                    assert_eq!(self.current_scanline_dot, 257);
+
+                    // increment fine y
+                    self.increment_vram_addr_y();
+                }
+
+                if self.is_sprites_enable() || self.is_background_enable() {
+                    self.transfer_temp_x_and_nt_select();
+                }
+
+                self.current_scanline += 1;
+                self.cycle_count += 341;
+                self.current_scanline_dot = 0;
+            }
+            // idle scanline
+            240 => {
+                if self.is_sprites_enable() || self.is_background_enable() {
+                    self.transfer_temp_x_and_nt_select();
+                }
+
+                self.current_scanline = 241;
+                self.cycle_count += 341;
+            }
+            // first vblank scanline
+            241 => {
+                self.set_vblank(true);
+                if self.is_vblank_nmi_enabled() {
+                    cpu.nmi = true;
+                }
+
+                if self.is_sprites_enable() || self.is_background_enable() {
+                    self.transfer_temp_x_and_nt_select();
+                }
+
+                self.current_scanline = 242;
+                self.cycle_count += 341;
+            }
+            // vblank scanlines
+            242..=259 => {
+                if self.is_sprites_enable() || self.is_background_enable() {
+                    self.transfer_temp_x_and_nt_select();
+                }
+
+                self.current_scanline += 1;
+                self.cycle_count += 341;
+            }
+            // last vblank scanline
+            260 => {
+                if self.is_sprites_enable() || self.is_background_enable() {
+                    self.transfer_temp_x_and_nt_select();
+                    self.even_frame = !self.even_frame;
+                }
+
+                self.current_scanline = -1;
+                self.cycle_count += 341;
+                return PpuState::FrameDone;
             }
             _ => (),
         }
@@ -478,15 +563,7 @@ impl<'a> Ppu<'a> {
                 }
                 256 => {
                     if self.is_sprites_enable() || self.is_background_enable() {
-                        // copy nametable select bits from 'temp_vram_addr'
-                        // into 'current_vram_addr'
-                        let temp_nametable = self.temp_vram_addr.get_nametable_select();
-                        self.current_vram_addr.set_nametable_select(temp_nametable);
-
-                        // copy coarse x scroll/position bits from 'temp_vram_addr'
-                        // into 'current_vram_addr'
-                        let temp_coarse_x = self.temp_vram_addr.get_coarse_x();
-                        self.current_vram_addr.set_coarse_x(temp_coarse_x);
+                        self.transfer_temp_x_and_nt_select();
                     }
 
                     self.cycle_count += 8;
@@ -498,13 +575,7 @@ impl<'a> Ppu<'a> {
                 }
                 280 => {
                     if self.is_sprites_enable() || self.is_background_enable() {
-                        // copy coarse y bits from 'temp_vram_addr' into 'current_vram_addr'
-                        let temp_coarse_y = self.temp_vram_addr.get_coarse_y();
-                        self.current_vram_addr.set_coarse_y(temp_coarse_y);
-
-                        // copy fine y bits from 'temp_vram_addr' into 'current_vram_addr'
-                        let temp_fine_y = self.temp_vram_addr.get_fine_y();
-                        self.current_vram_addr.set_fine_y(temp_fine_y);
+                        self.transfer_temp_y();
                     }
 
                     self.cycle_count += 8;
@@ -552,11 +623,7 @@ impl<'a> Ppu<'a> {
                 }
                 257 => {
                     if self.is_sprites_enable() || self.is_background_enable() {
-                        let temp_nametable = self.temp_vram_addr.get_nametable_select();
-                        let temp_coarse_x = self.temp_vram_addr.get_coarse_x();
-
-                        self.current_vram_addr.set_nametable_select(temp_nametable);
-                        self.current_vram_addr.set_coarse_x(temp_coarse_x);
+                        self.transfer_temp_x_and_nt_select();
                     }
 
                     self.cycle_count += 8;
@@ -577,11 +644,7 @@ impl<'a> Ppu<'a> {
             240 => match self.current_scanline_dot {
                 256 => {
                     if self.is_sprites_enable() || self.is_background_enable() {
-                        let temp_nametable = self.temp_vram_addr.get_nametable_select();
-                        let temp_coarse_x = self.temp_vram_addr.get_coarse_x();
-
-                        self.current_vram_addr.set_nametable_select(temp_nametable);
-                        self.current_vram_addr.set_coarse_x(temp_coarse_x);
+                        self.transfer_temp_x_and_nt_select();
                     }
 
                     self.cycle_count += 8;
@@ -616,11 +679,7 @@ impl<'a> Ppu<'a> {
                 }
                 256 => {
                     if self.is_sprites_enable() || self.is_background_enable() {
-                        let temp_nametable = self.temp_vram_addr.get_nametable_select();
-                        let temp_coarse_x = self.temp_vram_addr.get_coarse_x();
-
-                        self.current_vram_addr.set_nametable_select(temp_nametable);
-                        self.current_vram_addr.set_coarse_x(temp_coarse_x);
+                        self.transfer_temp_x_and_nt_select();
                     }
 
                     self.cycle_count += 8;
