@@ -54,6 +54,12 @@ pub struct Ppu<'a> {
     pub current_scanline_dot: u16,
 }
 
+// flags returned by 'Ppu.catch_up()', 'Ppu.step()' and 'Ppu.step_scanline()'
+pub enum PpuState {
+    MidFrame,
+    FrameDone,
+}
+
 // FIXME: don't need the union (as of writing)
 union Oam {
     entries: [OamEntry; 64],
@@ -387,7 +393,7 @@ impl<'a> Ppu<'a> {
     }
 
     // catches the ppu up to the cpu (approximately)
-    pub fn catch_up(&mut self, cpu: &mut cpu::Cpu) {
+    pub fn catch_up(&mut self, cpu: &mut cpu::Cpu) -> PpuState {
         let target_cycles = cpu.cycle_count as u32 * 3;
         // let cycles_to_catch_up = target_cycles - self.cycle_count;
 
@@ -408,12 +414,16 @@ impl<'a> Ppu<'a> {
         } else {
             // FIXME: this may overshoot target cycles somewhat. is this bad??
             while self.cycle_count < target_cycles {
-                self.step(cpu);
+                if let PpuState::FrameDone = self.step(cpu) {
+                    return PpuState::FrameDone;
+                }
             }
         }
+
+        PpuState::MidFrame
     }
 
-    fn step_scanline(&mut self, cpu: &mut cpu::Cpu) {
+    fn step_scanline(&mut self, cpu: &mut cpu::Cpu) -> PpuState {
         match self.current_scanline {
             //
             -1 => {
@@ -436,10 +446,12 @@ impl<'a> Ppu<'a> {
             }
             _ => (),
         }
+
+        PpuState::MidFrame
     }
 
     // steps the ppu for one tile worth of cycles (1-8 cycles)
-    pub fn step(&mut self, cpu: &mut cpu::Cpu) {
+    pub fn step(&mut self, cpu: &mut cpu::Cpu) -> PpuState {
         // pre-TODO: figure out what to start ppu vs cpu
         // cycle counts at (what distance between ticks)
 
@@ -626,6 +638,8 @@ impl<'a> Ppu<'a> {
                         if self.is_sprites_enable() || self.is_background_enable() {
                             self.even_frame = !self.even_frame;
                         }
+
+                        return PpuState::FrameDone;
                     } else {
                         self.current_scanline += 1;
                     }
@@ -637,6 +651,8 @@ impl<'a> Ppu<'a> {
             },
             _ => (),
         }
+
+        PpuState::MidFrame
     }
 
     fn get_color_from_index(&self, mut index: u8) -> u32 {
