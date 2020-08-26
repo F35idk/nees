@@ -129,8 +129,8 @@ impl<'a> CpuMemoryMap for Nrom128CpuMemory<'a> {
 
         // ppu oamdma register
         if addr == 0x4014 {
+            self.ppu.catch_up(cpu);
             self.ppu.write_oamdma(val, cpu);
-
             return;
         }
 
@@ -304,8 +304,8 @@ impl<'a> CpuMemoryMap for Nrom256CpuMemory<'a> {
         }
 
         if addr == 0x4014 {
+            self.ppu.catch_up(cpu);
             self.ppu.write_oamdma(val, cpu);
-
             return;
         }
     }
