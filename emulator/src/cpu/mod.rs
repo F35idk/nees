@@ -11,7 +11,7 @@ pub struct Cpu {
     pub p: u8,
     pub sp: u8,
     pub pc: u16,
-    pub cycle_count: u64,
+    pub cycle_count: u16,
     // TODO: keep track of when (at what cycle) the nmi/irq was triggered?
     // OPTIMIZE: pack bools together
     pub nmi: bool,
@@ -489,7 +489,7 @@ impl Cpu {
             // xor sign of 'offset' with 'carry' to determine whether a page boundary was crossed
             let boundary_crossed = ((offset as i8) < 0) ^ carry;
 
-            self.cycle_count += 3 + boundary_crossed as u64
+            self.cycle_count += 3 + boundary_crossed as u16
         } else {
             self.cycle_count += 2;
         }
@@ -1306,12 +1306,32 @@ impl Cpu {
         (self.cycle_count - prev_cycles) as u8
     }
 
-    pub fn log_register_values(&self) {
+    pub fn log_register_values_old(&self) {
         log!("A:{:0>2X} ", self.a);
         log!("X:{:0>2X} ", self.x);
         log!("Y:{:0>2X} ", self.y);
         log!("P:{:0>2X} ", self.p);
         log!("SP:{:0>2X} ", self.sp);
         log!("CYC:{}\n", self.cycle_count)
+    }
+
+    pub fn log_register_values(
+        &mut self,
+        memory: &mut dyn CpuMemoryMap,
+        scanline: i16,
+        vbl: bool,
+        nmi_enable: bool,
+    ) {
+        print!("{:0>4X} ", self.pc);
+        print!("${:0>2X}  ", memory.read(self.pc, self));
+        print!("A:{:0>2X} ", self.a);
+        print!("X:{:0>2X} ", self.x);
+        print!("Y:{:0>2X} ", self.y);
+        print!("P:{:0>2X} ", self.p);
+        print!("SP:{:0>2X} ", self.sp);
+        print!("SL:{:0>2} ", scanline);
+        print!("VBL:{:} ", vbl);
+        print!("N:{:0>2} ", nmi_enable);
+        // print!("CYC:{}\n", self.cycle_count)
     }
 }

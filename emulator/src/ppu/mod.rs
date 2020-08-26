@@ -9,7 +9,7 @@ pub mod test;
 pub struct Ppu<'a> {
     // object attribute memory
     oam: Oam,
-    pub cycle_count: u64,
+    pub cycle_count: u32,
     pub renderer: PixelRenderer,
     // TODO: investigate how much code bloat generics would cause
     // - would it be worth using it over a trait object?
@@ -384,7 +384,7 @@ impl<'a> Ppu<'a> {
 
     // catches the ppu up to the cpu (approximately)
     pub fn catch_up(&mut self, cpu: &mut cpu::Cpu) {
-        let target_cycles = cpu.cycle_count * 3;
+        let target_cycles = cpu.cycle_count as u32 * 3;
         // let cycles_to_catch_up = target_cycles - self.cycle_count;
 
         // if cycles_to_catch_up > 2 * 341 {
@@ -428,7 +428,7 @@ impl<'a> Ppu<'a> {
                 self.current_vram_addr.set_fine_y(temp_fine_y);
 
                 self.current_scanline = 0;
-                self.cycle_count += 340 + self.even_frame as u64;
+                self.cycle_count += 340 + self.even_frame as u32;
             }
             _ => (),
         }
@@ -447,7 +447,7 @@ impl<'a> Ppu<'a> {
                 0 => {
                     self.current_scanline_dot += 1;
                     // don't increment cycles on odd frames (idle cycle is skipped)
-                    self.cycle_count += self.even_frame as u64;
+                    self.cycle_count += self.even_frame as u32;
                 }
                 1 => {
                     // clear vblank flag
@@ -523,7 +523,7 @@ impl<'a> Ppu<'a> {
                         // straddles the screen boundary). this increments
                         // 'current_scanline_dot', and 'current_scanline'
                         let pixels_drawn = self.draw_tile_row();
-                        self.cycle_count += pixels_drawn as u64;
+                        self.cycle_count += pixels_drawn as u32;
 
                         // if last pixel drawn was 256th (end of scanline)
                         if self.current_scanline_dot == 257 {

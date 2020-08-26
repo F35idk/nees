@@ -84,7 +84,7 @@ mod abs_indexed {
         let res = memory.read(addr_indexed, cpu);
 
         cpu.pc += 3;
-        cpu.cycle_count += 4 + page_crossed as u64;
+        cpu.cycle_count += 4 + page_crossed as u16;
         res
     }
 
@@ -237,7 +237,7 @@ mod indirect_indexed {
         let res = memory.read(final_addr, cpu);
 
         cpu.pc += 2;
-        cpu.cycle_count += 5 + page_crossed as u64;
+        cpu.cycle_count += 5 + page_crossed as u16;
         res
     }
 
