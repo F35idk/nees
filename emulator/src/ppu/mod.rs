@@ -144,69 +144,80 @@ impl<'a> Ppu<'a> {
 
     // used for reading the registers located in the cpu memory map at 0x2000-0x2007
     pub fn read_register_by_index(&mut self, index: u8) -> u8 {
-        match index {
-            // ppuctrl
-            0 => 0,
-            // ppumask
-            1 => self.ppumask,
-            // ppustatus
-            2 => {
-                // clear low bits toggle
-                self.low_bits_toggle = false;
-                let status = self.ppustatus;
-                // clear vblank flag
-                self.set_vblank(false);
-                status
-            }
-            // oamaddr
-            3 => 0,
-            // oamdata
+        // NOTE: to help readability, this function and a few others on 'Ppu' are
+        // split into smaller subfunctions. instead of factoring these subfunctions
+        // out into the outer 'Ppu' impl block, i decided to keep them nested, so as
+        // to not give the impression that they are needed anywhere else
+
+        {
+            return match index {
+                // ppuctrl
+                0 => 0,
+                // ppumask
+                1 => self.ppumask,
+                // ppustatus
+                2 => read_ppustatus(self),
+                // oamaddr
+                3 => 0,
+                // oamdata
+                4 => read_oamdata(self),
+                // ppuscroll | ppuaddr
+                5 | 6 => 0, // FIXME: should these reset the low bits toggle as well??
+                // ppudata
+                7 => read_ppudata(self),
+                _ => 0,
+            };
+        }
+
+        fn read_ppustatus(ppu: &mut Ppu) -> u8 {
+            // clear low bits toggle
+            ppu.low_bits_toggle = false;
+            let status = ppu.ppustatus;
+            // clear vblank flag
+            ppu.set_vblank(false);
+            status
+        }
+
+        fn read_oamdata(ppu: &mut Ppu) -> u8 {
             // TODO: special values when rendering
-            4 => unsafe { *self.oam.bytes.get_unchecked(self.oamaddr as usize) },
-            // ppuscroll | ppuaddr
-            5 | 6 => 0, // FIXME: should these reset the low bits toggle as well??
-            // ppudata
-            7 => {
-                let val = if (self.current_vram_addr.inner >> 8) == 0b111111 {
-                    // read directly from vram if address is in range
-                    // 0x3f00-0x3ff (palette ram)
-                    let val = self.memory.read(self.current_vram_addr.get_addr());
-                    // store value at mirrored address (down to 0x2f00-0x2fff)
-                    // in read buffer
-                    self.ppudata_read_buffer = self
-                        .memory
-                        .read(self.current_vram_addr.get_addr() & !0b01000000000000);
-                    val
-                } else {
-                    // read from read buffer if address is in range 0-0x0x3eff
-                    let val = self.ppudata_read_buffer;
-                    self.ppudata_read_buffer = self.memory.read(self.current_vram_addr.get_addr());
-                    val
-                };
+            unsafe { *ppu.oam.bytes.get_unchecked(ppu.oamaddr as usize) }
+        }
 
-                if !self.is_currently_rendering() {
-                    // if not currently rendering, increment normally
-                    self.increment_vram_addr();
-                } else {
-                    // if currently rendering, increment the bits of the address
-                    // corresponding to the y position and coarse x position (this
-                    // is afaik unintended behavior)
-                    self.increment_vram_addr_coarse_x();
-                    self.increment_vram_addr_y();
-                }
-
+        fn read_ppudata(ppu: &mut Ppu) -> u8 {
+            let val = if (ppu.current_vram_addr.inner >> 8) == 0b111111 {
+                // read directly from vram if address is in range
+                // 0x3f00-0x3ff (palette ram)
+                let val = ppu.memory.read(ppu.current_vram_addr.get_addr());
+                // store value at mirrored address (down to 0x2f00-0x2fff)
+                // in read buffer
+                ppu.ppudata_read_buffer = ppu
+                    .memory
+                    .read(ppu.current_vram_addr.get_addr() & !0b01000000000000);
                 val
+            } else {
+                // read from read buffer if address is in range 0-0x0x3eff
+                let val = ppu.ppudata_read_buffer;
+                ppu.ppudata_read_buffer = ppu.memory.read(ppu.current_vram_addr.get_addr());
+                val
+            };
+
+            if !ppu.is_currently_rendering() {
+                // if not currently rendering, increment normally
+                ppu.increment_vram_addr();
+            } else {
+                // if currently rendering, increment the bits of the address
+                // corresponding to the y position and coarse x position (this
+                // is afaik unintended behavior)
+                ppu.increment_vram_addr_coarse_x();
+                ppu.increment_vram_addr_y();
             }
-            _ => 0,
+
+            val
         }
     }
 
+    // used for writing to the registers located in the cpu memory map at 0x2000-0x2007
     pub fn write_register_by_index(&mut self, index: u8, val: u8, cpu: &mut cpu::Cpu) {
-        // NOTE: to help readability, this function is split into smaller subfunctions.
-        // instead of factoring these subfunctions out into the outer 'Ppu' impl block,
-        // i decided to keep them inside of 'write_register_by_index()', so as to not
-        // give the impression that they are needed anywhere else
-
         {
             match index {
                 // ppuctrl
@@ -312,6 +323,7 @@ impl<'a> Ppu<'a> {
         }
     }
 
+    // used for writing to 'oamdma' (0x4014 in the cpu memory map)
     pub fn write_oamdma(&mut self, val: u8, cpu: &mut cpu::Cpu) {
         self.set_ppustatus_low_bits(val);
         // if 'val' is $XX, start address should be $XX00
@@ -336,79 +348,6 @@ impl<'a> Ppu<'a> {
 
         // in total, dma should take 513 cpu cycles (or 514 if on an odd cpu cycle)
         cpu.cycle_count += 1 + (cpu.cycle_count % 2);
-    }
-
-    // increments 'current_vram_addr' by 1 or 32, depending on the increment mode bit in ppuctrl
-    fn increment_vram_addr(&mut self) {
-        let increment = if self.get_vram_addr_increment() {
-            32
-        } else {
-            1
-        };
-
-        self.current_vram_addr.inner = (self.current_vram_addr.inner + increment) & 0x3fff;
-    }
-
-    // increments the fine y scroll bits in 'current_vram_addr',
-    // potentially overflowing into the coarse y scroll bits
-    fn increment_vram_addr_y(&mut self) {
-        if self.current_vram_addr.get_fine_y() == 0b111 {
-            // clear fine y bits if fine y bits = max
-            self.current_vram_addr.set_fine_y(0);
-
-            if self.current_vram_addr.get_coarse_y() == 29 {
-                // if carry from fine y bits = 1 and coarse y bits
-                // = 29 (there are 29 rows of tiles in a frame),
-                // clear all coarse y bits and overflow into bit
-                // 11 to move to next nametable vertically
-                self.current_vram_addr.set_coarse_y(0);
-                self.current_vram_addr.inner ^= 0b100000000000;
-            } else if self.current_vram_addr.get_coarse_y() == 0b11111 {
-                // if coarse y = maximum, wrap the value without overflowing into
-                // bit 11 and switching nametables (unintended behavior afaik)
-                self.current_vram_addr.set_coarse_y(0);
-            } else {
-                // increment coarse y bits of 'current_vram_addr'
-                self.current_vram_addr.inner += 1 << 5;
-            }
-        } else {
-            // increment fine y bits normally
-            self.current_vram_addr.inner += 1 << 12;
-        }
-    }
-
-    // increments the coarse x scroll/position bits in 'current_vram_addr'
-    // (corresponds to moving one tile to the right in the current nametable)
-    fn increment_vram_addr_coarse_x(&mut self) {
-        if self.current_vram_addr.get_coarse_x() == 0b11111 {
-            // if the coarse x component of 'current_vram_addr' is the highest
-            // value it can be (31), clear all coarse x bits and overflow
-            // into bit 10 (move to next nametable horizontally)
-            self.current_vram_addr.set_coarse_x(0);
-            self.current_vram_addr.inner ^= 0b10000000000;
-        } else {
-            // if not highest value, increment normally
-            self.current_vram_addr.inner += 1;
-        }
-    }
-
-    // transfers the coarse and fine y bits from 'temp_vram_addr' to 'current_vram_addr'
-    fn transfer_temp_y(&mut self) {
-        let temp_coarse_y = self.temp_vram_addr.get_coarse_y();
-        self.current_vram_addr.set_coarse_y(temp_coarse_y);
-
-        let temp_fine_y = self.temp_vram_addr.get_fine_y();
-        self.current_vram_addr.set_fine_y(temp_fine_y);
-    }
-
-    // transfers the coarse x and nametable select bits from 'temp_vram_addr'
-    // to 'current_vram_addr'
-    fn transfer_temp_x_and_nt_select(&mut self) {
-        let temp_nametable = self.temp_vram_addr.get_nametable_select();
-        self.current_vram_addr.set_nametable_select(temp_nametable);
-
-        let temp_coarse_x = self.temp_vram_addr.get_coarse_x();
-        self.current_vram_addr.set_coarse_x(temp_coarse_x);
     }
 
     // catches the ppu up to the cpu (approximately)
@@ -441,6 +380,8 @@ impl<'a> Ppu<'a> {
         PpuState::MidFrame
     }
 
+    // steps the ppu for a scanline worth of cycles. only
+    // used internally by the ppu, in 'Ppu.catch_up()'
     fn step_scanline(&mut self, cpu: &mut cpu::Cpu) -> PpuState {
         match self.current_scanline {
             // pre-render scanline
@@ -472,7 +413,7 @@ impl<'a> Ppu<'a> {
                         self.increment_vram_addr_coarse_x();
                     }
 
-                    assert_eq!(self.current_scanline_dot, 257);
+                    debug_assert_eq!(self.current_scanline_dot, 257);
 
                     // increment fine y
                     self.increment_vram_addr_y();
@@ -535,8 +476,9 @@ impl<'a> Ppu<'a> {
         PpuState::MidFrame
     }
 
-    // steps the ppu for one tile worth of cycles (1-8 cycles)
-    pub fn step(&mut self, cpu: &mut cpu::Cpu) -> PpuState {
+    // steps the ppu for one tile worth of cycles (1-8 cycles).
+    // only used internally by the ppu, in 'Ppu.catch_up()'
+    fn step(&mut self, cpu: &mut cpu::Cpu) -> PpuState {
         // pre-TODO: figure out what to start ppu vs cpu
         // cycle counts at (what distance between ticks)
 
@@ -714,37 +656,12 @@ impl<'a> Ppu<'a> {
         PpuState::MidFrame
     }
 
-    fn get_color_from_index(&self, mut index: u8) -> u32 {
-        if self.is_greyscale_enabled() {
-            index &= 0x30;
-        } else {
-            index &= 0x3f;
-        }
-
-        let emphasis = self.ppumask >> 5;
-
-        unsafe {
-            u32::from_le_bytes([
-                palette::COLORS
-                    .get_unchecked(emphasis as usize)
-                    .get_unchecked(index as usize)[0],
-                palette::COLORS
-                    .get_unchecked(emphasis as usize)
-                    .get_unchecked(index as usize)[1],
-                palette::COLORS
-                    .get_unchecked(emphasis as usize)
-                    .get_unchecked(index as usize)[2],
-                1,
-            ])
-        }
-    }
-
     // draws a horizontal line of pixels starting at 'current_scanline_dot'
     // - 1 and stopping at the end of the current tile in the background
     // nametable (or the end of the screen, if the current tile happens to
     // poke outside of it). returns how many pixels were drawn
     fn draw_tile_row(&mut self) -> u8 {
-        // NOTE: as with 'write_register_by_index()', this functions
+        // NOTE: as with some other functions on 'Ppu', 'draw_tile_row()'
         // is split into smaller subfunctions to help readability
 
         {
@@ -796,7 +713,7 @@ impl<'a> Ppu<'a> {
                     framebuffer[screen_y * 256 + screen_x] = color;
 
                     log!("(x: {}, i: {}), ", ppu.current_scanline_dot - 1, i);
-                    ppu.current_scanline_dot = ppu.current_scanline_dot.wrapping_add(1);
+                    ppu.current_scanline_dot += 1;
                 })
                 // return amt of pixels drawn
                 .count() as u8
@@ -804,7 +721,7 @@ impl<'a> Ppu<'a> {
 
         fn get_current_tile(ppu: &mut Ppu) -> [u8; 16] {
             // get tile index from nametable using 'current_vram_addr' + 0x2000
-            let addr = (ppu.current_vram_addr.inner & 0xfff) | 0x2000;
+            let addr = ppu.current_vram_addr.get_addr() | 0x2000;
             let tile_index = ppu.memory.read(addr);
             let background_table_addr = ppu.get_background_pattern_table_addr() as usize;
             let background_table_ptr = ppu.memory.get_pattern_tables();
@@ -880,7 +797,105 @@ impl<'a> Ppu<'a> {
         }
     }
 
-    // sets the low 5 bits of 'ppustatus' equal to the lwo 5 bits of 'val'
+    fn get_color_from_index(&self, mut index: u8) -> u32 {
+        if self.is_greyscale_enabled() {
+            index &= 0x30;
+        } else {
+            index &= 0x3f;
+        }
+
+        let emphasis = self.ppumask >> 5;
+
+        unsafe {
+            u32::from_le_bytes([
+                palette::COLORS
+                    .get_unchecked(emphasis as usize)
+                    .get_unchecked(index as usize)[0],
+                palette::COLORS
+                    .get_unchecked(emphasis as usize)
+                    .get_unchecked(index as usize)[1],
+                palette::COLORS
+                    .get_unchecked(emphasis as usize)
+                    .get_unchecked(index as usize)[2],
+                1,
+            ])
+        }
+    }
+
+    // increments 'current_vram_addr' by 1 or 32, depending on the increment mode bit in ppuctrl
+    fn increment_vram_addr(&mut self) {
+        let increment = if self.get_vram_addr_increment() {
+            32
+        } else {
+            1
+        };
+
+        self.current_vram_addr.inner = (self.current_vram_addr.inner + increment) & 0x3fff;
+    }
+
+    // increments the fine y scroll bits in 'current_vram_addr',
+    // potentially overflowing into the coarse y scroll bits
+    fn increment_vram_addr_y(&mut self) {
+        if self.current_vram_addr.get_fine_y() == 0b111 {
+            // clear fine y bits if fine y bits = max
+            self.current_vram_addr.set_fine_y(0);
+
+            if self.current_vram_addr.get_coarse_y() == 29 {
+                // if carry from fine y bits = 1 and coarse y bits
+                // = 29 (there are 29 rows of tiles in a frame),
+                // clear all coarse y bits and overflow into bit
+                // 11 to move to next nametable vertically
+                self.current_vram_addr.set_coarse_y(0);
+                self.current_vram_addr.inner ^= 0b100000000000;
+            } else if self.current_vram_addr.get_coarse_y() == 0b11111 {
+                // if coarse y = maximum, wrap the value without overflowing into
+                // bit 11 and switching nametables (unintended behavior afaik)
+                self.current_vram_addr.set_coarse_y(0);
+            } else {
+                // increment coarse y bits of 'current_vram_addr'
+                self.current_vram_addr.inner += 1 << 5;
+            }
+        } else {
+            // increment fine y bits normally
+            self.current_vram_addr.inner += 1 << 12;
+        }
+    }
+
+    // increments the coarse x scroll/position bits in 'current_vram_addr'
+    // (corresponds to moving one tile to the right in the current nametable)
+    fn increment_vram_addr_coarse_x(&mut self) {
+        if self.current_vram_addr.get_coarse_x() == 0b11111 {
+            // if the coarse x component of 'current_vram_addr' is the highest
+            // value it can be (31), clear all coarse x bits and overflow
+            // into bit 10 (move to next nametable horizontally)
+            self.current_vram_addr.set_coarse_x(0);
+            self.current_vram_addr.inner ^= 0b10000000000;
+        } else {
+            // if not highest value, increment normally
+            self.current_vram_addr.inner += 1;
+        }
+    }
+
+    // transfers the coarse and fine y bits from 'temp_vram_addr' to 'current_vram_addr'
+    fn transfer_temp_y(&mut self) {
+        let temp_coarse_y = self.temp_vram_addr.get_coarse_y();
+        self.current_vram_addr.set_coarse_y(temp_coarse_y);
+
+        let temp_fine_y = self.temp_vram_addr.get_fine_y();
+        self.current_vram_addr.set_fine_y(temp_fine_y);
+    }
+
+    // transfers the coarse x and nametable select bits from 'temp_vram_addr'
+    // to 'current_vram_addr'
+    fn transfer_temp_x_and_nt_select(&mut self) {
+        let temp_nametable = self.temp_vram_addr.get_nametable_select();
+        self.current_vram_addr.set_nametable_select(temp_nametable);
+
+        let temp_coarse_x = self.temp_vram_addr.get_coarse_x();
+        self.current_vram_addr.set_coarse_x(temp_coarse_x);
+    }
+
+    // sets the low 5 bits of 'ppustatus' equal to the low 5 bits of 'val'
     fn set_ppustatus_low_bits(&mut self, val: u8) {
         self.ppustatus &= !0b11111;
         self.ppustatus |= val & 0b11111;
