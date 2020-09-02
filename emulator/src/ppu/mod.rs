@@ -409,7 +409,8 @@ impl<'a> Ppu<'a> {
                     for _ in 0..32 {
                         //  OPTIMIZE: make separate drawing
                         // algorithm for drawing entire scanlines
-                        self.draw_tile_row();
+                        let pixels_drawn = self.draw_tile_row();
+                        self.current_scanline_dot += pixels_drawn as u16;
                         self.increment_vram_addr_coarse_x();
                     }
 
@@ -548,11 +549,11 @@ impl<'a> Ppu<'a> {
                         self.draw_tile_row_backdrop();
                         self.cycle_count += 8;
                     } else {
-                        // draw one row of a tile (or less, if the current tile
-                        // straddles the screen boundary). this increments
-                        // 'current_scanline_dot', and 'current_scanline'
+                        // draw one row of a tile (or less, if the current
+                        // tile straddles the screen boundary).
                         let pixels_drawn = self.draw_tile_row();
                         self.cycle_count += pixels_drawn as u32;
+                        self.current_scanline_dot += pixels_drawn as u16;
 
                         // if last pixel drawn was 256th (end of scanline)
                         if self.current_scanline_dot == 257 {
@@ -686,34 +687,44 @@ impl<'a> Ppu<'a> {
                 // this is the last tile in the scanline), start drawing
                 // at offset 0 from current tile and stop at end of screen
                 let screen_x = (ppu.current_scanline_dot - 1) as u8;
-                0..(8 - (screen_x % 8))
+                std::ops::Range {
+                    start: 0,
+                    end: 8 - (screen_x % 8),
+                }
             } else if horizontal_tile_count == 0 {
                 // if on first tile, start drawing pixel at 'fine_x_scroll'
-                ppu.fine_x_scroll..8
+                std::ops::Range {
+                    start: ppu.fine_x_scroll,
+                    end: 8,
+                }
             } else {
                 // if on any other tile, draw all pixels in it
-                0..8
+                std::ops::Range { start: 0, end: 8 }
             };
 
             log!("tile: {}, ", horizontal_tile_count);
 
             pixels_range
                 .into_iter()
-                .map(|i| {
-                    let color_index_low = (bitplane_low >> (7 - i)) & 1;
-                    let color_index_high = ((bitplane_high >> (7 - i)) << 1) & 2;
+                .enumerate()
+                .map(|(i, tile_offset)| {
+                    let color_index_low = (bitplane_low >> (7 - tile_offset)) & 1;
+                    let color_index_high = ((bitplane_high >> (7 - tile_offset)) << 1) & 2;
                     let color_index = color_index_low | color_index_high;
 
                     let color = get_pixel_color(ppu, palette_index, color_index);
 
-                    let screen_x = (ppu.current_scanline_dot - 1) as usize;
+                    let screen_x = (ppu.current_scanline_dot - 1) as usize + i;
                     let screen_y = ppu.current_scanline as usize;
                     let framebuffer = util::pixels_to_u32(&mut ppu.renderer);
                     // TODO: OPTIMIZE: unchecked indexing
                     framebuffer[screen_y * 256 + screen_x] = color;
 
-                    log!("(x: {}, i: {}), ", ppu.current_scanline_dot - 1, i);
-                    ppu.current_scanline_dot += 1;
+                    log!(
+                        "(x: {}, tile_offset: {}), ",
+                        ppu.current_scanline_dot - 1 + i as u16,
+                        tile_offset
+                    );
                 })
                 // return amt of pixels drawn
                 .count() as u8
