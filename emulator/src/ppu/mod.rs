@@ -543,8 +543,10 @@ impl<'a> Ppu<'a> {
                 // idle cycle
                 0 => {
                     ppu.current_scanline_dot += 1;
-                    // don't increment cycles on odd frames (idle cycle is skipped)
-                    ppu.cycle_count += ppu.even_frame as u32;
+                    // if rendering, don't increment cycles on odd frames (idle cycle is skipped)
+                    if ppu.is_sprites_enable() || ppu.is_background_enable() {
+                        ppu.cycle_count += ppu.even_frame as u32;
+                    }
                 }
                 1 => {
                     // clear vblank flag
