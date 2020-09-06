@@ -383,278 +383,321 @@ impl<'a> Ppu<'a> {
     // steps the ppu for a scanline worth of cycles. only
     // used internally by the ppu, in 'Ppu.catch_up()'
     fn step_scanline(&mut self, cpu: &mut cpu::Cpu) -> PpuState {
-        match self.current_scanline {
-            // pre-render scanline
-            -1 => {
-                self.set_vblank(false);
-
-                if self.is_sprites_enable() || self.is_background_enable() {
-                    self.transfer_temp_x_and_nt_select();
-                    self.transfer_temp_y();
-                }
-
-                self.current_scanline = 0;
-                self.cycle_count += 340 + self.even_frame as u32;
-            }
-            // visible scanlines
-            0..=239 => {
-                self.current_scanline_dot = 1;
-
-                // if background rendering is disabled
-                if !self.is_background_enable() {
-                    for _ in 0..32 {
-                        self.draw_tile_row_backdrop();
-                    }
-                } else {
-                    for _ in 0..32 {
-                        //  OPTIMIZE: make separate drawing
-                        // algorithm for drawing entire scanlines
-                        let pixels_drawn = self.draw_tile_row();
-                        self.current_scanline_dot += pixels_drawn as u16;
-                        self.increment_vram_addr_coarse_x();
-                    }
-
-                    debug_assert_eq!(self.current_scanline_dot, 257);
-
-                    // increment fine y
-                    self.increment_vram_addr_y();
-                }
-
-                if self.is_sprites_enable() || self.is_background_enable() {
-                    self.transfer_temp_x_and_nt_select();
-                }
-
-                self.current_scanline += 1;
-                self.cycle_count += 341;
-                self.current_scanline_dot = 0;
-            }
-            // idle scanline
-            240 => {
-                if self.is_sprites_enable() || self.is_background_enable() {
-                    self.transfer_temp_x_and_nt_select();
-                }
-
-                self.current_scanline = 241;
-                self.cycle_count += 341;
-            }
-            // first vblank scanline
-            241 => {
-                self.set_vblank(true);
-                if self.is_vblank_nmi_enabled() {
-                    cpu.nmi = true;
-                }
-
-                if self.is_sprites_enable() || self.is_background_enable() {
-                    self.transfer_temp_x_and_nt_select();
-                }
-
-                self.current_scanline = 242;
-                self.cycle_count += 341;
-            }
-            // vblank scanlines
-            242..=259 => {
-                if self.is_sprites_enable() || self.is_background_enable() {
-                    self.transfer_temp_x_and_nt_select();
-                }
-
-                self.current_scanline += 1;
-                self.cycle_count += 341;
-            }
-            // last vblank scanline
-            260 => {
-                if self.is_sprites_enable() || self.is_background_enable() {
-                    self.transfer_temp_x_and_nt_select();
-                    self.even_frame = !self.even_frame;
-                }
-
-                self.current_scanline = -1;
-                self.cycle_count += 341;
-                return PpuState::FrameDone;
-            }
-            _ => (),
+        // NOTE: this function is split into multiple subfunctions
+        {
+            return match self.current_scanline {
+                // pre-render scanline
+                -1 => step_pre_render_line_full(self),
+                // visible scanlines
+                0..=239 => step_visible_line_full(self),
+                // idle scanline
+                240 => step_idle_line_full(self),
+                // vblank 'scanlines'
+                241 => step_first_vblank_line_full(self, cpu),
+                242..=259 => step_vblank_line_full(self),
+                260 => step_last_vblank_line_full(self),
+                _ => PpuState::MidFrame,
+            };
         }
 
-        PpuState::MidFrame
+        fn step_pre_render_line_full(ppu: &mut Ppu) -> PpuState {
+            ppu.set_vblank(false);
+
+            if ppu.is_sprites_enable() || ppu.is_background_enable() {
+                ppu.transfer_temp_x_and_nt_select();
+                ppu.transfer_temp_y();
+            }
+
+            ppu.current_scanline = 0;
+            ppu.cycle_count += 340 + ppu.even_frame as u32;
+
+            PpuState::MidFrame
+        }
+
+        fn step_visible_line_full(ppu: &mut Ppu) -> PpuState {
+            ppu.current_scanline_dot = 1;
+
+            // if background rendering is disabled
+            if !ppu.is_background_enable() {
+                for _ in 0..32 {
+                    ppu.draw_tile_row_backdrop();
+                }
+            } else {
+                for _ in 0..32 {
+                    //  OPTIMIZE: make separate drawing
+                    // algorithm for drawing entire scanlines
+                    let pixels_drawn = ppu.draw_tile_row();
+                    ppu.current_scanline_dot += pixels_drawn as u16;
+                    ppu.increment_vram_addr_coarse_x();
+                }
+
+                debug_assert_eq!(ppu.current_scanline_dot, 257);
+
+                // increment fine y
+                ppu.increment_vram_addr_y();
+            }
+
+            if ppu.is_sprites_enable() || ppu.is_background_enable() {
+                ppu.transfer_temp_x_and_nt_select();
+            }
+
+            ppu.current_scanline += 1;
+            ppu.cycle_count += 341;
+            ppu.current_scanline_dot = 0;
+
+            PpuState::MidFrame
+        }
+
+        fn step_idle_line_full(ppu: &mut Ppu) -> PpuState {
+            if ppu.is_sprites_enable() || ppu.is_background_enable() {
+                ppu.transfer_temp_x_and_nt_select();
+            }
+
+            ppu.current_scanline = 241;
+            ppu.cycle_count += 341;
+
+            PpuState::MidFrame
+        }
+
+        fn step_first_vblank_line_full(ppu: &mut Ppu, cpu: &mut cpu::Cpu) -> PpuState {
+            ppu.set_vblank(true);
+            if ppu.is_vblank_nmi_enabled() {
+                cpu.nmi = true;
+            }
+
+            if ppu.is_sprites_enable() || ppu.is_background_enable() {
+                ppu.transfer_temp_x_and_nt_select();
+            }
+
+            ppu.current_scanline = 242;
+            ppu.cycle_count += 341;
+
+            PpuState::MidFrame
+        }
+
+        fn step_vblank_line_full(ppu: &mut Ppu) -> PpuState {
+            if ppu.is_sprites_enable() || ppu.is_background_enable() {
+                ppu.transfer_temp_x_and_nt_select();
+            }
+
+            ppu.current_scanline += 1;
+            ppu.cycle_count += 341;
+
+            PpuState::MidFrame
+        }
+
+        fn step_last_vblank_line_full(ppu: &mut Ppu) -> PpuState {
+            if ppu.is_sprites_enable() || ppu.is_background_enable() {
+                ppu.transfer_temp_x_and_nt_select();
+                ppu.even_frame = !ppu.even_frame;
+            }
+
+            ppu.current_scanline = -1;
+            ppu.cycle_count += 341;
+
+            PpuState::FrameDone
+        }
     }
 
     // steps the ppu for one tile worth of cycles (1-8 cycles).
     // only used internally by the ppu, in 'Ppu.catch_up()'
     fn step(&mut self, cpu: &mut cpu::Cpu) -> PpuState {
-        // pre-TODO: figure out what to start ppu vs cpu
-        // cycle counts at (what distance between ticks)
+        // NOTE: this function is split into multiple subfunctions
+        {
+            return match self.current_scanline {
+                // pre-render scanline
+                -1 => step_pre_render_line(self),
+                // visible scanlines
+                0..=239 => step_visible_line(self),
+                // idle scanline
+                240 => step_idle_line(self),
+                // vblank 'scanlines'
+                241..=260 => step_vblank_line(self, cpu),
+                _ => PpuState::MidFrame,
+            };
+        }
 
-        // TODO: match on tuple of scanline and current dot?
-        match self.current_scanline {
-            // pre-render scanline
-            -1 => match self.current_scanline_dot {
+        fn step_pre_render_line(ppu: &mut Ppu) -> PpuState {
+            match ppu.current_scanline_dot {
                 // idle cycle
                 0 => {
-                    self.current_scanline_dot += 1;
+                    ppu.current_scanline_dot += 1;
                     // don't increment cycles on odd frames (idle cycle is skipped)
-                    self.cycle_count += self.even_frame as u32;
+                    ppu.cycle_count += ppu.even_frame as u32;
                 }
                 1 => {
                     // clear vblank flag
-                    self.set_vblank(false);
+                    ppu.set_vblank(false);
 
-                    self.cycle_count += 7;
-                    self.current_scanline_dot += 7;
+                    ppu.cycle_count += 7;
+                    ppu.current_scanline_dot += 7;
                 }
                 2..=255 => {
-                    self.cycle_count += 8;
-                    self.current_scanline_dot += 8;
+                    ppu.cycle_count += 8;
+                    ppu.current_scanline_dot += 8;
                 }
                 256 => {
-                    if self.is_sprites_enable() || self.is_background_enable() {
-                        self.transfer_temp_x_and_nt_select();
+                    if ppu.is_sprites_enable() || ppu.is_background_enable() {
+                        ppu.transfer_temp_x_and_nt_select();
                     }
 
-                    self.cycle_count += 8;
-                    self.current_scanline_dot += 8;
+                    ppu.cycle_count += 8;
+                    ppu.current_scanline_dot += 8;
                 }
                 257..=279 => {
-                    self.cycle_count += 8;
-                    self.current_scanline_dot += 8;
+                    ppu.cycle_count += 8;
+                    ppu.current_scanline_dot += 8;
                 }
                 280 => {
-                    if self.is_sprites_enable() || self.is_background_enable() {
-                        self.transfer_temp_y();
+                    if ppu.is_sprites_enable() || ppu.is_background_enable() {
+                        ppu.transfer_temp_y();
                     }
 
-                    self.cycle_count += 8;
-                    self.current_scanline_dot += 8;
+                    ppu.cycle_count += 8;
+                    ppu.current_scanline_dot += 8;
                 }
                 281..=335 => {
-                    self.cycle_count += 8;
-                    self.current_scanline_dot += 8;
+                    ppu.cycle_count += 8;
+                    ppu.current_scanline_dot += 8;
                 }
                 336 => {
-                    self.cycle_count += 5;
-                    self.current_scanline_dot = 0;
-                    self.current_scanline = 0;
+                    ppu.cycle_count += 5;
+                    ppu.current_scanline_dot = 0;
+                    ppu.current_scanline = 0;
                 }
                 _ => (),
-            },
-            // visible scanlines
-            0..=239 => match self.current_scanline_dot {
+            }
+
+            PpuState::MidFrame
+        }
+
+        fn step_visible_line(ppu: &mut Ppu) -> PpuState {
+            match ppu.current_scanline_dot {
                 0 => {
-                    self.current_scanline_dot += 1;
-                    self.cycle_count += 1;
+                    ppu.current_scanline_dot += 1;
+                    ppu.cycle_count += 1;
                 }
                 1..=256 => {
                     // if background rendering is disabled
-                    if !self.is_background_enable() {
+                    if !ppu.is_background_enable() {
                         // NOTE: if the background is disabled mid-scanline,
                         // there will be weird artifacts
-                        self.draw_tile_row_backdrop();
-                        self.cycle_count += 8;
+                        ppu.draw_tile_row_backdrop();
+                        ppu.cycle_count += 8;
                     } else {
                         // draw one row of a tile (or less, if the current
                         // tile straddles the screen boundary).
-                        let pixels_drawn = self.draw_tile_row();
-                        self.cycle_count += pixels_drawn as u32;
-                        self.current_scanline_dot += pixels_drawn as u16;
+                        let pixels_drawn = ppu.draw_tile_row();
+                        ppu.cycle_count += pixels_drawn as u32;
+                        ppu.current_scanline_dot += pixels_drawn as u16;
 
                         // if last pixel drawn was 256th (end of scanline)
-                        if self.current_scanline_dot == 257 {
+                        if ppu.current_scanline_dot == 257 {
                             // increment fine y
-                            self.increment_vram_addr_y();
+                            ppu.increment_vram_addr_y();
                         } else {
-                            self.increment_vram_addr_coarse_x();
+                            ppu.increment_vram_addr_coarse_x();
                         }
                     }
                 }
                 257 => {
-                    if self.is_sprites_enable() || self.is_background_enable() {
-                        self.transfer_temp_x_and_nt_select();
+                    if ppu.is_sprites_enable() || ppu.is_background_enable() {
+                        ppu.transfer_temp_x_and_nt_select();
                     }
 
-                    self.cycle_count += 8;
-                    self.current_scanline_dot += 8;
+                    ppu.cycle_count += 8;
+                    ppu.current_scanline_dot += 8;
                 }
                 258..=336 => {
-                    self.cycle_count += 8;
-                    self.current_scanline_dot += 8;
+                    ppu.cycle_count += 8;
+                    ppu.current_scanline_dot += 8;
                 }
                 337 => {
-                    self.cycle_count += 4;
-                    self.current_scanline_dot = 0;
-                    self.current_scanline += 1;
+                    ppu.cycle_count += 4;
+                    ppu.current_scanline_dot = 0;
+                    ppu.current_scanline += 1;
                 }
                 _ => (),
-            },
-            // idle scanline
-            240 => match self.current_scanline_dot {
+            }
+
+            PpuState::MidFrame
+        }
+
+        fn step_idle_line(ppu: &mut Ppu) -> PpuState {
+            match ppu.current_scanline_dot {
                 256 => {
-                    if self.is_sprites_enable() || self.is_background_enable() {
-                        self.transfer_temp_x_and_nt_select();
+                    if ppu.is_sprites_enable() || ppu.is_background_enable() {
+                        ppu.transfer_temp_x_and_nt_select();
                     }
 
-                    self.cycle_count += 8;
-                    self.current_scanline_dot += 8;
+                    ppu.cycle_count += 8;
+                    ppu.current_scanline_dot += 8;
                 }
                 336 => {
-                    self.cycle_count += 5;
-                    self.current_scanline_dot = 0;
-                    self.current_scanline += 1;
+                    ppu.cycle_count += 5;
+                    ppu.current_scanline_dot = 0;
+                    ppu.current_scanline += 1;
                 }
                 _ => {
-                    self.cycle_count += 8;
-                    self.current_scanline_dot += 8;
+                    ppu.cycle_count += 8;
+                    ppu.current_scanline_dot += 8;
                 }
-            },
-            // vblank 'scanlines'
-            241..=260 => match self.current_scanline_dot {
+            }
+
+            PpuState::MidFrame
+        }
+
+        fn step_vblank_line(ppu: &mut Ppu, cpu: &mut cpu::Cpu) -> PpuState {
+            match ppu.current_scanline_dot {
                 0 => {
-                    self.cycle_count += 1;
-                    self.current_scanline_dot += 1;
+                    ppu.cycle_count += 1;
+                    ppu.current_scanline_dot += 1;
                 }
                 1 => {
-                    if self.current_scanline == 241 {
-                        self.set_vblank(true);
-                        if self.is_vblank_nmi_enabled() {
+                    if ppu.current_scanline == 241 {
+                        ppu.set_vblank(true);
+                        if ppu.is_vblank_nmi_enabled() {
                             cpu.nmi = true;
                         }
                     }
 
-                    self.cycle_count += 7;
-                    self.current_scanline_dot += 7;
+                    ppu.cycle_count += 7;
+                    ppu.current_scanline_dot += 7;
                 }
                 256 => {
-                    if self.is_sprites_enable() || self.is_background_enable() {
-                        self.transfer_temp_x_and_nt_select();
+                    if ppu.is_sprites_enable() || ppu.is_background_enable() {
+                        ppu.transfer_temp_x_and_nt_select();
                     }
 
-                    self.cycle_count += 8;
-                    self.current_scanline_dot += 8;
+                    ppu.cycle_count += 8;
+                    ppu.current_scanline_dot += 8;
                 }
                 336 => {
-                    self.cycle_count += 5;
-                    self.current_scanline_dot = 0;
+                    ppu.cycle_count += 5;
+                    ppu.current_scanline_dot = 0;
 
-                    if self.current_scanline == 260 {
+                    if ppu.current_scanline == 260 {
                         // reset scanline count
-                        self.current_scanline = -1;
+                        ppu.current_scanline = -1;
 
                         // toggle 'even_frame' if rendering is enabled
-                        if self.is_sprites_enable() || self.is_background_enable() {
-                            self.even_frame = !self.even_frame;
+                        if ppu.is_sprites_enable() || ppu.is_background_enable() {
+                            ppu.even_frame = !ppu.even_frame;
                         }
 
                         return PpuState::FrameDone;
                     } else {
-                        self.current_scanline += 1;
+                        ppu.current_scanline += 1;
                     }
                 }
                 _ => {
-                    self.cycle_count += 8;
-                    self.current_scanline_dot += 8;
+                    ppu.cycle_count += 8;
+                    ppu.current_scanline_dot += 8;
                 }
-            },
-            _ => (),
-        }
+            }
 
-        PpuState::MidFrame
+            PpuState::MidFrame
+        }
     }
 
     // draws a horizontal line of pixels starting at 'current_scanline_dot'
