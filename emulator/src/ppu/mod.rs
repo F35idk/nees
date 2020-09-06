@@ -60,12 +60,6 @@ pub enum PpuState {
     FrameDone,
 }
 
-// FIXME: don't need the union (as of writing)
-union Oam {
-    entries: [OamEntry; 64],
-    bytes: [u8; 64 * 4],
-}
-
 #[derive(Copy, Clone, Default)]
 #[repr(C)]
 struct OamEntry {
@@ -73,6 +67,33 @@ struct OamEntry {
     x_coord: u8,
     tile_num: u8,
     attribute: u8,
+}
+
+struct Oam {
+    entries: [OamEntry; 64],
+}
+
+impl Oam {
+    fn as_bytes<'a>(&'a self) -> &'a [u8; 64 * 4] {
+        unsafe { std::mem::transmute(self) }
+    }
+
+    pub fn as_bytes_mut<'a>(&'a mut self) -> &'a mut [u8; 64 * 4] {
+        unsafe { std::mem::transmute(self) }
+    }
+
+    fn get_byte(&self, index: u8) -> u8 {
+        unsafe { *self.as_bytes().get_unchecked(index as usize) }
+    }
+
+    fn set_byte(&mut self, index: u8, val: u8) {
+        unsafe { *self.as_bytes_mut().get_unchecked_mut(index as usize) = val };
+    }
+
+    #[inline]
+    unsafe fn get_sprite_unchecked(&mut self, index: u8) -> OamEntry {
+        *(self.as_bytes_mut().get_unchecked_mut(index as usize) as *mut _ as *mut _)
+    }
 }
 
 #[derive(Copy, Clone)]
@@ -180,7 +201,7 @@ impl<'a> Ppu<'a> {
 
         fn read_oamdata(ppu: &mut Ppu) -> u8 {
             // TODO: special values when rendering
-            unsafe { *ppu.oam.bytes.get_unchecked(ppu.oamaddr as usize) }
+            ppu.oam.get_byte(ppu.oamaddr)
         }
 
         fn read_ppudata(ppu: &mut Ppu) -> u8 {
@@ -257,7 +278,7 @@ impl<'a> Ppu<'a> {
                 return;
             }
 
-            unsafe { *ppu.oam.bytes.get_unchecked_mut(ppu.oamaddr as usize) = val };
+            ppu.oam.set_byte(ppu.oamaddr, val);
             ppu.oamaddr = ppu.oamaddr.wrapping_add(1);
             ppu.set_ppustatus_low_bits(val);
         }
@@ -331,7 +352,7 @@ impl<'a> Ppu<'a> {
 
         for (i, addr) in ((start_addr)..=(start_addr + 0xff)).enumerate() {
             let byte = self.memory.read(addr);
-            unsafe { *self.oam.bytes.get_unchecked_mut(self.oamaddr as usize) = byte };
+            self.oam.set_byte(self.oamaddr, byte);
             self.oamaddr = self.oamaddr.wrapping_add(1);
 
             cpu.cycle_count += 2;
