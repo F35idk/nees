@@ -3,12 +3,14 @@ use super::{cpu, util};
 use super::memory_map::PpuMemoryMap;
 use super::pixel_renderer::PixelRenderer;
 
+mod oam;
 mod palette;
 pub mod test;
 
+// TODO: unpub fields
 pub struct Ppu<'a> {
     // object attribute memory
-    oam: Oam,
+    pub oam: oam::Oam,
     pub cycle_count: u32,
     pub renderer: PixelRenderer,
     // TODO: investigate how much code bloat generics would cause
@@ -16,16 +18,12 @@ pub struct Ppu<'a> {
     pub memory: &'a mut dyn PpuMemoryMap,
 
     // registers
-    // TODO: remove pub
     pub ppuctrl: u8,
     pub ppumask: u8,
-    // NOTE: first 5 bits of this register contain the least significant
-    // bits of any value previously written into a ppu register.
-    // shouldn't need to emulate this, but may be worth noting
     pub ppustatus: u8,
     // NOTE: on some ppu chips, there are bugs relating to
     // writing to oamaddr. not sure if these need to be
-    // emulated either, but it may be worth keeping in mind
+    // emulated, but it may be worth keeping in mind
     pub oamaddr: u8,
     pub ppudata_read_buffer: u8,
 
@@ -39,13 +37,13 @@ pub struct Ppu<'a> {
     // address of the current tile to be fetched and drawn. points
     // to a byte in one of the nametables in vram. referred to
     // as 'v' in the nesdev.com 'ppu scrolling' article
-    current_vram_addr: VramAddrRegister,
+    pub current_vram_addr: VramAddrRegister,
     // temporary address, same as above but  doesn't get
     // incremented while drawing. this register is shared
     // by 'ppuscroll' and 'ppuaddr' (so writes to these
     // registers go into this). referred to as 't' in the
     // nesdev.com 'ppu scrolling' article
-    temp_vram_addr: VramAddrRegister,
+    pub temp_vram_addr: VramAddrRegister,
     // low 3 bits consist of fine x scroll value
     pub fine_x_scroll: u8,
 
@@ -58,42 +56,6 @@ pub struct Ppu<'a> {
 pub enum PpuState {
     MidFrame,
     FrameDone,
-}
-
-#[derive(Copy, Clone, Default)]
-#[repr(C)]
-struct OamEntry {
-    y_coord: u8,
-    x_coord: u8,
-    tile_num: u8,
-    attribute: u8,
-}
-
-struct Oam {
-    entries: [OamEntry; 64],
-}
-
-impl Oam {
-    fn as_bytes<'a>(&'a self) -> &'a [u8; 64 * 4] {
-        unsafe { std::mem::transmute(self) }
-    }
-
-    pub fn as_bytes_mut<'a>(&'a mut self) -> &'a mut [u8; 64 * 4] {
-        unsafe { std::mem::transmute(self) }
-    }
-
-    fn get_byte(&self, index: u8) -> u8 {
-        unsafe { *self.as_bytes().get_unchecked(index as usize) }
-    }
-
-    fn set_byte(&mut self, index: u8, val: u8) {
-        unsafe { *self.as_bytes_mut().get_unchecked_mut(index as usize) = val };
-    }
-
-    #[inline]
-    unsafe fn get_sprite_unchecked(&mut self, index: u8) -> OamEntry {
-        *(self.as_bytes_mut().get_unchecked_mut(index as usize) as *mut _ as *mut _)
-    }
 }
 
 #[derive(Copy, Clone)]
@@ -142,9 +104,7 @@ impl VramAddrRegister {
 impl<'a> Ppu<'a> {
     pub fn new(renderer: PixelRenderer, memory: &'a mut dyn PpuMemoryMap) -> Self {
         Self {
-            oam: Oam {
-                entries: [OamEntry::default(); 64],
-            },
+            oam: oam::Oam::default(),
             cycle_count: 0,
             ppuctrl: 0,
             ppumask: 0,
@@ -201,7 +161,7 @@ impl<'a> Ppu<'a> {
 
         fn read_oamdata(ppu: &mut Ppu) -> u8 {
             // TODO: special values when rendering
-            ppu.oam.get_byte(ppu.oamaddr)
+            ppu.oam.primary.get_byte(ppu.oamaddr)
         }
 
         fn read_ppudata(ppu: &mut Ppu) -> u8 {
@@ -278,7 +238,7 @@ impl<'a> Ppu<'a> {
                 return;
             }
 
-            ppu.oam.set_byte(ppu.oamaddr, val);
+            ppu.oam.primary.set_byte(ppu.oamaddr, val);
             ppu.oamaddr = ppu.oamaddr.wrapping_add(1);
             ppu.set_ppustatus_low_bits(val);
         }
@@ -374,125 +334,6 @@ impl<'a> Ppu<'a> {
         PpuState::MidFrame
     }
 
-    // steps the ppu for a scanline worth of cycles. only
-    // used internally by the ppu, in 'Ppu.catch_up()'
-    fn step_scanline(&mut self, cpu: &mut cpu::Cpu) -> PpuState {
-        // NOTE: this function is split into multiple subfunctions
-        {
-            return match self.current_scanline {
-                // pre-render scanline
-                -1 => step_pre_render_line_full(self),
-                // visible scanlines
-                0..=239 => step_visible_line_full(self),
-                // idle scanline
-                240 => step_idle_line_full(self),
-                // vblank 'scanlines'
-                241 => step_first_vblank_line_full(self, cpu),
-                242..=259 => step_vblank_line_full(self),
-                260 => step_last_vblank_line_full(self),
-                _ => PpuState::MidFrame,
-            };
-        }
-
-        fn step_pre_render_line_full(ppu: &mut Ppu) -> PpuState {
-            ppu.set_vblank(false);
-
-            if ppu.is_sprites_enable() || ppu.is_background_enable() {
-                ppu.transfer_temp_x_and_nt_select();
-                ppu.transfer_temp_y();
-            }
-
-            ppu.current_scanline = 0;
-            ppu.cycle_count += 340 + ppu.even_frame as u32;
-
-            PpuState::MidFrame
-        }
-
-        fn step_visible_line_full(ppu: &mut Ppu) -> PpuState {
-            ppu.current_scanline_dot = 1;
-
-            // if background rendering is disabled
-            if !ppu.is_background_enable() {
-                for _ in 0..32 {
-                    ppu.draw_tile_row_backdrop();
-                }
-            } else {
-                for _ in 0..32 {
-                    //  OPTIMIZE: make separate drawing
-                    // algorithm for drawing entire scanlines
-                    let pixels_drawn = ppu.draw_tile_row();
-                    ppu.current_scanline_dot += pixels_drawn as u16;
-                    ppu.increment_vram_addr_coarse_x();
-                }
-
-                debug_assert_eq!(ppu.current_scanline_dot, 257);
-
-                // increment fine y
-                ppu.increment_vram_addr_y();
-            }
-
-            if ppu.is_sprites_enable() || ppu.is_background_enable() {
-                ppu.transfer_temp_x_and_nt_select();
-            }
-
-            ppu.current_scanline += 1;
-            ppu.cycle_count += 341;
-            ppu.current_scanline_dot = 0;
-
-            PpuState::MidFrame
-        }
-
-        fn step_idle_line_full(ppu: &mut Ppu) -> PpuState {
-            if ppu.is_sprites_enable() || ppu.is_background_enable() {
-                ppu.transfer_temp_x_and_nt_select();
-            }
-
-            ppu.current_scanline = 241;
-            ppu.cycle_count += 341;
-
-            PpuState::MidFrame
-        }
-
-        fn step_first_vblank_line_full(ppu: &mut Ppu, cpu: &mut cpu::Cpu) -> PpuState {
-            ppu.set_vblank(true);
-            if ppu.is_vblank_nmi_enabled() {
-                cpu.nmi = true;
-            }
-
-            if ppu.is_sprites_enable() || ppu.is_background_enable() {
-                ppu.transfer_temp_x_and_nt_select();
-            }
-
-            ppu.current_scanline = 242;
-            ppu.cycle_count += 341;
-
-            PpuState::MidFrame
-        }
-
-        fn step_vblank_line_full(ppu: &mut Ppu) -> PpuState {
-            if ppu.is_sprites_enable() || ppu.is_background_enable() {
-                ppu.transfer_temp_x_and_nt_select();
-            }
-
-            ppu.current_scanline += 1;
-            ppu.cycle_count += 341;
-
-            PpuState::MidFrame
-        }
-
-        fn step_last_vblank_line_full(ppu: &mut Ppu) -> PpuState {
-            if ppu.is_sprites_enable() || ppu.is_background_enable() {
-                ppu.transfer_temp_x_and_nt_select();
-                ppu.even_frame = !ppu.even_frame;
-            }
-
-            ppu.current_scanline = -1;
-            ppu.cycle_count += 341;
-
-            PpuState::FrameDone
-        }
-    }
-
     // steps the ppu for one tile worth of cycles (1-8 cycles).
     // only used internally by the ppu, in 'Ppu.catch_up()'
     fn step(&mut self, cpu: &mut cpu::Cpu) -> PpuState {
@@ -572,14 +413,33 @@ impl<'a> Ppu<'a> {
                 0 => {
                     ppu.current_scanline_dot += 1;
                     ppu.cycle_count += 1;
+                    // reset 'sprites_found' and 'current_sprite' before use (in dots 65-256)
+                    ppu.oam.sprites_found = 0;
+                    ppu.oam.current_sprite = 0;
                 }
                 1..=256 => {
+                    if ppu.current_scanline_dot < 65 {
+                        // TODO: clear secondary oam to 0xff (or make attempts to
+                        // access oam during this period return 0xff)
+                    } else if ppu.is_sprites_enable() || ppu.is_background_enable() {
+                        // evaluate sprite on next scanline
+                        // FIXME: too many iterations? (should be avg. 2.7 or something)
+                        for _ in 0..3 {
+                            ppu.oam.eval_next_scanline_sprite(
+                                ppu.current_scanline,
+                                ppu.current_scanline_dot,
+                            );
+                        }
+                    }
+
                     // if background rendering is disabled
                     if !ppu.is_background_enable() {
                         // NOTE: if the background is disabled mid-scanline,
                         // there will be weird artifacts
+                        // FIXME: allow drawing sprites only (no background, but with sprites on top)
                         ppu.draw_tile_row_backdrop();
                         ppu.cycle_count += 8;
+                        ppu.current_scanline_dot += 8;
                     } else {
                         // draw one row of a tile (or less, if the current
                         // tile straddles the screen boundary).
@@ -597,6 +457,20 @@ impl<'a> Ppu<'a> {
                     }
                 }
                 257 => {
+                    // set current sprite to zero so it can be re-used in 'fetch_next_scanline_sprite()'
+                    ppu.oam.current_sprite = 0;
+                    assert!(ppu.oam.sprites_found <= 8);
+
+                    // fetch sprite data for the sprites found previosuly (during dots 65-256)
+                    if ppu.is_sprites_enable() {
+                        ppu.oam.fetch_next_scanline_sprite_data(
+                            ppu.current_scanline,
+                            ppu.current_scanline_dot,
+                            ppu.get_8x8_sprite_pattern_table_addr(),
+                            ppu.memory,
+                        );
+                    }
+
                     if ppu.is_sprites_enable() || ppu.is_background_enable() {
                         ppu.transfer_temp_x_and_nt_select();
                     }
@@ -604,7 +478,21 @@ impl<'a> Ppu<'a> {
                     ppu.cycle_count += 8;
                     ppu.current_scanline_dot += 8;
                 }
-                258..=336 => {
+                258..=320 => {
+                    // continue fetching sprite data
+                    if ppu.is_sprites_enable() {
+                        ppu.oam.fetch_next_scanline_sprite_data(
+                            ppu.current_scanline,
+                            ppu.current_scanline_dot,
+                            ppu.get_8x8_sprite_pattern_table_addr(),
+                            ppu.memory,
+                        );
+                    }
+
+                    ppu.cycle_count += 8;
+                    ppu.current_scanline_dot += 8;
+                }
+                321..=336 => {
                     ppu.cycle_count += 8;
                     ppu.current_scanline_dot += 8;
                 }
@@ -696,6 +584,147 @@ impl<'a> Ppu<'a> {
         }
     }
 
+    // steps the ppu for a scanline worth of cycles. only
+    // used internally by the ppu, in 'Ppu.catch_up()'
+    fn step_scanline(&mut self, cpu: &mut cpu::Cpu) -> PpuState {
+        // NOTE: this function is split into multiple subfunctions
+        {
+            return match self.current_scanline {
+                // pre-render scanline
+                -1 => step_pre_render_line_full(self),
+                // visible scanlines
+                0..=239 => step_visible_line_full(self),
+                // idle scanline
+                240 => step_idle_line_full(self),
+                // vblank 'scanlines'
+                241 => step_first_vblank_line_full(self, cpu),
+                242..=259 => step_vblank_line_full(self),
+                260 => step_last_vblank_line_full(self),
+                _ => PpuState::MidFrame,
+            };
+        }
+
+        fn step_pre_render_line_full(ppu: &mut Ppu) -> PpuState {
+            ppu.set_vblank(false);
+
+            if ppu.is_sprites_enable() || ppu.is_background_enable() {
+                ppu.transfer_temp_x_and_nt_select();
+                ppu.transfer_temp_y();
+            }
+
+            ppu.current_scanline = 0;
+            ppu.cycle_count += 340 + ppu.even_frame as u32;
+
+            PpuState::MidFrame
+        }
+
+        fn step_visible_line_full(ppu: &mut Ppu) -> PpuState {
+            ppu.current_scanline_dot = 1;
+            ppu.oam.sprites_found = 0;
+            ppu.oam.current_sprite = 0;
+
+            // TODO: clear secondary oam to 0xff
+
+            // FIXME: 72 iterations?
+            for _ in 0..72 {
+                ppu.oam.eval_next_scanline_sprite(ppu.current_scanline, 65);
+            }
+
+            // if background rendering is disabled
+            if !ppu.is_background_enable() {
+                for _ in 0..32 {
+                    ppu.draw_tile_row_backdrop();
+                }
+            } else {
+                for _ in 0..32 {
+                    //  OPTIMIZE: make separate drawing
+                    // algorithm for drawing entire scanlines
+                    let pixels_drawn = ppu.draw_tile_row();
+                    ppu.current_scanline_dot += pixels_drawn as u16;
+                    ppu.increment_vram_addr_coarse_x();
+                }
+
+                debug_assert_eq!(ppu.current_scanline_dot, 257);
+
+                // increment fine y
+                ppu.increment_vram_addr_y();
+            }
+
+            if ppu.is_sprites_enable() || ppu.is_background_enable() {
+                ppu.transfer_temp_x_and_nt_select();
+            }
+
+            ppu.oam.current_sprite = 0;
+
+            for _ in 0..8 {
+                if ppu.is_sprites_enable() {
+                    ppu.oam.fetch_next_scanline_sprite_data(
+                        ppu.current_scanline,
+                        ppu.current_scanline_dot,
+                        ppu.get_8x8_sprite_pattern_table_addr(),
+                        ppu.memory,
+                    );
+                }
+            }
+
+            ppu.current_scanline += 1;
+            ppu.cycle_count += 341;
+            ppu.current_scanline_dot = 0;
+
+            PpuState::MidFrame
+        }
+
+        fn step_idle_line_full(ppu: &mut Ppu) -> PpuState {
+            if ppu.is_sprites_enable() || ppu.is_background_enable() {
+                ppu.transfer_temp_x_and_nt_select();
+            }
+
+            ppu.current_scanline = 241;
+            ppu.cycle_count += 341;
+
+            PpuState::MidFrame
+        }
+
+        fn step_first_vblank_line_full(ppu: &mut Ppu, cpu: &mut cpu::Cpu) -> PpuState {
+            ppu.set_vblank(true);
+            if ppu.is_vblank_nmi_enabled() {
+                cpu.nmi = true;
+            }
+
+            if ppu.is_sprites_enable() || ppu.is_background_enable() {
+                ppu.transfer_temp_x_and_nt_select();
+            }
+
+            ppu.current_scanline = 242;
+            ppu.cycle_count += 341;
+
+            PpuState::MidFrame
+        }
+
+        fn step_vblank_line_full(ppu: &mut Ppu) -> PpuState {
+            if ppu.is_sprites_enable() || ppu.is_background_enable() {
+                ppu.transfer_temp_x_and_nt_select();
+            }
+
+            ppu.current_scanline += 1;
+            ppu.cycle_count += 341;
+
+            PpuState::MidFrame
+        }
+
+        fn step_last_vblank_line_full(ppu: &mut Ppu) -> PpuState {
+            if ppu.is_sprites_enable() || ppu.is_background_enable() {
+                ppu.transfer_temp_x_and_nt_select();
+                ppu.even_frame = !ppu.even_frame;
+            }
+
+            ppu.current_scanline = -1;
+            ppu.cycle_count += 341;
+
+            PpuState::FrameDone
+        }
+    }
+
     // draws a horizontal line of pixels starting at 'current_scanline_dot'
     // - 1 and stopping at the end of the current tile in the background
     // nametable (or the end of the screen, if the current tile happens to
@@ -709,19 +738,19 @@ impl<'a> Ppu<'a> {
         }
 
         fn draw_tile_row_main(ppu: &mut Ppu) -> u8 {
-            let current_tile = get_current_tile(ppu);
-            let palette_index = get_tile_palette_index(ppu);
+            let current_bg_tile = get_current_tile(ppu);
+            let bg_palette_index = get_tile_palette_index(ppu);
 
             // get the high and low bitplanes for the current row of the current tile
             let fine_y = ppu.current_vram_addr.get_fine_y();
-            let bitplane_low = unsafe { *current_tile.get_unchecked(0 + fine_y as usize) };
-            let bitplane_high = unsafe { *current_tile.get_unchecked(8 + fine_y as usize) };
+            let bg_bitplane_low = unsafe { *current_bg_tile.get_unchecked(0 + fine_y as usize) };
+            let bg_bitplane_high = unsafe { *current_bg_tile.get_unchecked(8 + fine_y as usize) };
 
             // calculate the index of the current tile in the current scanline
-            let horizontal_tile_count =
+            let horizontal_bg_tile_count =
                 ((ppu.current_scanline_dot - 1 + ppu.fine_x_scroll as u16) >> 3) as u8 & 0x3f;
 
-            let pixels_range = if horizontal_tile_count == 32 {
+            let bg_tile_offsets = if horizontal_bg_tile_count == 32 {
                 // if on tile 32 (meaning 'fine_x_scroll' is non-zero and
                 // this is the last tile in the scanline), start drawing
                 // at offset 0 from current tile and stop at end of screen
@@ -730,7 +759,7 @@ impl<'a> Ppu<'a> {
                     start: 0,
                     end: 8 - (screen_x % 8),
                 }
-            } else if horizontal_tile_count == 0 {
+            } else if horizontal_bg_tile_count == 0 {
                 // if on first tile, start drawing pixel at 'fine_x_scroll'
                 std::ops::Range {
                     start: ppu.fine_x_scroll,
@@ -741,29 +770,55 @@ impl<'a> Ppu<'a> {
                 std::ops::Range { start: 0, end: 8 }
             };
 
-            log!("tile: {}, ", horizontal_tile_count);
+            log!("tile: {}, ", horizontal_bg_tile_count);
 
-            pixels_range
+            bg_tile_offsets
                 .into_iter()
                 .enumerate()
-                .map(|(i, tile_offset)| {
-                    let color_index_low = (bitplane_low >> (7 - tile_offset)) & 1;
-                    let color_index_high = ((bitplane_high >> (7 - tile_offset)) << 1) & 2;
-                    let color_index = color_index_low | color_index_high;
+                .map(|(i, bg_tile_offset)| {
+                    let sprite_color = ppu
+                        .oam
+                        .current_sprites_data
+                        .iter() //
+                        .find_map(|data| {
+                            // if current dot is within x-coords of sprite
+                            if ((data.x as u16)..=(data.x as u16 + 7))
+                                .contains(&(ppu.current_scanline_dot + i as u16))
+                            {
+                                let color_index = {
+                                    let low = (data.tile_bitplane_low >> (7 - i)) & 1;
+                                    let high = ((data.tile_bitplane_high >> (7 - i)) << 1) & 2;
+                                    low | high
+                                };
 
-                    let color = get_pixel_color(ppu, palette_index, color_index);
+                                // if sprite is in front of background and color index
+                                // does not point to a transparent color
+                                // FIXME: sprites may be drawn even though they are
+                                // behind the background
+                                if color_index != 0 && (data.attributes & 0b100000) != 1 {
+                                    let palette_index = data.attributes & 0b11 + 4;
+                                    return Some(get_pixel_color(ppu, palette_index, color_index));
+                                }
+                            }
+
+                            None
+                        });
+
+                    let pixel_color = sprite_color.unwrap_or_else(|| {
+                        let bg_color_index = {
+                            let low = (bg_bitplane_low >> (7 - bg_tile_offset)) & 1;
+                            let high = ((bg_bitplane_high >> (7 - bg_tile_offset)) << 1) & 2;
+                            low | high
+                        };
+
+                        get_pixel_color(ppu, bg_palette_index, bg_color_index)
+                    });
 
                     let screen_x = (ppu.current_scanline_dot - 1) as usize + i;
                     let screen_y = ppu.current_scanline as usize;
                     let framebuffer = util::pixels_to_u32(&mut ppu.renderer);
                     // TODO: OPTIMIZE: unchecked indexing
-                    framebuffer[screen_y * 256 + screen_x] = color;
-
-                    log!(
-                        "(x: {}, tile_offset: {}), ",
-                        ppu.current_scanline_dot - 1 + i as u16,
-                        tile_offset
-                    );
+                    framebuffer[screen_y * 256 + screen_x] = pixel_color;
                 })
                 // return amt of pixels drawn
                 .count() as u8
@@ -804,7 +859,7 @@ impl<'a> Ppu<'a> {
             (attribute >> shift_amt) & 0b11
         }
 
-        fn get_pixel_color(ppu: &mut Ppu, palette_index: u8, color_index: u8) -> u32 {
+        fn get_pixel_color(ppu: &Ppu, palette_index: u8, color_index: u8) -> u32 {
             let mut addr = 0x3f00 | ((palette_index as u16) << 2);
             addr |= color_index as u16;
 
@@ -823,7 +878,7 @@ impl<'a> Ppu<'a> {
     // draws 8 pixels of backdrop color (or if 'current_vram_addr'
     // >= 0x3f00, draws the color 'current_vram_addr' points to)
     fn draw_tile_row_backdrop(&mut self) {
-        for _ in 0..8 {
+        for i in 0..8 {
             let color_index_addr = if self.current_vram_addr.get_addr() >= 0x3f00 {
                 logln!("background palette hack triggered");
                 self.current_vram_addr.get_addr()
@@ -834,16 +889,10 @@ impl<'a> Ppu<'a> {
             let color_index = self.memory.read(color_index_addr);
             let color = self.get_color_from_index(color_index);
 
-            let screen_x = (self.current_scanline_dot - 1) as usize;
+            let screen_x = (self.current_scanline_dot + i - 1) as usize;
             let screen_y = self.current_scanline as usize;
             let framebuffer = util::pixels_to_u32(&mut self.renderer);
             framebuffer[screen_y * 256 + screen_x] = color;
-
-            self.current_scanline_dot = self.current_scanline_dot.wrapping_add(1);
-        }
-
-        if self.current_scanline_dot == 0 {
-            self.current_scanline += 1;
         }
     }
 

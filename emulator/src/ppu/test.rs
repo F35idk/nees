@@ -256,7 +256,7 @@ fn test_write_2003_read_2004() {
     }
 
     // set oam[0xff] = 0xee
-    cpu_memory.ppu.oam.set_byte(0xff, 0xee);
+    cpu_memory.ppu.oam.primary.set_byte(0xff, 0xee);
 
     // LDA $2004 (read from oamdata, i.e read the byte at oam[oamaddr])
     cpu_memory.write(5u16, 0xad, cpu);
