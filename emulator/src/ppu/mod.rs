@@ -796,7 +796,7 @@ impl<'a> Ppu<'a> {
                                 // FIXME: sprites may be drawn even though they are
                                 // behind the background
                                 if color_index != 0 && (data.attributes & 0b100000) != 1 {
-                                    let palette_index = data.attributes & 0b11 + 4;
+                                    let palette_index = (data.attributes & 0b11) | 4;
                                     return Some(get_pixel_color(ppu, palette_index, color_index));
                                 }
                             }
