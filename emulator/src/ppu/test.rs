@@ -329,17 +329,6 @@ fn test_increment_vram_addr_xy() {
     assert_eq!(ppu.current_vram_addr.inner, 0b111_10_11111_01010);
 }
 
-#[test]
-fn test_oamdma() {
-    let (ref mut cpu, mmap::Nrom128CpuMemory { ref mut ppu, .. }) = init_nes();
-
-    ppu.write_register_by_index(3, 0xee, cpu);
-    ppu.write_oamdma(0x20, cpu);
-
-    assert_eq!(cpu.cycle_count, 513);
-    assert_eq!(ppu.oamaddr, 0xee);
-}
-
 // draws the pattern table at address 0x1000 of 'rom'
 pub fn test_draw(rom: &[u8]) {
     assert!(parse::is_valid(&rom));

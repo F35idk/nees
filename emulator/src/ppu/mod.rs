@@ -344,33 +344,6 @@ impl<'a> Ppu<'a> {
         }
     }
 
-    // used for writing to 'oamdma' (0x4014 in the cpu memory map)
-    pub fn write_oamdma(&mut self, val: u8, cpu: &mut cpu::Cpu) {
-        self.set_ppustatus_low_bits(val);
-        // if 'val' is $XX, start address should be $XX00
-        let start_addr = (val as u16) << 8;
-
-        for (i, addr) in ((start_addr)..=(start_addr + 0xff)).enumerate() {
-            let byte = self.memory.read(addr);
-            self.oam.set_byte(self.oamaddr, byte);
-            self.oamaddr = self.oamaddr.wrapping_add(1);
-
-            cpu.cycle_count += 2;
-
-            // catch the ppu up to the cpu on every 4th iteration
-            if i % 4 == 0 {
-                self.catch_up(cpu);
-            }
-        }
-
-        // set nmi = false in case a call to 'catch_up()' set it to true
-        // TODO: less hacky solution (pass 'do_nmi' param to 'catch_up()' or something)
-        cpu.nmi = false;
-
-        // in total, dma should take 513 cpu cycles (or 514 if on an odd cpu cycle)
-        cpu.cycle_count += 1 + (cpu.cycle_count % 2);
-    }
-
     // catches the ppu up to the cpu (approximately)
     pub fn catch_up(&mut self, cpu: &mut cpu::Cpu) -> PpuState {
         let target_cycles = cpu.cycle_count as u32 * 3;

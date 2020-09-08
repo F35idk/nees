@@ -53,7 +53,7 @@ impl NromPpuMemory {
     }
 }
 
-impl<'a> CpuMemoryMap for Nrom128CpuMemory<'a> {
+impl<'a> CpuMemoryMap<'a> for Nrom128CpuMemory<'a> {
     fn read(&mut self, mut addr: u16, cpu: &mut cpu::Cpu) -> u8 {
         // address lines a13-a15 = 000 (0-0x1fff) => internal ram
         if (addr >> 13) == 0 {
@@ -130,12 +130,20 @@ impl<'a> CpuMemoryMap for Nrom128CpuMemory<'a> {
         // ppu oamdma register
         if addr == 0x4014 {
             self.ppu.catch_up(cpu);
-            self.ppu.write_oamdma(val, cpu);
+            self.write_oamdma(val, cpu);
             return;
         }
 
         // TODO: apu/io stuff. note that when this is added, it may also be
         // necessary to explicitly ignore attempts to write to rom
+    }
+
+    fn get_ppu(&mut self) -> &mut ppu::Ppu<'a> {
+        &mut self.ppu
+    }
+
+    fn get_apu(&mut self) -> &mut apu::Apu {
+        &mut self.apu
     }
 }
 
@@ -245,7 +253,7 @@ impl<'a> Nrom256CpuMemory<'a> {
     }
 }
 
-impl<'a> CpuMemoryMap for Nrom256CpuMemory<'a> {
+impl<'a> CpuMemoryMap<'a> for Nrom256CpuMemory<'a> {
     fn read(&mut self, mut addr: u16, cpu: &mut cpu::Cpu) -> u8 {
         if (addr >> 13) == 0 {
             addr &= !0b1100000000000;
@@ -305,9 +313,17 @@ impl<'a> CpuMemoryMap for Nrom256CpuMemory<'a> {
 
         if addr == 0x4014 {
             self.ppu.catch_up(cpu);
-            self.ppu.write_oamdma(val, cpu);
+            self.write_oamdma(val, cpu);
             return;
         }
+    }
+
+    fn get_ppu(&mut self) -> &mut ppu::Ppu<'a> {
+        &mut self.ppu
+    }
+
+    fn get_apu(&mut self) -> &mut apu::Apu {
+        &mut self.apu
     }
 }
 
