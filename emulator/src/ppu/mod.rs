@@ -159,9 +159,15 @@ impl<'a> Ppu<'a> {
             status
         }
 
+        // TODO: special values when rendering
         fn read_oamdata(ppu: &mut Ppu) -> u8 {
-            // TODO: special values when rendering
-            ppu.oam.primary.get_byte(ppu.oamaddr)
+            let mut byte = ppu.oam.primary.get_byte(ppu.oamaddr);
+            if ppu.oamaddr % 4 == 2 {
+                // if 'byte' is a sprite attribute byte, clear bits 2-4
+                byte &= 0b11100011;
+            }
+
+            byte
         }
 
         fn read_ppudata(ppu: &mut Ppu) -> u8 {
@@ -232,7 +238,7 @@ impl<'a> Ppu<'a> {
             }
         }
 
-        fn write_oamdata(ppu: &mut Ppu, val: u8) {
+        fn write_oamdata(ppu: &mut Ppu, mut val: u8) {
             if ppu.is_currently_rendering() {
                 // ignore attemps to write when rendering
                 return;
