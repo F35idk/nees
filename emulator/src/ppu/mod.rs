@@ -436,7 +436,6 @@ impl<'a> Ppu<'a> {
                     if !ppu.is_background_enable() {
                         // NOTE: if the background is disabled mid-scanline,
                         // there will be weird artifacts
-                        // FIXME: allow drawing sprites only (no background, but with sprites on top)
                         ppu.draw_tile_row_backdrop();
                         ppu.cycle_count += 8;
                         ppu.current_scanline_dot += 8;
@@ -457,7 +456,8 @@ impl<'a> Ppu<'a> {
                     }
                 }
                 257 => {
-                    // set current sprite to zero so it can be re-used in 'fetch_next_scanline_sprite()'
+                    // set current sprite to zero so it can be re-used
+                    // in 'fetch_next_scanline_sprite()'
                     ppu.oam.current_sprite = 0;
                     assert!(ppu.oam.sprites_found <= 8);
 
@@ -725,10 +725,11 @@ impl<'a> Ppu<'a> {
         }
     }
 
-    // draws a horizontal line of pixels starting at 'current_scanline_dot'
-    // - 1 and stopping at the end of the current tile in the background
-    // nametable (or the end of the screen, if the current tile happens to
-    // poke outside of it). returns how many pixels were drawn
+    // draws a horizontal line of background and sprite pixels starting at
+    // 'current_scanline_dot' - 1 and stopping at the end of the current
+    // tile in the background nametable (or the end of the screen, if the
+    // current tile happens to poke outside of it). returns how many
+    // pixels were drawn
     fn draw_tile_row(&mut self) -> u8 {
         // NOTE: as with some other functions on 'Ppu', 'draw_tile_row()'
         // is split into smaller subfunctions to help readability
@@ -776,39 +777,29 @@ impl<'a> Ppu<'a> {
                 .into_iter()
                 .enumerate()
                 .map(|(i, bg_tile_offset)| {
-                    let sprite_color = ppu
-                        .oam
-                        .current_sprites_data
-                        .iter() //
-                        .find_map(|data| {
-                            // get distance between current dot and sprite's leftmost x coordinate
-                            let sprite_tile_offset =
-                                (ppu.current_scanline_dot as u8 + i as u8) - data.x;
+                    let sprite_color = ppu.oam.current_sprites_data.iter().find_map(|data| {
+                        // get distance between current dot and sprite's leftmost x coordinate
+                        let tile_offset = (ppu.current_scanline_dot as u8 + i as u8) - data.x;
+                        // FIXME: don't draw sprites at edges of screen
+                        // if current dot is within x-coords of sprite
+                        if tile_offset < 8 {
+                            let color_index = {
+                                let low = (data.tile_bitplane_low >> (7 - tile_offset)) & 1;
+                                let high =
+                                    ((data.tile_bitplane_high >> (7 - tile_offset)) << 1) & 2;
+                                low | high
+                            };
 
-                            // FIXME: don't draw sprites at edges of screen
-
-                            // if current dot is within x-coords of sprite
-                            if sprite_tile_offset < 8 {
-                                let color_index = {
-                                    let low =
-                                        (data.tile_bitplane_low >> (7 - sprite_tile_offset)) & 1;
-                                    let high = ((data.tile_bitplane_high
-                                        >> (7 - sprite_tile_offset))
-                                        << 1)
-                                        & 2;
-                                    low | high
-                                };
-
-                                // if sprite is in front of background and color index
-                                // does not point to a transparent color
-                                if color_index != 0 && (data.attributes & 0b100000) != 1 {
-                                    let palette_index = (data.attributes & 0b11) | 4;
-                                    return Some(get_pixel_color(ppu, palette_index, color_index));
-                                }
+                            // if sprite is in front of background and color index
+                            // does not point to a transparent color
+                            if color_index != 0 && (data.attributes & 0b100000) != 1 {
+                                let palette_index = (data.attributes & 0b11) | 4;
+                                return Some(ppu.calc_pixel_color(palette_index, color_index));
                             }
+                        }
 
-                            None
-                        });
+                        None
+                    });
 
                     let pixel_color = sprite_color.unwrap_or_else(|| {
                         let bg_color_index = {
@@ -817,7 +808,7 @@ impl<'a> Ppu<'a> {
                             low | high
                         };
 
-                        get_pixel_color(ppu, bg_palette_index, bg_color_index)
+                        ppu.calc_pixel_color(bg_palette_index, bg_color_index)
                     });
 
                     let screen_x = (ppu.current_scanline_dot - 1) as usize + i;
@@ -864,67 +855,69 @@ impl<'a> Ppu<'a> {
 
             (attribute >> shift_amt) & 0b11
         }
-
-        fn get_pixel_color(ppu: &Ppu, palette_index: u8, color_index: u8) -> u32 {
-            let mut addr = 0x3f00 | ((palette_index as u16) << 2);
-            addr |= color_index as u16;
-
-            if ((ppu.current_scanline_dot - 1) < 8 && !ppu.is_background_left_column_enable())
-                || color_index == 0
-            {
-                // set 'addr' to point to universal backdrop color
-                addr = 0x3f00;
-            }
-
-            let final_color_index = ppu.memory.read(addr);
-            ppu.get_color_from_index(final_color_index)
-        }
     }
 
-    // draws 8 pixels of backdrop color (or if 'current_vram_addr'
-    // >= 0x3f00, draws the color 'current_vram_addr' points to)
+    // FIXME::::::::::::::::::::::::::::: check if sprites enabled before rendering
+
+    // draws 8 pixels of sprite and backdrop color (or if 'current_vram_addr'
+    // >= 0x3f00, draws the color 'current_vram_addr' points to as backdrop)
     fn draw_tile_row_backdrop(&mut self) {
         for i in 0..8 {
-            let color_index_addr = if self.current_vram_addr.get_addr() >= 0x3f00 {
-                logln!("background palette hack triggered");
-                self.current_vram_addr.get_addr()
-            } else {
-                0x3f00
-            };
+            let sprite_color = self.oam.current_sprites_data.iter().find_map(|data| {
+                let tile_offset = (self.current_scanline_dot as u8 + i as u8) - data.x;
+                if tile_offset < 8 {
+                    let color_index = {
+                        let low = (data.tile_bitplane_low >> (7 - tile_offset)) & 1;
+                        let high = ((data.tile_bitplane_high >> (7 - tile_offset)) << 1) & 2;
+                        low | high
+                    };
+                    // FIXME: don't draw sprites at edges of screen
+                    // if color index doesn't point to a transparent color
+                    if color_index != 0 {
+                        let palette_index = (data.attributes & 0b11) | 4;
+                        return Some(self.calc_pixel_color(palette_index, color_index));
+                    }
+                }
 
-            let color_index = self.memory.read(color_index_addr);
-            let color = self.get_color_from_index(color_index);
+                None
+            });
+
+            let pixel_color = sprite_color.unwrap_or_else(|| {
+                let bg_color_addr = if self.current_vram_addr.get_addr() >= 0x3f00 {
+                    logln!("background palette hack triggered");
+                    self.current_vram_addr.get_addr()
+                } else {
+                    0x3f00
+                };
+
+                let bg_color_byte = self.memory.read(bg_color_addr);
+                palette::COLOR_LUT.get(
+                    bg_color_byte,
+                    self.is_greyscale_enabled(),
+                    self.ppumask >> 5,
+                )
+            });
 
             let screen_x = (self.current_scanline_dot + i - 1) as usize;
             let screen_y = self.current_scanline as usize;
             let framebuffer = util::pixels_to_u32(&mut self.renderer);
-            framebuffer[screen_y * 256 + screen_x] = color;
+            framebuffer[screen_y * 256 + screen_x] = pixel_color;
         }
     }
 
-    fn get_color_from_index(&self, mut index: u8) -> u32 {
-        if self.is_greyscale_enabled() {
-            index &= 0x30;
-        } else {
-            index &= 0x3f;
+    fn calc_pixel_color(&self, palette_index: u8, color_index: u8) -> u32 {
+        let mut addr = 0x3f00 | ((palette_index as u16) << 2);
+        addr |= color_index as u16;
+
+        if ((self.current_scanline_dot - 1) < 8 && !self.is_background_left_column_enable())
+            || color_index == 0
+        {
+            // set 'addr' to point to universal backdrop color
+            addr = 0x3f00;
         }
 
-        let emphasis = self.ppumask >> 5;
-
-        unsafe {
-            u32::from_le_bytes([
-                palette::COLORS
-                    .get_unchecked(emphasis as usize)
-                    .get_unchecked(index as usize)[0],
-                palette::COLORS
-                    .get_unchecked(emphasis as usize)
-                    .get_unchecked(index as usize)[1],
-                palette::COLORS
-                    .get_unchecked(emphasis as usize)
-                    .get_unchecked(index as usize)[2],
-                1,
-            ])
-        }
+        let color_byte = self.memory.read(addr);
+        palette::COLOR_LUT.get(color_byte, self.is_greyscale_enabled(), self.ppumask >> 5)
     }
 
     // increments 'current_vram_addr' by 1 or 32, depending on the increment mode bit in ppuctrl

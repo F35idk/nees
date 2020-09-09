@@ -1,6 +1,12 @@
+pub struct PaletteLut {
+    lut: [[[u8; 3]; 64]; 8],
+}
+
 #[rustfmt::skip]
-// 'Wavebeam' color palette with 8 variations - one for each color emphasis combination
-pub static COLORS: [[[u8; 3]; 64]; 8] = [
+// 'Wavebeam' color palette LUT with 8 variations - one for each color emphasis combination
+pub static COLOR_LUT: PaletteLut = PaletteLut {
+        lut:
+        [
     [
         [0x6b, 0x6b, 0x6b], [0x00, 0x1b, 0x87], [0x21, 0x00, 0x9a], [0x40, 0x00, 0x8c],
         [0x60, 0x00, 0x67], [0x64, 0x00, 0x1e], [0x59, 0x07, 0x00], [0x46, 0x16, 0x00],
@@ -145,4 +151,31 @@ pub static COLORS: [[[u8; 3]; 64]; 8] = [
         [0xbe, 0xb8, 0x74], [0xa5, 0xc2, 0x75], [0x91, 0xc7, 0x88], [0x8b, 0xc4, 0xa3],
         [0x8b, 0xc0, 0xc4], [0x93, 0x93, 0x93], [0x00, 0x00, 0x00], [0x00, 0x00, 0x00],
     ],
-];
+        ]
+};
+
+impl PaletteLut {
+    // NOTE: this expects the color emphasis bits to be in the low 3 bits of 'emphasis'
+    pub fn get(&self, mut color_byte: u8, greyscale: bool, emphasis: u8) -> u32 {
+        if greyscale {
+            color_byte &= 0x30;
+        } else {
+            color_byte &= 0x3f;
+        }
+
+        unsafe {
+            u32::from_le_bytes([
+                self.lut
+                    .get_unchecked(emphasis as usize)
+                    .get_unchecked(color_byte as usize)[0],
+                self.lut
+                    .get_unchecked(emphasis as usize)
+                    .get_unchecked(color_byte as usize)[1],
+                self.lut
+                    .get_unchecked(emphasis as usize)
+                    .get_unchecked(color_byte as usize)[2],
+                1,
+            ])
+        }
+    }
+}
