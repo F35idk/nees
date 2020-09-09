@@ -640,10 +640,11 @@ impl<'a> Ppu<'a> {
             if !ppu.is_background_enable() {
                 for _ in 0..32 {
                     ppu.draw_tile_row_backdrop();
+                    ppu.current_scanline_dot += 8;
                 }
             } else {
                 for _ in 0..32 {
-                    //  OPTIMIZE: make separate drawing
+                    // OPTIMIZE: make separate drawing
                     // algorithm for drawing entire scanlines
                     let pixels_drawn = ppu.draw_tile_row();
                     ppu.current_scanline_dot += pixels_drawn as u16;
@@ -662,8 +663,8 @@ impl<'a> Ppu<'a> {
 
             ppu.oam.current_sprite = 0;
 
-            for _ in 0..8 {
-                if ppu.is_sprites_enable() {
+            if ppu.is_sprites_enable() {
+                for _ in 0..8 {
                     ppu.oam.fetch_next_scanline_sprite_data(
                         ppu.current_scanline,
                         ppu.current_scanline_dot,
