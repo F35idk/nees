@@ -781,20 +781,26 @@ impl<'a> Ppu<'a> {
                         .current_sprites_data
                         .iter() //
                         .find_map(|data| {
+                            // get distance between current dot and sprite's leftmost x coordinate
+                            let sprite_tile_offset =
+                                (ppu.current_scanline_dot as u8 + i as u8) - data.x;
+
+                            // FIXME: don't draw sprites at edges of screen
+
                             // if current dot is within x-coords of sprite
-                            if ((data.x as u16)..=(data.x as u16 + 7))
-                                .contains(&(ppu.current_scanline_dot + i as u16))
-                            {
+                            if sprite_tile_offset < 8 {
                                 let color_index = {
-                                    let low = (data.tile_bitplane_low >> (7 - i)) & 1;
-                                    let high = ((data.tile_bitplane_high >> (7 - i)) << 1) & 2;
+                                    let low =
+                                        (data.tile_bitplane_low >> (7 - sprite_tile_offset)) & 1;
+                                    let high = ((data.tile_bitplane_high
+                                        >> (7 - sprite_tile_offset))
+                                        << 1)
+                                        & 2;
                                     low | high
                                 };
 
                                 // if sprite is in front of background and color index
                                 // does not point to a transparent color
-                                // FIXME: sprites may be drawn even though they are
-                                // behind the background
                                 if color_index != 0 && (data.attributes & 0b100000) != 1 {
                                     let palette_index = (data.attributes & 0b11) | 4;
                                     return Some(get_pixel_color(ppu, palette_index, color_index));
