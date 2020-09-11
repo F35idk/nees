@@ -181,6 +181,8 @@ impl Oam {
                 attributes,
                 x,
             };
+
+            self.current_sprite = self.current_sprite.wrapping_add(1 << 2);
         } else {
             // fill a slot in 'current_sprites_data' with sentinel value
             // (bits 2-4 of 'attributes' being set to 111 indicates end
@@ -192,7 +194,5 @@ impl Oam {
                 x: 0,
             };
         }
-
-        self.current_sprite = self.current_sprite.wrapping_add(1 << 2);
     }
 }
