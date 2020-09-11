@@ -161,6 +161,11 @@ impl<'a> Ppu<'a> {
 
         // TODO: special values when rendering
         fn read_oamdata(ppu: &mut Ppu) -> u8 {
+            if let (0..=239, 1..=64) = (ppu.current_scanline, ppu.current_scanline_dot) {
+                // if on dots/cycles 1-64 of a visible scanline, return 0xff
+                return 0xff;
+            }
+
             let mut byte = ppu.oam.primary.get_byte(ppu.oamaddr);
             if ppu.oamaddr % 4 == 2 {
                 // if 'byte' is a sprite attribute byte, clear bits 2-4
@@ -424,10 +429,9 @@ impl<'a> Ppu<'a> {
                     ppu.oam.current_sprite = 0;
                 }
                 1..=256 => {
-                    if ppu.current_scanline_dot < 65 {
-                        // TODO: clear secondary oam to 0xff (or make attempts to
-                        // access oam during this period return 0xff)
-                    } else if ppu.is_sprites_enable() || ppu.is_background_enable() {
+                    if ppu.current_scanline_dot >= 65
+                        && (ppu.is_sprites_enable() || ppu.is_background_enable())
+                    {
                         // evaluate sprite on next scanline
                         // FIXME: too many iterations? (should be avg. 2.7 or something)
                         for _ in 0..3 {
@@ -628,8 +632,6 @@ impl<'a> Ppu<'a> {
             ppu.current_scanline_dot = 1;
             ppu.oam.sprites_found = 0;
             ppu.oam.current_sprite = 0;
-
-            // TODO: clear secondary oam to 0xff
 
             // FIXME: 72 iterations?
             for _ in 0..72 {
