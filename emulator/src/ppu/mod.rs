@@ -785,6 +785,10 @@ impl<'a> Ppu<'a> {
                 .enumerate()
                 .map(|(i, bg_tile_offset)| {
                     let sprite_color = ppu.oam.current_sprites_data.iter().find_map(|data| {
+                        if data.is_end_of_array() {
+                            return None;
+                        }
+
                         // get distance between current dot and sprite's leftmost x coordinate
                         let tile_offset = (ppu.current_scanline_dot as u8 + i as u8) - data.x;
                         // FIXME: don't draw sprites at edges of screen
@@ -871,6 +875,10 @@ impl<'a> Ppu<'a> {
     fn draw_tile_row_backdrop(&mut self) {
         for i in 0..8 {
             let sprite_color = self.oam.current_sprites_data.iter().find_map(|data| {
+                if data.is_end_of_array() {
+                    return None;
+                }
+
                 let tile_offset = (self.current_scanline_dot as u8 + i as u8) - data.x;
                 if tile_offset < 8 {
                     let color_index = {

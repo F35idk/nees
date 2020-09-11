@@ -43,6 +43,15 @@ pub struct SpriteRenderData {
     pub attributes: u8,
 }
 
+impl SpriteRenderData {
+    pub fn is_end_of_array(&self) -> bool {
+        // the unimplemented bits of the attribute byte (bits
+        // 2-4) are used as an end of array indicator (for the
+        // 'current_sprites_data' array on the 'Oam' struct)
+        self.attributes & 0b00011100 != 0
+    }
+}
+
 // convenience methods for the 'SecondaryOam' and 'PrimaryOam' structs
 macro_rules! oam_impl {
     ($oam:ty, $n_entries:literal) => {
@@ -146,7 +155,6 @@ impl Oam {
             let tile_index = sprite.tile_index;
             let tile = {
                 let sprite_table_ptr = memory.get_pattern_tables();
-
                 unsafe {
                     *((sprite_table_ptr
                         .get_unchecked_mut(pattern_table_addr as usize + tile_index as usize * 16))
@@ -155,7 +163,8 @@ impl Oam {
             };
 
             let x = sprite.x;
-            let attributes = sprite.attributes;
+            // clear bits 2-4 of attribute byte
+            let attributes = sprite.attributes & 0b11100011;
             let y = sprite.y;
             let y_offset = current_scanline + 1 - y as i16;
 
@@ -173,11 +182,13 @@ impl Oam {
                 x,
             };
         } else {
-            // fill a slot in 'current_sprites_data' with transparent values
+            // fill a slot in 'current_sprites_data' with sentinel value
+            // (bits 2-4 of 'attributes' being set to 111 indicates end
+            // of array, see 'SpriteRenderData.is_end_of_array()')
             self.current_sprites_data[(self.current_sprite >> 2) as usize] = SpriteRenderData {
                 tile_bitplane_low: 0,
                 tile_bitplane_high: 0,
-                attributes: 0,
+                attributes: 0b00011100,
                 x: 0,
             };
         }
