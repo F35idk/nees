@@ -786,34 +786,42 @@ impl<'a> Ppu<'a> {
                 .into_iter()
                 .enumerate()
                 .map(|(i, bg_tile_offset)| {
-                    let sprite_color = ppu
-                        .oam
-                        .current_sprites_data
-                        .iter()
-                        .take_while(|data| !data.is_end_of_array())
-                        .find_map(|data| {
-                            // get distance between current dot and sprite's leftmost x coordinate
-                            let tile_offset = (ppu.current_scanline_dot as u8 + i as u8) - data.x;
-                            // FIXME: don't draw sprites at edges of screen
-                            // if current dot is within x-coords of sprite
-                            if tile_offset < 8 {
-                                let color_index = {
-                                    let low = (data.tile_bitplane_low >> (7 - tile_offset)) & 1;
-                                    let high =
-                                        ((data.tile_bitplane_high >> (7 - tile_offset)) << 1) & 2;
-                                    low | high
-                                };
+                    let sprite_color = if ppu.is_sprites_enable() {
+                        ppu.oam
+                            .current_sprites_data
+                            .iter()
+                            .take_while(|data| !data.is_end_of_array())
+                            .find_map(|data| {
+                                // get distance between current dot and sprite's
+                                // leftmost x coordinate
+                                let tile_offset =
+                                    (ppu.current_scanline_dot as u8 + i as u8) - data.x;
+                                // FIXME: don't draw sprites at edges of screen
+                                // if current dot is within x-coords of sprite
+                                if tile_offset < 8 {
+                                    let color_index = {
+                                        let low = (data.tile_bitplane_low >> (7 - tile_offset)) & 1;
+                                        let high = ((data.tile_bitplane_high >> (7 - tile_offset))
+                                            << 1)
+                                            & 2;
+                                        low | high
+                                    };
 
-                                // if sprite is in front of background and color index
-                                // does not point to a transparent color
-                                if color_index != 0 && (data.attributes & 0b100000) != 1 {
-                                    let palette_index = (data.attributes & 0b11) | 4;
-                                    return Some(ppu.calc_pixel_color(palette_index, color_index));
+                                    // if sprite is in front of background and color index
+                                    // does not point to a transparent color
+                                    if color_index != 0 && (data.attributes & 0b100000) != 1 {
+                                        let palette_index = (data.attributes & 0b11) | 4;
+                                        return Some(
+                                            ppu.calc_pixel_color(palette_index, color_index),
+                                        );
+                                    }
                                 }
-                            }
 
-                            None
-                        });
+                                None
+                            })
+                    } else {
+                        None
+                    };
 
                     let pixel_color = sprite_color.unwrap_or_else(|| {
                         let bg_color_index = {
@@ -871,35 +879,37 @@ impl<'a> Ppu<'a> {
         }
     }
 
-    // FIXME::::::::::::::::::::::::::::: check if sprites enabled before rendering
-
     // draws 8 pixels of sprite and backdrop color (or if 'current_vram_addr'
     // >= 0x3f00, draws the color 'current_vram_addr' points to as backdrop)
     fn draw_tile_row_backdrop(&mut self) {
         for i in 0..8 {
-            let sprite_color = self
-                .oam
-                .current_sprites_data
-                .iter()
-                .take_while(|data| !data.is_end_of_array())
-                .find_map(|data| {
-                    let tile_offset = (self.current_scanline_dot as u8 + i as u8) - data.x;
-                    if tile_offset < 8 {
-                        let color_index = {
-                            let low = (data.tile_bitplane_low >> (7 - tile_offset)) & 1;
-                            let high = ((data.tile_bitplane_high >> (7 - tile_offset)) << 1) & 2;
-                            low | high
-                        };
-                        // FIXME: don't draw sprites at edges of screen
-                        // if color index doesn't point to a transparent color
-                        if color_index != 0 {
-                            let palette_index = (data.attributes & 0b11) | 4;
-                            return Some(self.calc_pixel_color(palette_index, color_index));
+            let sprite_color = if self.is_sprites_enable() {
+                self.oam
+                    .current_sprites_data
+                    .iter()
+                    .take_while(|data| !data.is_end_of_array())
+                    .find_map(|data| {
+                        let tile_offset = (self.current_scanline_dot as u8 + i as u8) - data.x;
+                        if tile_offset < 8 {
+                            let color_index = {
+                                let low = (data.tile_bitplane_low >> (7 - tile_offset)) & 1;
+                                let high =
+                                    ((data.tile_bitplane_high >> (7 - tile_offset)) << 1) & 2;
+                                low | high
+                            };
+                            // FIXME: don't draw sprites at edges of screen
+                            // if color index doesn't point to a transparent color
+                            if color_index != 0 {
+                                let palette_index = (data.attributes & 0b11) | 4;
+                                return Some(self.calc_pixel_color(palette_index, color_index));
+                            }
                         }
-                    }
 
-                    None
-                });
+                        None
+                    })
+            } else {
+                None
+            };
 
             let pixel_color = sprite_color.unwrap_or_else(|| {
                 let bg_color_addr = if self.current_vram_addr.get_addr() >= 0x3f00 {
