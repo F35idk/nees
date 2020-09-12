@@ -97,25 +97,10 @@ impl Oam {
         assert!(matches!(current_scanline_dot, 65..=256));
 
         if self.sprites_found < 8 {
-            // let y = unsafe { self.oam.bytes[self.current_sprite as usize] };
-            // assert_eq!(y, unsafe {
-            //     self.oam.entries[self.current_sprite as usize >> 2].y
-            // });
-
-            // FIXME: forego the y-copy??
-            // unsafe { self.secondary_oam.entries[sprites_found as usize].y = y };
-
             let sprite = unsafe { self.primary.get_sprite_unchecked(self.current_sprite) };
 
-            assert_eq!(
-                sprite.attributes,
-                self.primary.entries[self.current_sprite as usize >> 2].attributes
-            );
-
-            // FIXME: 'min()' should not be needed
-            let sprite_y_coords = (sprite.y as i16)..=(sprite.y as i16 + 7).min(239);
-
-            if sprite_y_coords.contains(&(current_scanline + 1)) {
+            // NOTE: 'sprite.y' is 1 less than the screen y coordinate
+            if ((current_scanline) as u16).wrapping_sub(sprite.y as u16) < 8 {
                 // copy sprite into secondary oam
                 self.secondary.entries[self.sprites_found as usize] = sprite;
                 self.sprites_found += 1;
@@ -160,7 +145,8 @@ impl Oam {
             // clear bits 2-4 of attribute byte
             let attributes = sprite.attributes & 0b11100011;
             let y = sprite.y;
-            let y_offset = current_scanline + 1 - y as i16;
+            // NOTE: 'sprite.y' is 1 less than the screen y coordinate
+            let y_offset = current_scanline - y as i16;
 
             assert!(y_offset >= 0);
             assert!(y_offset < 8);
