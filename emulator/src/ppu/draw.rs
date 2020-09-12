@@ -6,7 +6,7 @@ use std::ops::Range;
 // - 1 and stopping at the end of the current tile in the background
 // nametable (or the end of the screen, if the current tile happens
 // to poke outside of it). returns how many pixels were drawn
-pub fn draw_tile_row(ppu: &mut Ppu, background: bool, sprites: bool) -> u8 {
+pub fn draw_tile_row(ppu: &mut Ppu, draw_background: bool, draw_sprites: bool) -> u8 {
     // calculate the index of the current background tile in the current scanline
     let horizontal_bg_tile_count =
         ((ppu.current_scanline_dot - 1 + ppu.fine_x_scroll as u16) >> 3) as u8 & 0x3f;
@@ -25,10 +25,10 @@ pub fn draw_tile_row(ppu: &mut Ppu, background: bool, sprites: bool) -> u8 {
         0..8
     };
 
-    if background {
-        draw_tile_row_background_and_sprites(ppu, bg_tile_offsets, sprites)
+    if draw_background {
+        draw_tile_row_background_and_sprites(ppu, bg_tile_offsets, draw_sprites)
     } else {
-        draw_tile_row_backdrop_color_and_sprites(ppu, bg_tile_offsets.len() as u8, sprites);
+        draw_tile_row_backdrop_color_and_sprites(ppu, bg_tile_offsets.len() as u8, draw_sprites);
         bg_tile_offsets.len() as u8
     }
 }
@@ -36,7 +36,7 @@ pub fn draw_tile_row(ppu: &mut Ppu, background: bool, sprites: bool) -> u8 {
 fn draw_tile_row_background_and_sprites(
     ppu: &mut Ppu,
     bg_tile_offsets: Range<u8>,
-    sprites: bool,
+    draw_sprites: bool,
 ) -> u8 {
     // NOTE: this function is split into multiple subfunctions to help readability
 
@@ -52,8 +52,18 @@ fn draw_tile_row_background_and_sprites(
         let mut pixels_drawn = 0u8;
 
         for bg_tile_offset in bg_tile_offsets {
-            let sprite_color = if sprites {
-                ppu.oam
+            let sprite_color = match (
+                draw_sprites,
+                ppu.current_scanline_dot + (pixels_drawn as u16),
+                ppu.is_sprites_left_column_enable(),
+            ) {
+                // don't draw sprite if 'draw_sprites' is false
+                (false, _, _) => None,
+                // don't draw sprites if on dots 1-8 and sprite
+                // drawing is disabled for the first 8 pixels
+                (_, 1..=8, false) => None,
+                _ => ppu
+                    .oam
                     .current_sprites_data
                     .iter()
                     .take_while(|data| !data.is_end_of_array())
@@ -84,17 +94,15 @@ fn draw_tile_row_background_and_sprites(
                         }
 
                         None
-                    })
-            } else {
-                None
+                    }),
             };
 
             let pixel_color = sprite_color.unwrap_or_else(|| {
                 match (
-                    ppu.current_scanline_dot + pixels_drawn as u16,
+                    ppu.current_scanline_dot + pixels_drawn as u16 - 1,
                     ppu.is_background_left_column_enable(),
                 ) {
-                    (0..=7, false) => calc_pixel_color(ppu, 0, 0),
+                    (1..=8, false) => calc_pixel_color(ppu, 0, 0),
                     _ => {
                         let bg_color_index = {
                             let lo = (bg_bitplane_lo >> (7 - bg_tile_offset)) & 1;
@@ -157,10 +165,17 @@ fn draw_tile_row_background_and_sprites(
 
 // draws 8 pixels of sprite and backdrop color (or if 'current_vram_addr'
 // >= 0x3f00, draws the color 'current_vram_addr' points to as backdrop)
-fn draw_tile_row_backdrop_color_and_sprites(ppu: &mut Ppu, pixels_to_draw: u8, sprites: bool) {
+fn draw_tile_row_backdrop_color_and_sprites(ppu: &mut Ppu, pixels_to_draw: u8, draw_sprites: bool) {
     for i in 0..pixels_to_draw {
-        let sprite_color = if sprites {
-            ppu.oam
+        let sprite_color = match (
+            draw_sprites,
+            ppu.current_scanline_dot + (i as u16),
+            ppu.is_sprites_left_column_enable(),
+        ) {
+            (false, _, _) => None,
+            (_, 1..=8, false) => None,
+            _ => ppu
+                .oam
                 .current_sprites_data
                 .iter()
                 .take_while(|data| !data.is_end_of_array())
@@ -185,9 +200,7 @@ fn draw_tile_row_backdrop_color_and_sprites(ppu: &mut Ppu, pixels_to_draw: u8, s
                     }
 
                     None
-                })
-        } else {
-            None
+                }),
         };
 
         let pixel_color = sprite_color.unwrap_or_else(|| {
