@@ -54,56 +54,22 @@ fn draw_tile_row_background_and_sprites(
         for bg_tile_offset in bg_tile_offsets {
             let sprite_color = match (
                 draw_sprites,
-                ppu.current_scanline_dot + (pixels_drawn as u16),
+                ppu.current_scanline_dot + pixels_drawn as u16,
                 ppu.is_sprites_left_column_enable(),
             ) {
-                // don't draw sprite if 'draw_sprites' is false
+                // don't draw sprite color if 'draw_sprites' is false
                 (false, _, _) => None,
-                // don't draw sprites if on dots 1-8 and sprite
+                // don't draw sprite color if on dots 1-8 and sprite
                 // drawing is disabled for the first 8 pixels
                 (_, 1..=8, false) => None,
-                _ => ppu
+                _ => match ppu
                     .oam
-                    .current_sprites_data
-                    .iter()
-                    .take_while(|data| !data.is_end_of_array())
-                    .find_map(|data| {
-                        // don't draw sprites that are partially outside of the screen
-                        if data.x >= 0xf9 {
-                            return None;
-                        }
-
-                        // get distance between current dot and sprite's leftmost x coordinate
-                        let tile_offset = (ppu.current_scanline_dot + pixels_drawn as u16)
-                            .wrapping_sub(data.x as u16);
-
-                        // if current dot is within x-coords of sprite
-                        if tile_offset < 8 {
-                            // calculate amount to shift tile bitplanes by
-                            // to get the current pixel (depends on whether
-                            // the sprite is flipped horizontally)
-                            let shift_amt = if data.attributes & 0b01000000 != 0 {
-                                tile_offset
-                            } else {
-                                7 - tile_offset
-                            };
-
-                            let color_index = {
-                                let lo = (data.tile_bitplane_low >> shift_amt) & 1;
-                                let hi = ((data.tile_bitplane_high >> shift_amt) << 1) & 2;
-                                lo | hi
-                            };
-
-                            // if sprite is in front of background and color index
-                            // does not point to a transparent color
-                            if color_index != 0 && (data.attributes & 0b100000) != 1 {
-                                let palette_index = (data.attributes & 0b11) | 4;
-                                return Some(calc_pixel_color(ppu, palette_index, color_index));
-                            }
-                        }
-
-                        None
-                    }),
+                    .get_sprite_color_at_dot(ppu.current_scanline_dot + pixels_drawn as u16)
+                {
+                    Some((_, _, 0)) => None,
+                    Some((true, palette, color)) => Some(calc_pixel_color(ppu, palette, color)),
+                    _ => None,
+                },
             };
 
             let pixel_color = sprite_color.unwrap_or_else(|| {
@@ -178,46 +144,19 @@ fn draw_tile_row_backdrop_color_and_sprites(ppu: &mut Ppu, pixels_to_draw: u8, d
     for i in 0..pixels_to_draw {
         let sprite_color = match (
             draw_sprites,
-            ppu.current_scanline_dot + (i as u16),
+            ppu.current_scanline_dot + i as u16,
             ppu.is_sprites_left_column_enable(),
         ) {
             (false, _, _) => None,
             (_, 1..=8, false) => None,
-            _ => ppu
+            _ => match ppu
                 .oam
-                .current_sprites_data
-                .iter()
-                .take_while(|data| !data.is_end_of_array())
-                .find_map(|data| {
-                    let tile_offset =
-                        (ppu.current_scanline_dot + i as u16).wrapping_sub(data.x as u16);
-
-                    if tile_offset < 8 {
-                        let shift_amt = if data.attributes & 0b01000000 != 0 {
-                            tile_offset
-                        } else {
-                            7 - tile_offset
-                        };
-
-                        let color_index = {
-                            let lo = (data.tile_bitplane_low >> shift_amt) & 1;
-                            let hi = ((data.tile_bitplane_high >> shift_amt) << 1) & 2;
-                            lo | hi
-                        };
-
-                        if data.x >= 0xf9 {
-                            return None;
-                        }
-
-                        // if color index doesn't point to a transparent color
-                        if color_index != 0 {
-                            let palette_index = (data.attributes & 0b11) | 4;
-                            return Some(calc_pixel_color(ppu, palette_index, color_index));
-                        }
-                    }
-
-                    None
-                }),
+                .get_sprite_color_at_dot(ppu.current_scanline_dot + i as u16)
+            {
+                Some((_, _, 0)) => None,
+                Some((_, palette, color)) => Some(calc_pixel_color(ppu, palette, color)),
+                _ => None,
+            },
         };
 
         let pixel_color = sprite_color.unwrap_or_else(|| {

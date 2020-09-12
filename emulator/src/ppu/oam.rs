@@ -38,8 +38,10 @@ pub struct SecondaryOam {
 #[derive(Copy, Clone, Default)]
 pub struct SpriteRenderData {
     pub x: u8,
-    pub tile_bitplane_low: u8,
-    pub tile_bitplane_high: u8,
+    pub tile_bitplane_lo: u8,
+    pub tile_bitplane_hi: u8,
+    pub flipped_tile_bitplane_lo: u8,
+    pub flipped_tile_bitplane_hi: u8,
     pub attributes: u8,
 }
 
@@ -151,13 +153,18 @@ impl Oam {
             assert!(y_offset >= 0);
             assert!(y_offset < 8);
 
-            let tile_bitplane_low = unsafe { *tile.get_unchecked(0 + y_offset as usize) };
-            let tile_bitplane_high = unsafe { *tile.get_unchecked(8 + y_offset as usize) };
+            let tile_bitplane_lo = unsafe { *tile.get_unchecked(0 + y_offset as usize) };
+            let tile_bitplane_hi = unsafe { *tile.get_unchecked(8 + y_offset as usize) };
+
+            let flipped_tile_bitplane_lo = unsafe { *tile.get_unchecked(7 - y_offset as usize) };
+            let flipped_tile_bitplane_hi = unsafe { *tile.get_unchecked(15 - y_offset as usize) };
 
             // FIXME: indexing
             self.current_sprites_data[(self.current_sprite >> 2) as usize] = SpriteRenderData {
-                tile_bitplane_low,
-                tile_bitplane_high,
+                tile_bitplane_lo,
+                tile_bitplane_hi,
+                flipped_tile_bitplane_lo,
+                flipped_tile_bitplane_hi,
                 attributes,
                 x,
             };
@@ -168,11 +175,62 @@ impl Oam {
             // (bits 2-4 of 'attributes' being set to 111 indicates end
             // of array, see 'SpriteRenderData.is_end_of_array()')
             self.current_sprites_data[(self.current_sprite >> 2) as usize] = SpriteRenderData {
-                tile_bitplane_low: 0,
-                tile_bitplane_high: 0,
+                tile_bitplane_lo: 0,
+                tile_bitplane_hi: 0,
+                flipped_tile_bitplane_lo: 0,
+                flipped_tile_bitplane_hi: 0,
                 attributes: 0b00011100,
                 x: 0,
             };
         }
+    }
+
+    // gets the color and palette indices of the first sprite at 'current_scanline_dot',
+    // if any. also returns whether the sprite is in front of or behind the background
+    pub fn get_sprite_color_at_dot(&self, current_scanline_dot: u16) -> Option<(bool, u8, u8)> {
+        self.current_sprites_data
+            .iter()
+            .take_while(|data| !data.is_end_of_array())
+            .find_map(|data| {
+                // ignore sprites that are partially outside of the screen
+                if data.x >= 0xf9 {
+                    return None;
+                }
+
+                // get distance between current dot and sprite's leftmost x coordinate
+                let tile_offset = current_scanline_dot.wrapping_sub(data.x as u16);
+
+                // if current dot is within x-coords of sprite
+                if tile_offset < 8 {
+                    // calculate amount to shift tile bitplanes by
+                    // to get the current pixel (depends on whether
+                    // the sprite is flipped horizontally or not)
+                    let shift_amt = if data.attributes & 0b01000000 != 0 {
+                        tile_offset
+                    } else {
+                        7 - tile_offset
+                    };
+
+                    let (bitplane_lo, bitplane_hi) = if data.attributes & 0b10000000 != 0 {
+                        // use flipped tile bitplanes if sprite is vertically flipped
+                        (data.flipped_tile_bitplane_lo, data.flipped_tile_bitplane_hi)
+                    } else {
+                        (data.tile_bitplane_lo, data.tile_bitplane_hi)
+                    };
+
+                    let color_index = {
+                        let lo = (bitplane_lo >> shift_amt) & 1;
+                        let hi = ((bitplane_hi >> shift_amt) << 1) & 2;
+                        lo | hi
+                    };
+
+                    let palette_index = (data.attributes & 0b11) | 4;
+                    let is_in_front = (data.attributes & 0b100000) != 1;
+
+                    return Some((is_in_front, palette_index, color_index));
+                }
+
+                None
+            })
     }
 }
