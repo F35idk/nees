@@ -58,11 +58,15 @@ fn draw_tile_row_background_and_sprites(
                     .iter()
                     .take_while(|data| !data.is_end_of_array())
                     .find_map(|data| {
-                        // FIXME: don't draw sprites at edges of screen
+                        // don't draw sprites that are partially outside of the screen
+                        if data.x >= 0xf9 {
+                            return None;
+                        }
 
                         // get distance between current dot and sprite's leftmost x coordinate
                         let tile_offset = (ppu.current_scanline_dot + pixels_drawn as u16)
                             .wrapping_sub(data.x as u16);
+
                         // if current dot is within x-coords of sprite
                         if tile_offset < 8 {
                             let color_index = {
@@ -169,7 +173,9 @@ fn draw_tile_row_backdrop_color_and_sprites(ppu: &mut Ppu, pixels_to_draw: u8, s
                             lo | hi
                         };
 
-                        // FIXME: don't draw sprites at edges of screen
+                        if data.x >= 0xf9 {
+                            return None;
+                        }
 
                         // if color index doesn't point to a transparent color
                         if color_index != 0 {
