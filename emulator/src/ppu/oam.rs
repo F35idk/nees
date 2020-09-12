@@ -105,8 +105,6 @@ impl Oam {
             // FIXME: forego the y-copy??
             // unsafe { self.secondary_oam.entries[sprites_found as usize].y = y };
 
-            // FIXME: proper uninit sprite behavior
-
             let sprite = unsafe { self.primary.get_sprite_unchecked(self.current_sprite) };
 
             assert_eq!(
@@ -120,10 +118,6 @@ impl Oam {
             if sprite_y_coords.contains(&(current_scanline + 1)) {
                 // copy sprite into secondary oam
                 self.secondary.entries[self.sprites_found as usize] = sprite;
-
-                assert!(current_scanline + 1 - sprite.y as i16 >= 0);
-                assert!((current_scanline + 1 - sprite.y as i16) < 8);
-
                 self.sprites_found += 1;
             }
         } else {

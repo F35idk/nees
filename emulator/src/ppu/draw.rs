@@ -61,7 +61,8 @@ fn draw_tile_row_background_and_sprites(
                         // FIXME: don't draw sprites at edges of screen
 
                         // get distance between current dot and sprite's leftmost x coordinate
-                        let tile_offset = (ppu.current_scanline_dot as u8 + pixels_drawn) - data.x;
+                        let tile_offset = (ppu.current_scanline_dot + pixels_drawn as u16)
+                            .wrapping_sub(data.x as u16);
                         // if current dot is within x-coords of sprite
                         if tile_offset < 8 {
                             let color_index = {
@@ -86,7 +87,7 @@ fn draw_tile_row_background_and_sprites(
 
             let pixel_color = sprite_color.unwrap_or_else(|| {
                 match (
-                    ppu.current_scanline_dot as u8 + pixels_drawn,
+                    ppu.current_scanline_dot + pixels_drawn as u16,
                     ppu.is_background_left_column_enable(),
                 ) {
                     (0..=7, false) => calc_pixel_color(ppu, 0, 0),
@@ -160,7 +161,7 @@ fn draw_tile_row_backdrop_color_and_sprites(ppu: &mut Ppu, pixels_to_draw: u8, s
                 .iter()
                 .take_while(|data| !data.is_end_of_array())
                 .find_map(|data| {
-                    let tile_offset = (ppu.current_scanline_dot as u8 + i as u8) - data.x;
+                    let tile_offset = (ppu.current_scanline_dot + i as u16) - data.x as u16;
                     if tile_offset < 8 {
                         let color_index = {
                             let lo = (data.tile_bitplane_low >> (7 - tile_offset)) & 1;
@@ -195,7 +196,7 @@ fn draw_tile_row_backdrop_color_and_sprites(ppu: &mut Ppu, pixels_to_draw: u8, s
             palette::COLOR_LUT.get(bg_color_byte, ppu.is_greyscale_enabled(), ppu.ppumask >> 5)
         });
 
-        let screen_x = (ppu.current_scanline_dot as u8 + i - 1) as usize;
+        let screen_x = (ppu.current_scanline_dot - 1 + i as u16) as usize;
         let screen_y = ppu.current_scanline as usize;
         let framebuffer = util::pixels_to_u32(&mut ppu.renderer);
         framebuffer[screen_y * 256 + screen_x] = pixel_color;
