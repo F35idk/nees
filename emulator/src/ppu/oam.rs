@@ -40,8 +40,6 @@ pub struct SpriteRenderData {
     pub x: u8,
     pub tile_bitplane_lo: u8,
     pub tile_bitplane_hi: u8,
-    pub flipped_tile_bitplane_lo: u8,
-    pub flipped_tile_bitplane_hi: u8,
     pub attributes: u8,
 }
 
@@ -153,18 +151,23 @@ impl Oam {
             assert!(y_offset >= 0);
             assert!(y_offset < 8);
 
-            let tile_bitplane_lo = unsafe { *tile.get_unchecked(0 + y_offset as usize) };
-            let tile_bitplane_hi = unsafe { *tile.get_unchecked(8 + y_offset as usize) };
-
-            let flipped_tile_bitplane_lo = unsafe { *tile.get_unchecked(7 - y_offset as usize) };
-            let flipped_tile_bitplane_hi = unsafe { *tile.get_unchecked(15 - y_offset as usize) };
+            let (tile_bitplane_lo, tile_bitplane_hi) = if attributes & 0b10000000 != 0 {
+                // use flipped tile bitplanes if sprite is vertically flipped
+                (
+                    unsafe { *tile.get_unchecked(7 - y_offset as usize) },
+                    unsafe { *tile.get_unchecked(15 - y_offset as usize) },
+                )
+            } else {
+                (
+                    unsafe { *tile.get_unchecked(0 + y_offset as usize) },
+                    unsafe { *tile.get_unchecked(8 + y_offset as usize) },
+                )
+            };
 
             // FIXME: indexing
             self.current_sprites_data[(self.current_sprite >> 2) as usize] = SpriteRenderData {
                 tile_bitplane_lo,
                 tile_bitplane_hi,
-                flipped_tile_bitplane_lo,
-                flipped_tile_bitplane_hi,
                 attributes,
                 x,
             };
@@ -177,8 +180,6 @@ impl Oam {
             self.current_sprites_data[(self.current_sprite >> 2) as usize] = SpriteRenderData {
                 tile_bitplane_lo: 0,
                 tile_bitplane_hi: 0,
-                flipped_tile_bitplane_lo: 0,
-                flipped_tile_bitplane_hi: 0,
                 attributes: 0b00011100,
                 x: 0,
             };
@@ -211,16 +212,9 @@ impl Oam {
                         7 - tile_offset
                     };
 
-                    let (bitplane_lo, bitplane_hi) = if data.attributes & 0b10000000 != 0 {
-                        // use flipped tile bitplanes if sprite is vertically flipped
-                        (data.flipped_tile_bitplane_lo, data.flipped_tile_bitplane_hi)
-                    } else {
-                        (data.tile_bitplane_lo, data.tile_bitplane_hi)
-                    };
-
                     let color_index = {
-                        let lo = (bitplane_lo >> shift_amt) & 1;
-                        let hi = ((bitplane_hi >> shift_amt) << 1) & 2;
+                        let lo = (data.tile_bitplane_lo >> shift_amt) & 1;
+                        let hi = ((data.tile_bitplane_hi >> shift_amt) << 1) & 2;
                         lo | hi
                     };
 
