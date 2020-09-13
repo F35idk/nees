@@ -180,6 +180,11 @@ fn draw_tile_row_backdrop_color_and_sprites(ppu: &mut Ppu, pixels_to_draw: u8, d
 
 fn calc_pixel_color(ppu: &Ppu, palette_index: u8, color_index: u8) -> u32 {
     let addr = (0x3f00 | ((palette_index << 2) as u16)) | (color_index as u16);
+
+    if color_index == 0 {
+        addr = 0x3f00;
+    }
+
     let color_byte = ppu.memory.read(addr);
     palette::COLOR_LUT.get(color_byte, ppu.is_greyscale_enabled(), ppu.ppumask >> 5)
 }
