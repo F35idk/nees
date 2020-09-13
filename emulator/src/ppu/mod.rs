@@ -179,7 +179,7 @@ impl<'a> Ppu<'a> {
         fn read_ppudata(ppu: &mut Ppu) -> u8 {
             let val = if (ppu.current_vram_addr.inner >> 8) == 0b111111 {
                 // read directly from vram if address is in range
-                // 0x3f00-0x3ff (palette ram)
+                // 0x3f00-0x3fff (palette ram)
                 let val = ppu.memory.read(ppu.current_vram_addr.get_addr());
                 // store value at mirrored address (down to 0x2f00-0x2fff)
                 // in read buffer
@@ -188,7 +188,7 @@ impl<'a> Ppu<'a> {
                     .read(ppu.current_vram_addr.get_addr() & !0b01000000000000);
                 val
             } else {
-                // read from read buffer if address is in range 0-0x0x3eff
+                // read from read buffer if address is in range 0-0x3eff
                 let val = ppu.ppudata_read_buffer;
                 ppu.ppudata_read_buffer = ppu.memory.read(ppu.current_vram_addr.get_addr());
                 val
@@ -466,7 +466,7 @@ impl<'a> Ppu<'a> {
                 }
                 257 => {
                     // set current sprite to zero so it can be re-used
-                    // in 'fetch_next_scanline_sprite()'
+                    // in 'fetch_next_scanline_sprite_data()'
                     ppu.oam.current_sprite = 0;
                     assert!(ppu.oam.sprites_found <= 8);
 
@@ -638,18 +638,21 @@ impl<'a> Ppu<'a> {
                 ppu.oam.eval_next_scanline_sprite(ppu.current_scanline, 65);
             }
 
+            let tiles_to_draw = if ppu.fine_x_scroll == 0 { 0..32 } else { 0..33 };
+
             // if background rendering is disabled
             if !ppu.is_background_enable() {
-                for _ in 0..32 {
+                for _ in tiles_to_draw {
                     let pixels_drawn = draw::draw_tile_row(
                         ppu,
                         ppu.is_background_enable(),
                         ppu.is_sprites_enable(),
                     );
+
                     ppu.current_scanline_dot += pixels_drawn as u16;
                 }
             } else {
-                for _ in 0..32 {
+                for _ in tiles_to_draw {
                     // OPTIMIZE: make separate drawing
                     // algorithm for drawing entire scanlines
                     let pixels_drawn = draw::draw_tile_row(
@@ -661,11 +664,11 @@ impl<'a> Ppu<'a> {
                     ppu.increment_vram_addr_coarse_x();
                 }
 
-                debug_assert_eq!(ppu.current_scanline_dot, 257);
-
                 // increment fine y
                 ppu.increment_vram_addr_y();
             }
+
+            assert_eq!(ppu.current_scanline_dot, 257);
 
             if ppu.is_sprites_enable() || ppu.is_background_enable() {
                 ppu.transfer_temp_x_and_nt_select();
