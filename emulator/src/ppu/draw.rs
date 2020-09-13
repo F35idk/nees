@@ -42,7 +42,7 @@ fn draw_tile_row_background_and_sprites(
 
     {
         let current_bg_tile = get_current_tile(ppu);
-        let bg_palette_index = get_tile_palette_index(ppu);
+        let bg_palette_index = get_current_tile_palette_index(ppu);
 
         // get the high and low bitplanes for the current row of the current tile
         let fine_y = ppu.current_vram_addr.get_fine_y();
@@ -52,6 +52,7 @@ fn draw_tile_row_background_and_sprites(
         let mut pixels_drawn = 0u8;
 
         for bg_tile_offset in bg_tile_offsets {
+            let mut sprite_zero = false;
             let sprite_color = match (
                 draw_sprites,
                 ppu.current_scanline_dot + pixels_drawn as u16,
@@ -62,19 +63,45 @@ fn draw_tile_row_background_and_sprites(
                 // don't draw sprite color if on dots 1-8 and sprite
                 // drawing is disabled for the first 8 pixels
                 (_, 1..=8, false) => None,
-                _ => match ppu
+                _ => ppu
                     .oam
-                    .get_sprite_color_at_dot(ppu.current_scanline_dot + pixels_drawn as u16)
-                {
-                    Some((_, _, 0)) => None,
-                    Some((true, palette, color)) => Some(calc_pixel_color(ppu, palette, color)),
-                    _ => None,
-                },
+                    .get_sprite_at_dot_info(ppu.current_scanline_dot + pixels_drawn as u16)
+                    .and_then(|info| {
+                        if info.color_index != 0 {
+                            sprite_zero = info.is_sprite_zero;
+
+                            if info.is_in_front {
+                                // draw sprite color if sprite is in front of background
+                                // and color index doesn't point to a transparent color
+                                return Some(calc_pixel_color(
+                                    ppu,
+                                    info.palette_index,
+                                    info.color_index,
+                                ));
+                            }
+                        }
+
+                        None
+                    }),
             };
+
+            if sprite_zero {
+                let bg_color_index = {
+                    let lo = (bg_bitplane_lo >> (7 - bg_tile_offset)) & 1;
+                    let high = ((bg_bitplane_hi >> (7 - bg_tile_offset)) << 1) & 2;
+                    lo | high
+                };
+
+                if bg_color_index != 0
+                    && (ppu.current_scanline_dot + pixels_drawn as u16 - 1) != 0xff
+                {
+                    ppu.set_sprite_zero_hit(true);
+                }
+            }
 
             let pixel_color = sprite_color.unwrap_or_else(|| {
                 match (
-                    ppu.current_scanline_dot + pixels_drawn as u16 - 1,
+                    ppu.current_scanline_dot + pixels_drawn as u16,
                     ppu.is_background_left_column_enable(),
                 ) {
                     (1..=8, false) => calc_pixel_color(ppu, 0, 0),
@@ -119,7 +146,7 @@ fn draw_tile_row_background_and_sprites(
         }
     }
 
-    fn get_tile_palette_index(ppu: &mut Ppu) -> u8 {
+    fn get_current_tile_palette_index(ppu: &mut Ppu) -> u8 {
         let coarse_y = ppu.current_vram_addr.get_coarse_y();
         let coarse_x = ppu.current_vram_addr.get_coarse_x();
 
@@ -149,14 +176,16 @@ fn draw_tile_row_backdrop_color_and_sprites(ppu: &mut Ppu, pixels_to_draw: u8, d
         ) {
             (false, _, _) => None,
             (_, 1..=8, false) => None,
-            _ => match ppu
+            _ => ppu
                 .oam
-                .get_sprite_color_at_dot(ppu.current_scanline_dot + i as u16)
-            {
-                Some((_, _, 0)) => None,
-                Some((_, palette, color)) => Some(calc_pixel_color(ppu, palette, color)),
-                _ => None,
-            },
+                .get_sprite_at_dot_info(ppu.current_scanline_dot + i as u16)
+                .and_then(|info| {
+                    if info.color_index != 0 {
+                        Some(calc_pixel_color(ppu, info.palette_index, info.color_index))
+                    } else {
+                        None
+                    }
+                }),
         };
 
         let pixel_color = sprite_color.unwrap_or_else(|| {
@@ -179,7 +208,7 @@ fn draw_tile_row_backdrop_color_and_sprites(ppu: &mut Ppu, pixels_to_draw: u8, d
 }
 
 fn calc_pixel_color(ppu: &Ppu, palette_index: u8, color_index: u8) -> u32 {
-    let addr = (0x3f00 | ((palette_index << 2) as u16)) | (color_index as u16);
+    let mut addr = (0x3f00 | ((palette_index << 2) as u16)) | (color_index as u16);
 
     if color_index == 0 {
         addr = 0x3f00;

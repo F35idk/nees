@@ -375,8 +375,9 @@ impl<'a> Ppu<'a> {
                     }
                 }
                 1 => {
-                    // clear vblank flag
+                    // clear vblank and sprite zero hit flags
                     ppu.set_vblank(false);
+                    ppu.set_sprite_zero_hit(false);
 
                     ppu.cycle_count += 7;
                     ppu.current_scanline_dot += 7;
@@ -614,6 +615,7 @@ impl<'a> Ppu<'a> {
 
         fn step_pre_render_line_full(ppu: &mut Ppu) -> PpuState {
             ppu.set_vblank(false);
+            ppu.set_sprite_zero_hit(false);
 
             if ppu.is_sprites_enable() || ppu.is_background_enable() {
                 ppu.transfer_temp_x_and_nt_select();

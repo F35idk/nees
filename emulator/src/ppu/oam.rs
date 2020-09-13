@@ -3,11 +3,11 @@ use super::super::memory_map::PpuMemoryMap;
 #[derive(Default)]
 pub struct Oam {
     pub primary: PrimaryOam,
-    pub secondary: SecondaryOam,
+    secondary: SecondaryOam,
     // contains data for the 8 sprites to be drawn on the current or
     // next scanline (is filled with sprite data for the next scanline
     // on cycles 257-320)
-    pub current_sprites_data: [SpriteRenderData; 8],
+    current_sprites_data: [SpriteRenderData; 8],
     // during sprite evaluation (dots 65-256 of each visible scanline),
     // this is used as the index of the current sprite to be evaluated
     // in primary oam. during sprite fetching (dots 257-320 of each
@@ -35,21 +35,23 @@ pub struct SecondaryOam {
     pub entries: [OamEntry; 8],
 }
 
+// struct used internally in 'Oam' to store sprite data between scanlines
 #[derive(Copy, Clone, Default)]
-pub struct SpriteRenderData {
-    pub x: u8,
-    pub tile_bitplane_lo: u8,
-    pub tile_bitplane_hi: u8,
-    pub attributes: u8,
+struct SpriteRenderData {
+    x: u8,
+    tile_bitplane_lo: u8,
+    tile_bitplane_hi: u8,
+    // bit 2 of 'attributes' indicates end of array, bit 3 indicates sprite zero
+    attributes: u8,
 }
 
-impl SpriteRenderData {
-    pub fn is_end_of_array(&self) -> bool {
-        // the unimplemented bits of the attribute byte (bits
-        // 2-4) are used as an end of array indicator (for the
-        // 'current_sprites_data' array on the 'Oam' struct)
-        self.attributes & 0b00011100 != 0
-    }
+// convenience info struct returned by 'Oam::get_sprite_at_dot_info()'.
+// isn't stored persistently anywhere
+pub struct SpriteInfo {
+    pub color_index: u8,
+    pub palette_index: u8,
+    pub is_in_front: bool,
+    pub is_sprite_zero: bool,
 }
 
 // convenience methods for the 'SecondaryOam' and 'PrimaryOam' structs
@@ -97,10 +99,18 @@ impl Oam {
         assert!(matches!(current_scanline_dot, 65..=256));
 
         if self.sprites_found < 8 {
-            let sprite = unsafe { self.primary.get_sprite_unchecked(self.current_sprite) };
+            let mut sprite = unsafe { self.primary.get_sprite_unchecked(self.current_sprite) };
 
             // NOTE: 'sprite.y' is 1 less than the screen y coordinate
             if ((current_scanline) as u16).wrapping_sub(sprite.y as u16) < 8 {
+                // clear bits 2-4 of attribute byte
+                sprite.attributes &= 0b11100011;
+
+                if self.current_sprite == 0 {
+                    // set bit 3 of 'attributes' to indicate sprite zero
+                    sprite.attributes |= 0b1000
+                }
+
                 // copy sprite into secondary oam
                 self.secondary.entries[self.sprites_found as usize] = sprite;
                 self.sprites_found += 1;
@@ -142,8 +152,7 @@ impl Oam {
             };
 
             let x = sprite.x;
-            // clear bits 2-4 of attribute byte
-            let attributes = sprite.attributes & 0b11100011;
+            let attributes = sprite.attributes;
             let y = sprite.y;
             // NOTE: 'sprite.y' is 1 less than the screen y coordinate
             let y_offset = current_scanline - y as i16;
@@ -175,23 +184,21 @@ impl Oam {
             self.current_sprite = self.current_sprite.wrapping_add(1 << 2);
         } else {
             // fill a slot in 'current_sprites_data' with sentinel value
-            // (bits 2-4 of 'attributes' being set to 111 indicates end
-            // of array, see 'SpriteRenderData.is_end_of_array()')
+            // (bit 2 of 'attributes' being set indicates end of array)
             self.current_sprites_data[(self.current_sprite >> 2) as usize] = SpriteRenderData {
                 tile_bitplane_lo: 0,
                 tile_bitplane_hi: 0,
-                attributes: 0b00011100,
+                attributes: 0b100,
                 x: 0,
             };
         }
     }
 
-    // gets the color and palette indices of the first sprite at 'current_scanline_dot',
-    // if any. also returns whether the sprite is in front of or behind the background
-    pub fn get_sprite_color_at_dot(&self, current_scanline_dot: u16) -> Option<(bool, u8, u8)> {
+    pub fn get_sprite_at_dot_info(&self, current_scanline_dot: u16) -> Option<SpriteInfo> {
         self.current_sprites_data
             .iter()
-            .take_while(|data| !data.is_end_of_array())
+            // bit 2 of 'attributes' being set indicates end of array
+            .take_while(|data| data.attributes & 0b100 == 0)
             .find_map(|data| {
                 // ignore sprites that are partially outside of the screen
                 if data.x >= 0xf9 {
@@ -220,8 +227,15 @@ impl Oam {
 
                     let palette_index = (data.attributes & 0b11) | 4;
                     let is_in_front = (data.attributes & 0b100000) != 1;
+                    // bit 3 of 'attributes' being set means data belongs to sprite zero
+                    let is_sprite_zero = (data.attributes & 0b1000) == 0b1000;
 
-                    return Some((is_in_front, palette_index, color_index));
+                    return Some(SpriteInfo {
+                        palette_index,
+                        color_index,
+                        is_in_front,
+                        is_sprite_zero,
+                    });
                 }
 
                 None
