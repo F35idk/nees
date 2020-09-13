@@ -47,7 +47,7 @@ struct SpriteRenderData {
 
 // convenience info struct returned by 'Oam::get_sprite_at_dot_info()'.
 // isn't stored persistently anywhere
-pub struct SpriteInfo {
+pub struct SpritePixelInfo {
     pub color_index: u8,
     pub palette_index: u8,
     pub is_in_front: bool,
@@ -194,7 +194,9 @@ impl Oam {
         }
     }
 
-    pub fn get_sprite_at_dot_info(&self, current_scanline_dot: u16) -> Option<SpriteInfo> {
+    // returns a 'SpritePixelInfo' struct describing the first (highest
+    // priority) non-transparent sprite pixel at the current dot
+    pub fn get_sprite_at_dot_info(&self, current_scanline_dot: u16) -> Option<SpritePixelInfo> {
         self.current_sprites_data
             .iter()
             // bit 2 of 'attributes' being set indicates end of array
@@ -225,17 +227,19 @@ impl Oam {
                         lo | hi
                     };
 
-                    let palette_index = (data.attributes & 0b11) | 4;
-                    let is_in_front = (data.attributes & 0b100000) != 1;
-                    // bit 3 of 'attributes' being set means data belongs to sprite zero
-                    let is_sprite_zero = (data.attributes & 0b1000) == 0b1000;
+                    if color_index != 0 {
+                        let palette_index = (data.attributes & 0b11) | 4;
+                        let is_in_front = (data.attributes & 0b100000) != 1;
+                        // bit 3 of 'attributes' being set means data belongs to sprite zero
+                        let is_sprite_zero = (data.attributes & 0b1000) == 0b1000;
 
-                    return Some(SpriteInfo {
-                        palette_index,
-                        color_index,
-                        is_in_front,
-                        is_sprite_zero,
-                    });
+                        return Some(SpritePixelInfo {
+                            palette_index,
+                            color_index,
+                            is_in_front,
+                            is_sprite_zero,
+                        });
+                    }
                 }
 
                 None

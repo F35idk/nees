@@ -63,25 +63,17 @@ fn draw_tile_row_background_and_sprites(
                 // don't draw sprite color if on dots 1-8 and sprite
                 // drawing is disabled for the first 8 pixels
                 (_, 1..=8, false) => None,
+                // otherwise, search for an active sprite at the current dot
                 _ => ppu
                     .oam
                     .get_sprite_at_dot_info(ppu.current_scanline_dot + pixels_drawn as u16)
                     .and_then(|info| {
-                        if info.color_index != 0 {
-                            sprite_zero = info.is_sprite_zero;
-
-                            if info.is_in_front {
-                                // draw sprite color if sprite is in front of background
-                                // and color index doesn't point to a transparent color
-                                return Some(calc_pixel_color(
-                                    ppu,
-                                    info.palette_index,
-                                    info.color_index,
-                                ));
-                            }
+                        sprite_zero = info.is_sprite_zero;
+                        if info.is_in_front {
+                            Some(calc_pixel_color(ppu, info.palette_index, info.color_index))
+                        } else {
+                            None
                         }
-
-                        None
                     }),
             };
 
@@ -179,13 +171,7 @@ fn draw_tile_row_backdrop_color_and_sprites(ppu: &mut Ppu, pixels_to_draw: u8, d
             _ => ppu
                 .oam
                 .get_sprite_at_dot_info(ppu.current_scanline_dot + i as u16)
-                .and_then(|info| {
-                    if info.color_index != 0 {
-                        Some(calc_pixel_color(ppu, info.palette_index, info.color_index))
-                    } else {
-                        None
-                    }
-                }),
+                .map(|info| calc_pixel_color(ppu, info.palette_index, info.color_index)),
         };
 
         let pixel_color = sprite_color.unwrap_or_else(|| {
