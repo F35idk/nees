@@ -52,62 +52,55 @@ fn draw_tile_row_background_and_sprites(
         let mut pixels_drawn = 0u8;
 
         for bg_tile_offset in bg_tile_offsets {
+            let bg_color_index = match (
+                ppu.current_scanline_dot + pixels_drawn as u16,
+                ppu.is_background_left_column_enable(),
+            ) {
+                (1..=8, false) => 0,
+                _ => {
+                    let lo = (bg_bitplane_lo >> (7 - bg_tile_offset)) & 1;
+                    let high = ((bg_bitplane_hi >> (7 - bg_tile_offset)) << 1) & 2;
+                    lo | high
+                }
+            };
+
             let mut sprite_zero = false;
-            let sprite_color = match (
+
+            let pixel_color = match (
                 draw_sprites,
                 ppu.current_scanline_dot + pixels_drawn as u16,
                 ppu.is_sprites_left_column_enable(),
             ) {
-                // don't draw sprite color if 'draw_sprites' is false
-                (false, _, _) => None,
-                // don't draw sprite color if on dots 1-8 and sprite
+                // draw bg color if 'draw_sprites' is false
+                (false, _, _) => calc_pixel_color(ppu, bg_palette_index, bg_color_index),
+                // draw bg color if on dots 1-8 and sprite
                 // drawing is disabled for the first 8 pixels
-                (_, 1..=8, false) => None,
-                // otherwise, search for an active sprite at the current dot
-                _ => ppu
+                (_, 1..=8, false) => calc_pixel_color(ppu, bg_palette_index, bg_color_index),
+                // otherwise, search for an active, non-transparent sprite at the current dot
+                _ => match ppu
                     .oam
                     .get_sprite_at_dot_info(ppu.current_scanline_dot + pixels_drawn as u16)
-                    .and_then(|info| {
+                {
+                    // draw bg color if no sprite was found
+                    None => calc_pixel_color(ppu, bg_palette_index, bg_color_index),
+                    Some(info) => {
                         sprite_zero = info.is_sprite_zero;
-                        if info.is_in_front {
-                            Some(calc_pixel_color(ppu, info.palette_index, info.color_index))
+
+                        if info.is_in_front || bg_color_index == 0 {
+                            calc_pixel_color(ppu, info.palette_index, info.color_index)
                         } else {
-                            None
+                            calc_pixel_color(ppu, bg_palette_index, bg_color_index)
                         }
-                    }),
+                    }
+                },
             };
 
-            if sprite_zero {
-                let bg_color_index = {
-                    let lo = (bg_bitplane_lo >> (7 - bg_tile_offset)) & 1;
-                    let high = ((bg_bitplane_hi >> (7 - bg_tile_offset)) << 1) & 2;
-                    lo | high
-                };
-
-                if bg_color_index != 0
-                    && (ppu.current_scanline_dot + pixels_drawn as u16 - 1) != 0xff
-                {
-                    ppu.set_sprite_zero_hit(true);
-                }
+            if sprite_zero
+                && bg_color_index != 0
+                && (ppu.current_scanline_dot + pixels_drawn as u16 - 1) != 0xff
+            {
+                ppu.set_sprite_zero_hit(true);
             }
-
-            let pixel_color = sprite_color.unwrap_or_else(|| {
-                match (
-                    ppu.current_scanline_dot + pixels_drawn as u16,
-                    ppu.is_background_left_column_enable(),
-                ) {
-                    (1..=8, false) => calc_pixel_color(ppu, 0, 0),
-                    _ => {
-                        let bg_color_index = {
-                            let lo = (bg_bitplane_lo >> (7 - bg_tile_offset)) & 1;
-                            let high = ((bg_bitplane_hi >> (7 - bg_tile_offset)) << 1) & 2;
-                            lo | high
-                        };
-
-                        calc_pixel_color(ppu, bg_palette_index, bg_color_index)
-                    }
-                }
-            });
 
             let screen_x = (ppu.current_scanline_dot - 1) as usize + pixels_drawn as usize;
             let screen_y = ppu.current_scanline as usize;

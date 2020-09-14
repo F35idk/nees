@@ -194,8 +194,8 @@ impl Oam {
         }
     }
 
-    // returns a 'SpritePixelInfo' struct describing the first (highest
-    // priority) non-transparent sprite pixel at the current dot
+    // returns a 'SpritePixelInfo' struct describing the first (highest priority) non-transparent
+    // sprite pixel at the current dot, or None if no such sprite pixel was found
     pub fn get_sprite_at_dot_info(&self, current_scanline_dot: u16) -> Option<SpritePixelInfo> {
         self.current_sprites_data
             .iter()
@@ -204,11 +204,14 @@ impl Oam {
             .find_map(|data| {
                 // ignore sprites that are partially outside of the screen
                 if data.x >= 0xf9 {
+                    // FIXME: if a sprite that is otherwise valid is outside of the screen,
+                    // should the whole sprite search stop (instead of continuing as if
+                    // the sprite had a transparent pixel)???
                     return None;
                 }
 
                 // get distance between current dot and sprite's leftmost x coordinate
-                let tile_offset = current_scanline_dot.wrapping_sub(data.x as u16);
+                let tile_offset = current_scanline_dot.wrapping_sub(data.x as u16 + 1);
 
                 // if current dot is within x-coords of sprite
                 if tile_offset < 8 {
@@ -229,9 +232,9 @@ impl Oam {
 
                     if color_index != 0 {
                         let palette_index = (data.attributes & 0b11) | 4;
-                        let is_in_front = (data.attributes & 0b100000) != 1;
+                        let is_in_front = (data.attributes & 0b100000) == 0;
                         // bit 3 of 'attributes' being set means data belongs to sprite zero
-                        let is_sprite_zero = (data.attributes & 0b1000) == 0b1000;
+                        let is_sprite_zero = (data.attributes & 0b1000) != 0;
 
                         return Some(SpritePixelInfo {
                             palette_index,
