@@ -236,10 +236,14 @@ impl<'a> Ppu<'a> {
         fn write_ppuctrl(ppu: &mut Ppu, val: u8, cpu: &mut cpu::Cpu) {
             // set bits 10-11 of 'temp_vram_addr' equal to the low 2 bits of 'val'
             ppu.temp_vram_addr.set_nametable_select(val & 0b11);
+
+            // true if nmi_enable bit went from 1 to 0 or 0 to 1
+            let nmi_toggled = ((ppu.ppuctrl ^ val) >> 7) != 0;
+
             ppu.ppuctrl = val;
             ppu.set_ppustatus_low_bits(val);
 
-            if ppu.is_vblank_nmi_enabled() && ppu.is_vblank() {
+            if nmi_toggled && ppu.is_vblank_nmi_enabled() && ppu.is_vblank() {
                 cpu.nmi = true;
             }
         }
