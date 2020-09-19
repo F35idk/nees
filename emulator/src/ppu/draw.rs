@@ -25,10 +25,10 @@ pub fn draw_tile_row(ppu: &mut Ppu, draw_background: bool, draw_sprites: bool) -
         0..8
     };
 
-    if draw_background {
-        draw_tile_row_background_and_sprites(ppu, bg_tile_offsets, draw_sprites)
+    if draw_background || draw_sprites {
+        draw_tile_row_background_and_sprites(ppu, bg_tile_offsets, draw_sprites, draw_background)
     } else {
-        draw_tile_row_backdrop_color_and_sprites(ppu, bg_tile_offsets.len() as u8, draw_sprites);
+        draw_tile_row_backdrop_color(ppu, bg_tile_offsets.len() as u8);
         bg_tile_offsets.len() as u8
     }
 }
@@ -37,6 +37,7 @@ fn draw_tile_row_background_and_sprites(
     ppu: &mut Ppu,
     bg_tile_offsets: Range<u8>,
     draw_sprites: bool,
+    draw_background: bool,
 ) -> u8 {
     // NOTE: this function is split into multiple subfunctions to help readability
 
@@ -53,10 +54,12 @@ fn draw_tile_row_background_and_sprites(
 
         for bg_tile_offset in bg_tile_offsets {
             let bg_color_index = match (
+                draw_background,
                 ppu.current_scanline_dot + pixels_drawn as u16,
                 ppu.is_background_left_column_enable(),
             ) {
-                (1..=8, false) => 0,
+                (false, _, _) => 0,
+                (_, 1..=8, false) => 0,
                 _ => {
                     let lo = (bg_bitplane_lo >> (7 - bg_tile_offset)) & 1;
                     let high = ((bg_bitplane_hi >> (7 - bg_tile_offset)) << 1) & 2;
@@ -150,24 +153,11 @@ fn draw_tile_row_background_and_sprites(
     }
 }
 
-// draws 8 pixels of sprite and backdrop color (or if 'current_vram_addr'
-// >= 0x3f00, draws the color 'current_vram_addr' points to as backdrop)
-fn draw_tile_row_backdrop_color_and_sprites(ppu: &mut Ppu, pixels_to_draw: u8, draw_sprites: bool) {
+// draws 8 pixels of backdrop color (or if 'current_vram_addr'
+// >= 0x3f00, draws the color 'current_vram_addr' points to)
+fn draw_tile_row_backdrop_color(ppu: &mut Ppu, pixels_to_draw: u8) {
     for i in 0..pixels_to_draw {
-        let sprite_color = match (
-            draw_sprites,
-            ppu.current_scanline_dot + i as u16,
-            ppu.is_sprites_left_column_enable(),
-        ) {
-            (false, _, _) => None,
-            (_, 1..=8, false) => None,
-            _ => ppu
-                .oam
-                .get_sprite_at_dot_info(ppu.current_scanline_dot + i as u16)
-                .map(|info| calc_pixel_color(ppu, info.palette_index, info.color_index)),
-        };
-
-        let pixel_color = sprite_color.unwrap_or_else(|| {
+        let pixel_color = {
             let bg_color_addr = if ppu.current_vram_addr.get_addr() >= 0x3f00 {
                 logln!("background palette hack triggered");
                 ppu.current_vram_addr.get_addr()
@@ -177,7 +167,7 @@ fn draw_tile_row_backdrop_color_and_sprites(ppu: &mut Ppu, pixels_to_draw: u8, d
 
             let bg_color_byte = ppu.memory.read(bg_color_addr);
             palette::COLOR_LUT.get(bg_color_byte, ppu.is_greyscale_enabled(), ppu.ppumask >> 5)
-        });
+        };
 
         let screen_x = (ppu.current_scanline_dot - 1 + i as u16) as usize;
         let screen_y = ppu.current_scanline as usize;
