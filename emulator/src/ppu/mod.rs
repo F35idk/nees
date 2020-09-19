@@ -392,7 +392,7 @@ impl<'a> Ppu<'a> {
                 }
                 256 => {
                     if ppu.is_sprites_enable() || ppu.is_background_enable() {
-                        ppu.transfer_temp_x_and_nt_select();
+                        ppu.transfer_temp_horizontal_bits();
                     }
 
                     ppu.cycle_count += 8;
@@ -404,7 +404,7 @@ impl<'a> Ppu<'a> {
                 }
                 280 => {
                     if ppu.is_sprites_enable() || ppu.is_background_enable() {
-                        ppu.transfer_temp_y();
+                        ppu.transfer_temp_vert_bits();
                     }
 
                     ppu.cycle_count += 8;
@@ -458,7 +458,7 @@ impl<'a> Ppu<'a> {
                     ppu.cycle_count += pixels_drawn as u32;
                     ppu.current_scanline_dot += pixels_drawn as u16;
 
-                    if ppu.is_background_enable() {
+                    if ppu.is_background_enable() || ppu.is_sprites_enable() {
                         // if last pixel drawn was 256th (end of scanline)
                         if ppu.current_scanline_dot == 257 {
                             // increment fine y
@@ -472,7 +472,7 @@ impl<'a> Ppu<'a> {
                     // set current sprite to zero so it can be re-used
                     // in 'fetch_next_scanline_sprite_data()'
                     ppu.oam.current_sprite = 0;
-                    assert!(ppu.oam.sprites_found <= 8);
+                    debug_assert!(ppu.oam.sprites_found <= 8);
 
                     // fetch sprite data for the sprites found previosuly (during dots 65-256)
                     if ppu.is_sprites_enable() {
@@ -485,7 +485,7 @@ impl<'a> Ppu<'a> {
                     }
 
                     if ppu.is_sprites_enable() || ppu.is_background_enable() {
-                        ppu.transfer_temp_x_and_nt_select();
+                        ppu.transfer_temp_horizontal_bits();
                     }
 
                     ppu.cycle_count += 8;
@@ -524,7 +524,7 @@ impl<'a> Ppu<'a> {
             match ppu.current_scanline_dot {
                 256 => {
                     if ppu.is_sprites_enable() || ppu.is_background_enable() {
-                        ppu.transfer_temp_x_and_nt_select();
+                        ppu.transfer_temp_horizontal_bits();
                     }
 
                     ppu.cycle_count += 8;
@@ -563,7 +563,7 @@ impl<'a> Ppu<'a> {
                 }
                 256 => {
                     if ppu.is_sprites_enable() || ppu.is_background_enable() {
-                        ppu.transfer_temp_x_and_nt_select();
+                        ppu.transfer_temp_horizontal_bits();
                     }
 
                     ppu.cycle_count += 8;
@@ -622,8 +622,8 @@ impl<'a> Ppu<'a> {
             ppu.set_sprite_zero_hit(false);
 
             if ppu.is_sprites_enable() || ppu.is_background_enable() {
-                ppu.transfer_temp_x_and_nt_select();
-                ppu.transfer_temp_y();
+                ppu.transfer_temp_horizontal_bits();
+                ppu.transfer_temp_vert_bits();
             }
 
             ppu.current_scanline = 0;
@@ -638,24 +638,16 @@ impl<'a> Ppu<'a> {
             ppu.oam.current_sprite = 0;
 
             // FIXME: 72 iterations?
-            for _ in 0..72 {
-                ppu.oam.eval_next_scanline_sprite(ppu.current_scanline, 65);
+            if ppu.is_sprites_enable() || ppu.is_background_enable() {
+                for _ in 0..72 {
+                    ppu.oam.eval_next_scanline_sprite(ppu.current_scanline, 65);
+                }
             }
 
             let tiles_to_draw = if ppu.fine_x_scroll == 0 { 0..32 } else { 0..33 };
 
-            // if background rendering is disabled
-            if !ppu.is_background_enable() {
-                for _ in tiles_to_draw {
-                    let pixels_drawn = draw::draw_tile_row(
-                        ppu,
-                        ppu.is_background_enable(),
-                        ppu.is_sprites_enable(),
-                    );
-
-                    ppu.current_scanline_dot += pixels_drawn as u16;
-                }
-            } else {
+            // if rendering is enabled
+            if ppu.is_background_enable() || ppu.is_sprites_enable() {
                 for _ in tiles_to_draw {
                     // OPTIMIZE: make separate drawing
                     // algorithm for drawing entire scanlines
@@ -664,18 +656,29 @@ impl<'a> Ppu<'a> {
                         ppu.is_background_enable(),
                         ppu.is_sprites_enable(),
                     );
+
                     ppu.current_scanline_dot += pixels_drawn as u16;
                     ppu.increment_vram_addr_coarse_x();
                 }
 
                 // increment fine y
                 ppu.increment_vram_addr_y();
+            } else {
+                for _ in tiles_to_draw {
+                    let pixels_drawn = draw::draw_tile_row(
+                        ppu,
+                        ppu.is_background_enable(),
+                        ppu.is_sprites_enable(),
+                    );
+
+                    ppu.current_scanline_dot += pixels_drawn as u16;
+                }
             }
 
             assert_eq!(ppu.current_scanline_dot, 257);
 
             if ppu.is_sprites_enable() || ppu.is_background_enable() {
-                ppu.transfer_temp_x_and_nt_select();
+                ppu.transfer_temp_horizontal_bits();
             }
 
             ppu.oam.current_sprite = 0;
@@ -700,7 +703,7 @@ impl<'a> Ppu<'a> {
 
         fn step_idle_line_full(ppu: &mut Ppu) -> PpuState {
             if ppu.is_sprites_enable() || ppu.is_background_enable() {
-                ppu.transfer_temp_x_and_nt_select();
+                ppu.transfer_temp_horizontal_bits();
             }
 
             ppu.current_scanline = 241;
@@ -716,7 +719,7 @@ impl<'a> Ppu<'a> {
             }
 
             if ppu.is_sprites_enable() || ppu.is_background_enable() {
-                ppu.transfer_temp_x_and_nt_select();
+                ppu.transfer_temp_horizontal_bits();
             }
 
             ppu.current_scanline = 242;
@@ -727,7 +730,7 @@ impl<'a> Ppu<'a> {
 
         fn step_vblank_line_full(ppu: &mut Ppu) -> PpuState {
             if ppu.is_sprites_enable() || ppu.is_background_enable() {
-                ppu.transfer_temp_x_and_nt_select();
+                ppu.transfer_temp_horizontal_bits();
             }
 
             ppu.current_scanline += 1;
@@ -738,7 +741,7 @@ impl<'a> Ppu<'a> {
 
         fn step_last_vblank_line_full(ppu: &mut Ppu) -> PpuState {
             if ppu.is_sprites_enable() || ppu.is_background_enable() {
-                ppu.transfer_temp_x_and_nt_select();
+                ppu.transfer_temp_horizontal_bits();
                 ppu.even_frame = !ppu.even_frame;
             }
 
@@ -803,8 +806,13 @@ impl<'a> Ppu<'a> {
         }
     }
 
-    // transfers the coarse and fine y bits from 'temp_vram_addr' to 'current_vram_addr'
-    fn transfer_temp_y(&mut self) {
+    // transfers the coarse and fine y bits + high nametable select
+    // bit from 'temp_vram_addr' to 'current_vram_addr'
+    fn transfer_temp_vert_bits(&mut self) {
+        let temp_high_nt_select = self.temp_vram_addr.inner & 0x800;
+        self.current_vram_addr.inner &= !0x800;
+        self.current_vram_addr.inner |= temp_high_nt_select;
+
         let temp_coarse_y = self.temp_vram_addr.get_coarse_y();
         self.current_vram_addr.set_coarse_y(temp_coarse_y);
 
@@ -812,11 +820,12 @@ impl<'a> Ppu<'a> {
         self.current_vram_addr.set_fine_y(temp_fine_y);
     }
 
-    // transfers the coarse x and nametable select bits from 'temp_vram_addr'
-    // to 'current_vram_addr'
-    fn transfer_temp_x_and_nt_select(&mut self) {
-        let temp_nametable = self.temp_vram_addr.get_nametable_select();
-        self.current_vram_addr.set_nametable_select(temp_nametable);
+    // transfers the coarse x bits + the lowest nametable select bit from
+    // 'temp_vram_addr' to 'current_vram_addr'
+    fn transfer_temp_horizontal_bits(&mut self) {
+        let temp_low_nt_select = self.temp_vram_addr.inner & 0x400;
+        self.current_vram_addr.inner &= !0x400;
+        self.current_vram_addr.inner |= temp_low_nt_select;
 
         let temp_coarse_x = self.temp_vram_addr.get_coarse_x();
         self.current_vram_addr.set_coarse_x(temp_coarse_x);

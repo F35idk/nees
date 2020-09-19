@@ -34,9 +34,6 @@ fn test_registers() {
     ppu.ppumask = 0b00000010;
     assert!(ppu.is_background_left_column_enable());
 
-    ppu.ppumask = 0b01000000;
-    assert!(ppu.is_green_emphasized());
-
     ppu.ppumask = 0b00010000;
     assert!(ppu.is_sprites_enable());
 
@@ -327,6 +324,23 @@ fn test_increment_vram_addr_xy() {
     ppu.increment_vram_addr_y();
     // increment should not change coarse y
     assert_eq!(ppu.current_vram_addr.inner, 0b111_10_11111_01010);
+}
+
+#[test]
+fn test_temp_to_current_vram_transfer() {
+    let mmap::Nrom128CpuMemory { ref mut ppu, .. } = init_nes().1;
+
+    ppu.temp_vram_addr.inner = 0b01_00000_10101;
+    ppu.current_vram_addr.inner = 0b10_10000_00000;
+    ppu.transfer_temp_horizontal_bits();
+
+    assert_eq!(ppu.current_vram_addr.inner, 0b11_10000_10101);
+
+    ppu.temp_vram_addr.inner = 0b10_10101_00000;
+    ppu.current_vram_addr.inner = 0b01_00000_10000;
+    ppu.transfer_temp_vert_bits();
+
+    assert_eq!(ppu.current_vram_addr.inner, 0b11_10101_10000);
 }
 
 // draws the pattern table at address 0x1000 of 'rom'
