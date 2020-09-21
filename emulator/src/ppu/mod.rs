@@ -51,12 +51,7 @@ pub struct Ppu<'a> {
     // counter variables used for rendering
     pub current_scanline: i16,
     pub current_scanline_dot: u16,
-}
-
-// flags returned by 'Ppu.catch_up()', 'Ppu.step()' and 'Ppu.step_scanline()'
-pub enum PpuState {
-    MidFrame,
-    FrameDone,
+    pub frame_done: bool,
 }
 
 #[derive(Copy, Clone)]
@@ -121,6 +116,7 @@ impl<'a> Ppu<'a> {
             even_frame: true,
             renderer,
             memory,
+            frame_done: false,
         }
     }
 
@@ -160,7 +156,6 @@ impl<'a> Ppu<'a> {
             status
         }
 
-        // TODO: special values when rendering
         fn read_oamdata(ppu: &mut Ppu) -> u8 {
             if let (0..=239, 1..=64) = (ppu.current_scanline, ppu.current_scanline_dot) {
                 // if on dots/cycles 1-64 of a visible scanline, return 0xff
@@ -320,42 +315,46 @@ impl<'a> Ppu<'a> {
         }
     }
 
-    // catches the ppu up to the cpu (approximately)
-    pub fn catch_up(&mut self, cpu: &mut cpu::Cpu) -> PpuState {
-        let target_cycles = cpu.cycle_count as u32 * 3;
-        let cycles_to_catch_up = target_cycles.saturating_sub(self.cycle_count);
+    // catches the ppu up to the cpu (approximately). stops if the end
+    // of the frame is reached before the ppu is fully caught up
+    pub fn catch_up(&mut self, cpu: &mut cpu::Cpu) {
+        // NOTE: cpu.cycle_count could be negative here
+        let target_cycles = cpu.cycle_count as i32 * 3;
+        let cycles_to_catch_up = target_cycles.saturating_sub(self.cycle_count as i32);
 
         // if the ppu is behind the cpu by more than 2 scanlines worth of cycles,
         // start by using a separate scanline algorithm to catch up
-        if cycles_to_catch_up > 341 * 2 {
+        if cycles_to_catch_up > 341 * 2 + 1 {
             // line up with the next scanline
             while self.current_scanline_dot != 0 {
                 self.step(cpu);
             }
 
             // step using scanline algorithm
-            let n_scanlines = (target_cycles - self.cycle_count) / 341;
+            let n_scanlines = (target_cycles - self.cycle_count as i32) / 341;
             for _ in 0..n_scanlines {
                 self.step_scanline(cpu);
             }
+
+            assert!(!self.frame_done);
         }
 
         // step normally
-        while self.cycle_count < target_cycles {
-            if let PpuState::FrameDone = self.step(cpu) {
-                return PpuState::FrameDone;
+        while (self.cycle_count as i32) < target_cycles {
+            if self.frame_done == true {
+                return;
             }
-        }
 
-        PpuState::MidFrame
+            self.step(cpu);
+        }
     }
 
     // steps the ppu for one tile worth of cycles (1-8 cycles).
     // only used internally by the ppu, in 'Ppu.catch_up()'
-    fn step(&mut self, cpu: &mut cpu::Cpu) -> PpuState {
+    fn step(&mut self, cpu: &mut cpu::Cpu) {
         // NOTE: this function is split into multiple subfunctions
         {
-            return match self.current_scanline {
+            match self.current_scanline {
                 // pre-render scanline
                 -1 => step_pre_render_line(self),
                 // visible scanlines
@@ -364,11 +363,11 @@ impl<'a> Ppu<'a> {
                 240 => step_idle_line(self),
                 // vblank 'scanlines'
                 241..=260 => step_vblank_line(self, cpu),
-                _ => PpuState::MidFrame,
+                _ => (),
             };
         }
 
-        fn step_pre_render_line(ppu: &mut Ppu) -> PpuState {
+        fn step_pre_render_line(ppu: &mut Ppu) {
             match ppu.current_scanline_dot {
                 // idle cycle
                 0 => {
@@ -421,11 +420,9 @@ impl<'a> Ppu<'a> {
                 }
                 _ => (),
             }
-
-            PpuState::MidFrame
         }
 
-        fn step_visible_line(ppu: &mut Ppu) -> PpuState {
+        fn step_visible_line(ppu: &mut Ppu) {
             match ppu.current_scanline_dot {
                 0 => {
                     ppu.current_scanline_dot += 1;
@@ -516,11 +513,9 @@ impl<'a> Ppu<'a> {
                 }
                 _ => (),
             }
-
-            PpuState::MidFrame
         }
 
-        fn step_idle_line(ppu: &mut Ppu) -> PpuState {
+        fn step_idle_line(ppu: &mut Ppu) {
             match ppu.current_scanline_dot {
                 256 => {
                     if ppu.is_sprites_enable() || ppu.is_background_enable() {
@@ -540,11 +535,9 @@ impl<'a> Ppu<'a> {
                     ppu.current_scanline_dot += 8;
                 }
             }
-
-            PpuState::MidFrame
         }
 
-        fn step_vblank_line(ppu: &mut Ppu, cpu: &mut cpu::Cpu) -> PpuState {
+        fn step_vblank_line(ppu: &mut Ppu, cpu: &mut cpu::Cpu) {
             match ppu.current_scanline_dot {
                 0 => {
                     ppu.cycle_count += 1;
@@ -582,7 +575,8 @@ impl<'a> Ppu<'a> {
                             ppu.even_frame = !ppu.even_frame;
                         }
 
-                        return PpuState::FrameDone;
+                        ppu.frame_done = true;
+                        return;
                     } else {
                         ppu.current_scanline += 1;
                     }
@@ -592,17 +586,15 @@ impl<'a> Ppu<'a> {
                     ppu.current_scanline_dot += 8;
                 }
             }
-
-            PpuState::MidFrame
         }
     }
 
     // steps the ppu for a scanline worth of cycles. only
     // used internally by the ppu, in 'Ppu.catch_up()'
-    fn step_scanline(&mut self, cpu: &mut cpu::Cpu) -> PpuState {
+    fn step_scanline(&mut self, cpu: &mut cpu::Cpu) {
         // NOTE: this function is split into multiple subfunctions
         {
-            return match self.current_scanline {
+            match self.current_scanline {
                 // pre-render scanline
                 -1 => step_pre_render_line_full(self),
                 // visible scanlines
@@ -613,11 +605,11 @@ impl<'a> Ppu<'a> {
                 241 => step_first_vblank_line_full(self, cpu),
                 242..=259 => step_vblank_line_full(self),
                 260 => step_last_vblank_line_full(self),
-                _ => PpuState::MidFrame,
+                _ => (),
             };
         }
 
-        fn step_pre_render_line_full(ppu: &mut Ppu) -> PpuState {
+        fn step_pre_render_line_full(ppu: &mut Ppu) {
             ppu.set_vblank(false);
             ppu.set_sprite_zero_hit(false);
 
@@ -628,11 +620,9 @@ impl<'a> Ppu<'a> {
 
             ppu.current_scanline = 0;
             ppu.cycle_count += 340 + ppu.even_frame as u32;
-
-            PpuState::MidFrame
         }
 
-        fn step_visible_line_full(ppu: &mut Ppu) -> PpuState {
+        fn step_visible_line_full(ppu: &mut Ppu) {
             ppu.current_scanline_dot = 1;
             ppu.oam.sprites_found = 0;
             ppu.oam.current_sprite = 0;
@@ -697,22 +687,18 @@ impl<'a> Ppu<'a> {
             ppu.current_scanline += 1;
             ppu.cycle_count += 341;
             ppu.current_scanline_dot = 0;
-
-            PpuState::MidFrame
         }
 
-        fn step_idle_line_full(ppu: &mut Ppu) -> PpuState {
+        fn step_idle_line_full(ppu: &mut Ppu) {
             if ppu.is_sprites_enable() || ppu.is_background_enable() {
                 ppu.transfer_temp_horizontal_bits();
             }
 
             ppu.current_scanline = 241;
             ppu.cycle_count += 341;
-
-            PpuState::MidFrame
         }
 
-        fn step_first_vblank_line_full(ppu: &mut Ppu, cpu: &mut cpu::Cpu) -> PpuState {
+        fn step_first_vblank_line_full(ppu: &mut Ppu, cpu: &mut cpu::Cpu) {
             ppu.set_vblank(true);
             if ppu.is_vblank_nmi_enabled() {
                 cpu.nmi = true;
@@ -724,22 +710,18 @@ impl<'a> Ppu<'a> {
 
             ppu.current_scanline = 242;
             ppu.cycle_count += 341;
-
-            PpuState::MidFrame
         }
 
-        fn step_vblank_line_full(ppu: &mut Ppu) -> PpuState {
+        fn step_vblank_line_full(ppu: &mut Ppu) {
             if ppu.is_sprites_enable() || ppu.is_background_enable() {
                 ppu.transfer_temp_horizontal_bits();
             }
 
             ppu.current_scanline += 1;
             ppu.cycle_count += 341;
-
-            PpuState::MidFrame
         }
 
-        fn step_last_vblank_line_full(ppu: &mut Ppu) -> PpuState {
+        fn step_last_vblank_line_full(ppu: &mut Ppu) {
             if ppu.is_sprites_enable() || ppu.is_background_enable() {
                 ppu.transfer_temp_horizontal_bits();
                 ppu.even_frame = !ppu.even_frame;
@@ -747,8 +729,6 @@ impl<'a> Ppu<'a> {
 
             ppu.current_scanline = -1;
             ppu.cycle_count += 341;
-
-            PpuState::FrameDone
         }
     }
 

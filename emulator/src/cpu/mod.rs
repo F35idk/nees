@@ -11,7 +11,7 @@ pub struct Cpu {
     pub p: u8,
     pub sp: u8,
     pub pc: u16,
-    pub cycle_count: u16,
+    pub cycle_count: i16,
     // TODO: keep track of when (at what cycle) the nmi/irq was triggered?
     // OPTIMIZE: pack bools together
     pub nmi: bool,
@@ -33,6 +33,7 @@ impl Cpu {
     pub fn exec_instruction(&mut self, memory: &mut dyn CpuMemoryMap) {
         if self.nmi {
             self.nmi(memory);
+            // println!("nmi!");
             self.nmi = false;
             return;
         }
@@ -273,80 +274,64 @@ impl Cpu {
         // hijacking, irq/nmi delay on 3-cycle branch instructions, etc.)
     }
 
-    // returns the byte at pc+1
     pub fn fetch_operand_byte(&mut self, memory: &mut dyn CpuMemoryMap) -> u8 {
-        memory.read(self.pc + 1, self)
+        self.pc += 1;
+        self.cycle_count += 1;
+        memory.read(self.pc, self)
     }
 
-    // returns the two bytes at [pc+1, pc+2] as a u16
-    pub fn fetch_operand_u16(&mut self, memory: &mut dyn CpuMemoryMap) -> u16 {
-        u16::from_le_bytes([
-            memory.read(self.pc + 1, self),
-            memory.read(self.pc + 2, self),
-        ])
-    }
-
-    // returns the two bytes at [pc+1, pc+2]
     pub fn fetch_operand_bytes(&mut self, memory: &mut dyn CpuMemoryMap) -> [u8; 2] {
-        [
-            memory.read(self.pc + 1, self),
-            memory.read(self.pc + 2, self),
-        ]
+        let low_byte = self.fetch_operand_byte(memory);
+        let high_byte = self.fetch_operand_byte(memory);
+        [low_byte, high_byte]
     }
 
-    #[inline]
+    pub fn fetch_operand_u16(&mut self, memory: &mut dyn CpuMemoryMap) -> u16 {
+        u16::from_le_bytes(self.fetch_operand_bytes(memory))
+    }
+
     fn is_irq_pending(&self) -> bool {
         self.irq > 0 && !self.is_i_set()
     }
 
-    #[inline]
     // sets the carry flag based on the 'carry' bool
     fn set_c_from_bool(&mut self, carry: bool) {
         self.p = (self.p & !1) | carry as u8;
     }
 
-    #[inline]
     // ors 'bit' directly with the carry flag
     fn set_c_from_bit(&mut self, bit: u8) {
         self.p = (self.p & !1) | bit;
     }
 
-    #[inline]
     fn set_v_from_bool(&mut self, overflow: bool) {
         self.p = (self.p & !0b01000000) | ((overflow as u8) << 6);
     }
 
-    #[inline]
     fn set_v_from_bit(&mut self, bit: u8) {
         self.p = (self.p & !0b01000000) | bit;
     }
 
-    #[inline]
     fn set_z_from_val(&mut self, val: u8) {
         self.p = (self.p & !2) | (((val == 0) as u8) << 1);
     }
 
-    #[inline]
     fn set_z_from_bool(&mut self, zero: bool) {
         self.p = (self.p & !2) | ((zero as u8) << 1);
     }
 
-    #[inline]
     fn set_n_from_val(&mut self, val: u8) {
         self.p = (self.p & !0x80) | val & 0x80;
     }
 
-    #[inline]
     fn set_n_from_bool(&mut self, negative: bool) {
         self.p = (self.p & !0x80) | (negative as u8) << 7;
     }
 
-    #[inline]
     fn set_i_from_bit(&mut self, bit: u8) {
         self.p = (self.p & !4) | bit;
     }
 
-    #[inline]
     fn is_i_set(&self) -> bool {
         (self.p & 4) != 0
     }
@@ -477,7 +462,7 @@ impl Cpu {
 
     fn branch_if(&mut self, condition: bool, memory: &mut dyn CpuMemoryMap) {
         let offset = self.fetch_operand_byte(memory);
-        self.pc += 2;
+        self.pc += 1;
 
         if condition {
             // sign extend 'offset' into an i16
@@ -489,9 +474,9 @@ impl Cpu {
             // xor sign of 'offset' with 'carry' to determine whether a page boundary was crossed
             let boundary_crossed = ((offset as i8) < 0) ^ carry;
 
-            self.cycle_count += 3 + boundary_crossed as u16
+            self.cycle_count += 2 + boundary_crossed as i16;
         } else {
-            self.cycle_count += 2;
+            self.cycle_count += 1;
         }
     }
 
@@ -513,59 +498,54 @@ impl Cpu {
         self.bit(val);
     }
 
-    // used for brk and maskable interrupts ('Cpu.irq()')
-    fn interrupt(&mut self, memory: &mut dyn CpuMemoryMap) {
+    fn interrupt(&mut self, vector_addr: u16, status_flags: u8, memory: &mut dyn CpuMemoryMap) {
+        self.cycle_count += 2;
         let pc_bytes = self.pc.to_le_bytes();
 
         // push high bits of pc
         memory.write(self.sp as u16 + 0x100, pc_bytes[1], self);
         self.sp = self.sp.wrapping_sub(1);
+        self.cycle_count += 1;
+
         // push low bits of pc
         memory.write(self.sp as u16 + 0x100, pc_bytes[0], self);
         self.sp = self.sp.wrapping_sub(1);
+        self.cycle_count += 1;
 
-        // push status flags (with the 'b-flag' set)
-        memory.write(self.sp as u16 + 0x100, self.p | 0b10000, self);
+        // push status flags
+        memory.write(self.sp as u16 + 0x100, status_flags, self);
         self.sp = self.sp.wrapping_sub(1);
+        self.cycle_count += 1;
 
         // set interrupt disable flag
         self.set_i_from_bit(4);
 
-        // set pc to address in brk/irq vector
-        let vector =
-            u16::from_le_bytes([memory.read(0xfffeu16, self), memory.read(0xffffu16, self)]);
-        self.pc = vector;
+        let vector = {
+            let vector_lo = memory.read(vector_addr, self);
+            self.cycle_count += 1;
 
-        self.cycle_count += 7;
+            let vector_hi = memory.read(vector_addr + 1, self);
+            self.cycle_count += 1;
+
+            u16::from_le_bytes([vector_lo, vector_hi])
+        };
+
+        // set pc to interrupt vector address
+        self.pc = vector;
     }
 
     fn brk(&mut self, memory: &mut dyn CpuMemoryMap) {
         // NOTE: pc + 2 is pushed to the stack, despite brk being a one byte instruction
         self.pc += 2;
-        self.interrupt(memory);
+        self.interrupt(0xfffe, self.p | 0b10000, memory);
     }
 
     fn irq(&mut self, memory: &mut dyn CpuMemoryMap) {
-        self.interrupt(memory);
+        self.interrupt(0xfffe, self.p | 0b10000, memory);
     }
 
     fn nmi(&mut self, memory: &mut dyn CpuMemoryMap) {
-        let pc_bytes = self.pc.to_le_bytes();
-
-        memory.write(self.sp as u16 + 0x100, pc_bytes[1], self);
-        self.sp = self.sp.wrapping_sub(1);
-        memory.write(self.sp as u16 + 0x100, pc_bytes[0], self);
-        self.sp = self.sp.wrapping_sub(1);
-
-        self.set_i_from_bit(4);
-
-        // push status flags (with the 'b-flag' cleared)
-        memory.write(self.sp as u16 + 0x100, self.p, self);
-        self.sp = self.sp.wrapping_sub(1);
-
-        self.pc = u16::from_le_bytes([memory.read(0xfffau16, self), memory.read(0xfffbu16, self)]);
-
-        self.cycle_count += 7;
+        self.interrupt(0xfffa, self.p, memory);
     }
 
     fn reset(&mut self, memory: &mut dyn CpuMemoryMap) {
@@ -764,34 +744,41 @@ impl Cpu {
 
     fn jmp_abs(&mut self, memory: &mut dyn CpuMemoryMap) {
         self.pc = self.fetch_operand_u16(memory);
-        self.cycle_count += 3;
+        self.cycle_count += 1;
     }
 
     fn jmp_abs_indirect(&mut self, memory: &mut dyn CpuMemoryMap) {
         let mut addr_bytes = self.fetch_operand_bytes(memory);
+        self.cycle_count += 1;
 
         let final_addr_lo = memory.read(u16::from_le_bytes(addr_bytes), self);
+        self.cycle_count += 1;
+
         // add 1 to low bits without carry to get address of high bits of final address
         addr_bytes[0] = addr_bytes[0].wrapping_add(1);
         let final_addr_hi = memory.read(u16::from_le_bytes(addr_bytes), self);
 
         self.pc = u16::from_le_bytes([final_addr_lo, final_addr_hi]);
-        self.cycle_count += 5;
+        self.cycle_count += 1;
     }
 
     fn jsr(&mut self, memory: &mut dyn CpuMemoryMap) {
         let addr = self.fetch_operand_u16(memory);
+        self.cycle_count += 2;
 
         // get return address (next instruction - 1)
-        let ret_addr = (self.pc + 2).to_le_bytes();
+        let ret_addr = self.pc.to_le_bytes();
+
         // push low bits of address to sp - 1
         memory.write(self.sp.wrapping_sub(1) as u16 + 0x100, ret_addr[0], self);
+        self.cycle_count += 1;
+
         // push high bits of address to sp
         memory.write(self.sp as u16 + 0x100, ret_addr[1], self);
 
         self.sp = self.sp.wrapping_sub(2);
         self.pc = addr;
-        self.cycle_count += 6;
+        self.cycle_count += 1;
     }
 
     fn lda(&mut self, val: u8) {
@@ -1002,11 +989,13 @@ impl Cpu {
 
     // used for pha, php instructions
     fn push_val(&mut self, val: u8, memory: &mut dyn CpuMemoryMap) {
-        memory.write(self.sp as u16 + 0x100, val, self);
-        self.sp = self.sp.wrapping_sub(1);
+        self.cycle_count += 2;
 
+        memory.write(self.sp as u16 + 0x100, val, self);
+        self.cycle_count += 1;
+
+        self.sp = self.sp.wrapping_sub(1);
         self.pc += 1;
-        self.cycle_count += 3;
     }
 
     fn pha(&mut self, memory: &mut dyn CpuMemoryMap) {
@@ -1022,10 +1011,12 @@ impl Cpu {
     // used for pla, plp instructions
     fn pull_val(&mut self, memory: &mut dyn CpuMemoryMap) -> u8 {
         self.sp = self.sp.wrapping_add(1);
+
+        self.cycle_count += 3;
         let res = memory.read(self.sp as u16 + 0x100, self);
 
         self.pc += 1;
-        self.cycle_count += 4;
+        self.cycle_count += 1;
         res
     }
 
@@ -1315,23 +1306,17 @@ impl Cpu {
         log!("CYC:{}\n", self.cycle_count)
     }
 
-    pub fn log_register_values(
-        &mut self,
-        memory: &mut dyn CpuMemoryMap,
-        scanline: i16,
-        vbl: bool,
-        nmi_enable: bool,
-    ) {
+    pub fn log_register_values(&mut self, scanline: i16, vbl: bool, ppu_dot: u32) {
         print!("{:0>4X} ", self.pc);
-        print!("${:0>2X}  ", memory.read(self.pc, self));
+        // print!("${:0>2X}  ", memory.read(self.pc, self));
         print!("A:{:0>2X} ", self.a);
         print!("X:{:0>2X} ", self.x);
         print!("Y:{:0>2X} ", self.y);
+        // FIXME: or in b flag bit????
         print!("P:{:0>2X} ", self.p);
         print!("SP:{:0>2X} ", self.sp);
-        print!("SL:{:0>2} ", scanline);
-        print!("VBL:{:} ", vbl);
-        print!("N:{:0>2} ", nmi_enable);
-        // print!("CYC:{}\n", self.cycle_count)
+        print!("CYC:{0:>3} ", ppu_dot);
+        print!("SL:{:0>2}\n ", scanline);
+        // print!("VBL:{:}\n", vbl);
     }
 }
