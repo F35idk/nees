@@ -320,7 +320,7 @@ impl<'a> Ppu<'a> {
     pub fn catch_up(&mut self, cpu: &mut cpu::Cpu) {
         // NOTE: cpu.cycle_count could be negative here
         let target_cycles = cpu.cycle_count as i32 * 3;
-        let cycles_to_catch_up = target_cycles.saturating_sub(self.cycle_count as i32);
+        let cycles_to_catch_up = target_cycles - (self.cycle_count as i32);
 
         // if the ppu is behind the cpu by more than 2 scanlines worth of cycles,
         // start by using a separate scanline algorithm to catch up
@@ -333,18 +333,13 @@ impl<'a> Ppu<'a> {
             // step using scanline algorithm
             let n_scanlines = (target_cycles - self.cycle_count as i32) / 341;
             for _ in 0..n_scanlines {
+                debug_assert!(!self.frame_done);
                 self.step_scanline(cpu);
             }
-
-            assert!(!self.frame_done);
         }
 
         // step normally
-        while (self.cycle_count as i32) < target_cycles {
-            if self.frame_done == true {
-                return;
-            }
-
+        while (self.cycle_count as i32) < target_cycles && !self.frame_done {
             self.step(cpu);
         }
     }
