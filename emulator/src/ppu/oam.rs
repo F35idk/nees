@@ -146,8 +146,8 @@ impl Oam {
                 let sprite_table_ptr = memory.get_pattern_tables();
                 unsafe {
                     *((sprite_table_ptr
-                        .get_unchecked_mut(pattern_table_addr as usize + tile_index as usize * 16))
-                        as *mut _ as *mut [u8; 16])
+                        .get_unchecked(pattern_table_addr as usize + tile_index as usize * 16))
+                        as *const _ as *const [u8; 16])
                 }
             };
 

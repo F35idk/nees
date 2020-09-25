@@ -56,5 +56,5 @@ pub trait CpuMemoryMap<'a> {
 pub trait PpuMemoryMap {
     fn read(&self, addr: u16) -> u8;
     fn write(&mut self, addr: u16, val: u8);
-    fn get_pattern_tables<'a>(&'a mut self) -> &'a mut [u8; 0x2000];
+    fn get_pattern_tables<'a>(&'a self) -> &'a [u8; 0x2000];
 }

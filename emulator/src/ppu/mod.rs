@@ -12,6 +12,7 @@ pub mod test;
 pub struct Ppu<'a> {
     // object attribute memory
     pub oam: oam::Oam,
+    pub draw_state: draw::DrawState,
     pub cycle_count: u32,
     pub renderer: PixelRenderer,
     // TODO: investigate how much code bloat generics would cause
@@ -51,6 +52,8 @@ pub struct Ppu<'a> {
     // counter variables used for rendering
     pub current_scanline: i16,
     pub current_scanline_dot: u16,
+
+    // OPTIMIZE: pack together with other bools
     pub frame_done: bool,
 }
 
@@ -101,6 +104,7 @@ impl<'a> Ppu<'a> {
     pub fn new(renderer: PixelRenderer, memory: &'a mut dyn PpuMemoryMap) -> Self {
         Self {
             oam: oam::Oam::default(),
+            draw_state: draw::DrawState::default(),
             cycle_count: 0,
             ppuctrl: 0,
             ppumask: 0,
@@ -362,6 +366,7 @@ impl<'a> Ppu<'a> {
             };
         }
 
+        // TODO: dummy ram accesses during the entire line
         fn step_pre_render_line(ppu: &mut Ppu) {
             match ppu.current_scanline_dot {
                 // idle cycle
@@ -404,6 +409,8 @@ impl<'a> Ppu<'a> {
                     ppu.cycle_count += 8;
                     ppu.current_scanline_dot += 8;
                 }
+                // TODO: start fetching bg pattern and attribute
+                // table data for the next scanline here
                 281..=335 => {
                     ppu.cycle_count += 8;
                     ppu.current_scanline_dot += 8;
@@ -439,13 +446,15 @@ impl<'a> Ppu<'a> {
                         }
                     }
 
-                    // draw a tile's worth of background and sprite pixels horizontally (or less
-                    // than a tile's worth, if the current tile straddles the screen boundary)
-                    let pixels_drawn = draw::draw_tile_row(
-                        ppu,
-                        ppu.is_background_enable(),
-                        ppu.is_sprites_enable(),
-                    );
+                    // // draw a tile's worth of background and sprite pixels horizontally (or less
+                    // // than a tile's worth, if the current tile straddles the screen boundary)
+                    let (pixels_drawn, sprite_zero_hit) = ppu
+                        .draw_state
+                        .draw_tile_row(ppu, util::pixels_to_u32(&mut ppu.renderer));
+
+                    if sprite_zero_hit {
+                        ppu.set_sprite_zero_hit(true);
+                    }
 
                     ppu.cycle_count += pixels_drawn as u32;
                     ppu.current_scanline_dot += pixels_drawn as u16;
@@ -636,11 +645,13 @@ impl<'a> Ppu<'a> {
                 for _ in tiles_to_draw {
                     // OPTIMIZE: make separate drawing
                     // algorithm for drawing entire scanlines
-                    let pixels_drawn = draw::draw_tile_row(
-                        ppu,
-                        ppu.is_background_enable(),
-                        ppu.is_sprites_enable(),
-                    );
+                    let (pixels_drawn, sprite_zero_hit) = ppu
+                        .draw_state
+                        .draw_tile_row(ppu, util::pixels_to_u32(&mut ppu.renderer));
+
+                    if sprite_zero_hit {
+                        ppu.set_sprite_zero_hit(true);
+                    }
 
                     ppu.current_scanline_dot += pixels_drawn as u16;
                     ppu.increment_vram_addr_coarse_x();
@@ -650,11 +661,13 @@ impl<'a> Ppu<'a> {
                 ppu.increment_vram_addr_y();
             } else {
                 for _ in tiles_to_draw {
-                    let pixels_drawn = draw::draw_tile_row(
-                        ppu,
-                        ppu.is_background_enable(),
-                        ppu.is_sprites_enable(),
-                    );
+                    let (pixels_drawn, sprite_zero_hit) = ppu
+                        .draw_state
+                        .draw_tile_row(ppu, util::pixels_to_u32(&mut ppu.renderer));
+
+                    if sprite_zero_hit {
+                        ppu.set_sprite_zero_hit(true);
+                    }
 
                     ppu.current_scanline_dot += pixels_drawn as u16;
                 }
@@ -807,7 +820,7 @@ impl<'a> Ppu<'a> {
     }
 
     // sets the low 5 bits of 'ppustatus' equal to the low 5 bits of 'val'
-    fn set_ppustatus_low_bits(&mut self, val: u8) {
+    pub fn set_ppustatus_low_bits(&mut self, val: u8) {
         self.ppustatus &= !0b11111;
         self.ppustatus |= val & 0b11111;
     }
@@ -900,5 +913,33 @@ impl<'a> Ppu<'a> {
 
     fn is_currently_rendering(&self) -> bool {
         self.current_scanline < 241 && (self.is_sprites_enable() || self.is_background_enable())
+    }
+
+    fn get_background_pattern_table_addr_1(ppuctrl: u8) -> u16 {
+        ((ppuctrl & 0b10000) as u16) << 8
+    }
+
+    fn is_greyscale_enabled_1(ppumask: u8) -> bool {
+        (ppumask & 1) != 0
+    }
+
+    // whether background will be displayed in the leftmost 8 pixel columns
+    fn is_background_left_column_enable_1(ppumask: u8) -> bool {
+        (ppumask & 2) != 0
+    }
+
+    // whether sprites will be displayed in the leftmost 8 pixel columns
+    fn is_sprites_left_column_enable_1(ppumask: u8) -> bool {
+        (ppumask & 4) != 0
+    }
+
+    // whether background will be displayed
+    fn is_background_enable_1(ppumask: u8) -> bool {
+        (ppumask & 8) != 0
+    }
+
+    // whether sprites will be displayed
+    fn is_sprites_enable_1(ppumask: u8) -> bool {
+        (ppumask & 0b10000) != 0
     }
 }
