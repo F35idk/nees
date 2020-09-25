@@ -14,24 +14,33 @@ pub trait CpuMemoryMap<'a> {
     fn get_ppu(&mut self) -> &mut ppu::Ppu<'a>;
     fn get_apu(&mut self) -> &mut apu::Apu;
 
-    // provided method for writing to the 'oamdma' register on the ppu
-    // (0x4014). intented to be used by 'write()' implementations
+    // provided method for writing to the 'oamdma' register on the
+    // ppu (0x4014). requires 'read()' to be implemented. intented
+    // to be used by 'write()' implementations.
     fn write_oamdma(&mut self, val: u8, cpu: &mut cpu::Cpu) {
-        // FIXME: should set low bits of 'ppustatus' to low
-        // bits of 'val' (properly emulate open bus behavior)
+        self.get_ppu().set_ppustatus_low_bits(val);
 
         // if 'val' is $XX, start address should be $XX00
         let start_addr = (val as u16) << 8;
 
         for (i, addr) in ((start_addr)..=(start_addr + 0xff)).enumerate() {
             let byte = self.read(addr, cpu);
-            // write to 'oamdata' register (0x2004)
-            self.get_ppu().write_register_by_index(4, byte, cpu);
+
+            // write 'byte' to oam.primary[oamaddr]
+            let ppu = self.get_ppu();
+            ppu.oam.primary.set_byte(ppu.oamaddr, byte);
+            ppu.oamaddr = ppu.oamaddr.wrapping_add(1);
+
             cpu.cycle_count += 2;
 
             // catch the ppu up to the cpu on every 4th iteration
             if i % 4 == 0 {
-                self.get_ppu().catch_up(cpu);
+                // NOTE: the ppu may finish the current frame while being caught up here, in
+                // which case subsequent calls to 'catch_up()' will have no effect. when this
+                // happens, the cpu could end up running quite far ahead of the ppu before it
+                // is ultimately caught up in the next frame. realistically, this shouldn't
+                // be a problem if it ever happens, but it may be worth keeping in mind
+                ppu.catch_up(cpu);
             }
         }
 
