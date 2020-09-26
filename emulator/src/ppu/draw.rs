@@ -1,133 +1,52 @@
 use super::palette;
 use super::Ppu;
-use std::ops::Range;
 
-#[derive(Default)]
-pub struct DrawState {}
+#[repr(align(2))]
+#[derive(Copy, Clone, Default)]
+struct TileBitPlanes([u8; 2]);
 
-impl DrawState {
-    // draws a horizontal line of pixels starting at 'current_scanline_dot'
-    // - 1 and stopping at the end of the current tile in the background
-    // nametable (or the end of the screen, if the current tile happens
-    // to poke outside of it). returns how many pixels were drawn
-    pub fn draw_tile_row(
-        &mut self,
-        ppu: *const Ppu,
-        framebuffer: &mut [u32; 256 * 240],
-    ) -> (u8, bool) {
-        let ppu: &Ppu = unsafe { std::mem::transmute(ppu) };
-
-        // calculate the index of the current background tile in the current scanline
-        let horizontal_bg_tile_count =
-            ((ppu.current_scanline_dot - 1 + ppu.fine_x_scroll as u16) >> 3) as u8 & 0x3f;
-
-        let bg_tile_offsets = if horizontal_bg_tile_count == 32 {
-            // if on tile 32 (meaning 'fine_x_scroll' is non-zero and
-            // this is the last tile in the scanline), start drawing
-            // at offset 0 from current tile and stop at end of screen
-            let screen_x = (ppu.current_scanline_dot - 1) as u8;
-            0..(8 - (screen_x % 8))
-        } else if horizontal_bg_tile_count == 0 {
-            // if on first tile, start drawing pixel at 'fine_x_scroll'
-            (ppu.fine_x_scroll)..8
-        } else {
-            // if on any other tile, draw all pixels in it
-            0..8
-        };
-
-        if ppu.is_background_enable() || ppu.is_sprites_enable() {
-            self.draw_tile_row_background_and_sprites(ppu, framebuffer, bg_tile_offsets)
-        } else {
-            self.draw_tile_row_backdrop_color(ppu, framebuffer, bg_tile_offsets.len() as u8);
-            (bg_tile_offsets.len() as u8, false)
-        }
+impl TileBitPlanes {
+    fn to_u16(self) -> u16 {
+        unsafe { std::mem::transmute(self) }
     }
 
-    fn draw_tile_row_background_and_sprites(
-        &mut self,
-        ppu: &Ppu,
-        framebuffer: &mut [u32; 256 * 240],
-        bg_tile_offsets: Range<u8>,
-    ) -> (u8, bool) {
-        // NOTE: this function is split into multiple subfunctions to help readability
+    fn as_u16(&mut self) -> &mut u16 {
+        unsafe { std::mem::transmute(self) }
+    }
+}
 
-        {
-            let current_bg_tile = get_current_tile(ppu);
-            let bg_palette_idx = get_current_tile_palette_index(ppu);
+#[derive(Default)]
+pub struct DrawState {
+    // equivalent to the two 16-bit pattern table data shift registers
+    // on the (irl) ppu
+    bg_tile_bitplanes_hi: TileBitPlanes,
+    bg_tile_bitplanes_lo: TileBitPlanes,
+    // stores the palette indices for the two current tiles in the first 4 bits
+    bg_tile_palette_indices: u8,
+}
 
-            // get the high and low bitplanes for the current row of the current tile
-            let fine_y = ppu.current_vram_addr.get_fine_y();
-            let bg_bitplane_lo = unsafe { *current_bg_tile.get_unchecked(0 + fine_y as usize) };
-            let bg_bitplane_hi = unsafe { *current_bg_tile.get_unchecked(8 + fine_y as usize) };
+impl DrawState {
+    pub fn draw_8_pixels(&mut self, ppu: *const Ppu, framebuffer: &mut [u32; 256 * 240]) -> bool {
+        let ppu: &Ppu = unsafe { std::mem::transmute(ppu) };
 
-            let mut pixels_drawn = 0u8;
-            let mut sprite_zero_hit = false;
-
-            for bg_tile_offset in bg_tile_offsets {
-                let bg_color_idx = match (
-                    ppu.is_background_enable(),
-                    ppu.current_scanline_dot + pixels_drawn as u16,
-                    ppu.is_background_left_column_enable(),
-                ) {
-                    (false, _, _) => 0,
-                    (_, 1..=8, false) => 0,
-                    _ => {
-                        let lo = (bg_bitplane_lo >> (7 - bg_tile_offset)) & 1;
-                        let high = ((bg_bitplane_hi >> (7 - bg_tile_offset)) << 1) & 2;
-                        lo | high
-                    }
-                };
-
-                let mut sprite_zero = false;
-
-                let pixel_color = match (
-                    ppu.is_background_enable(),
-                    ppu.current_scanline_dot + pixels_drawn as u16,
-                    ppu.is_sprites_left_column_enable(),
-                ) {
-                    // draw bg color if 'draw_sprites' is false
-                    (false, _, _) => Self::calc_pixel_color(ppu, bg_palette_idx, bg_color_idx),
-                    // draw bg color if on dots 1-8 and sprite
-                    // drawing is disabled for the first 8 pixels
-                    (_, 1..=8, false) => Self::calc_pixel_color(ppu, bg_palette_idx, bg_color_idx),
-                    // otherwise, search for an active, non-transparent sprite at the current dot
-                    _ => match ppu
-                        .oam
-                        .get_sprite_at_dot_info(ppu.current_scanline_dot + pixels_drawn as u16)
-                    {
-                        // draw bg color if no sprite was found
-                        None => Self::calc_pixel_color(ppu, bg_palette_idx, bg_color_idx),
-                        Some(info) => {
-                            sprite_zero = info.is_sprite_zero;
-
-                            if info.is_in_front || bg_color_idx == 0 {
-                                Self::calc_pixel_color(ppu, info.palette_index, info.color_index)
-                            } else {
-                                Self::calc_pixel_color(ppu, bg_palette_idx, bg_color_idx)
-                            }
-                        }
-                    },
-                };
-
-                if sprite_zero
-                    && bg_color_idx != 0
-                    && (ppu.current_scanline_dot + pixels_drawn as u16 - 1) != 0xff
-                {
-                    sprite_zero_hit = true;
-                }
-
-                let screen_x = (ppu.current_scanline_dot - 1) as usize + pixels_drawn as usize;
-                let screen_y = ppu.current_scanline as usize;
-                // TODO: OPTIMIZE: unchecked indexing
-                framebuffer[screen_y * 256 + screen_x] = pixel_color;
-
-                pixels_drawn += 1;
-            }
-
-            return (pixels_drawn, sprite_zero_hit);
+        if ppu.is_background_enable() || ppu.is_sprites_enable() {
+            self.draw_8_pixels_bg_and_sprites(ppu, framebuffer)
+        } else {
+            self.draw_8_pixels_backdrop_color(ppu, framebuffer);
+            false
         }
+    }
+    pub fn shift_tile_data_by_8(&mut self) {
+        *(self.bg_tile_bitplanes_hi.as_u16()) <<= 8;
+        *(self.bg_tile_bitplanes_lo.as_u16()) <<= 8;
+        self.bg_tile_palette_indices &= 0b11;
+        self.bg_tile_palette_indices <<= 2;
+    }
 
-        fn get_current_tile(ppu: &Ppu) -> [u8; 16] {
+    pub fn fetch_current_bg_tile_data(&mut self, ppu: *const Ppu) {
+        let ppu: &Ppu = unsafe { std::mem::transmute(ppu) };
+
+        let current_bg_tile = {
             // get tile index from nametable using 'current_vram_addr' + 0x2000
             let addr = ppu.current_vram_addr.get_addr() | 0x2000;
             let tile_index = ppu.memory.read(addr);
@@ -142,9 +61,9 @@ impl DrawState {
                     .get_unchecked(background_table_addr + tile_index as usize * 16))
                     as *const _ as *const [u8; 16])
             }
-        }
+        };
 
-        fn get_current_tile_palette_index(ppu: &Ppu) -> u8 {
+        let bg_palette_idx = {
             let coarse_y = ppu.current_vram_addr.get_coarse_y();
             let coarse_x = ppu.current_vram_addr.get_coarse_x();
 
@@ -160,18 +79,112 @@ impl DrawState {
             let shift_amt = ((coarse_y << 1) & 0b100) | (coarse_x & 0b10);
 
             (attribute >> shift_amt) & 0b11
+        };
+
+        // get the high and low bitplanes for the current row of the current tile
+        let fine_y = ppu.current_vram_addr.get_fine_y();
+        let bg_bitplane_lo = unsafe { *current_bg_tile.get_unchecked(0 + fine_y as usize) };
+        let bg_bitplane_hi = unsafe { *current_bg_tile.get_unchecked(8 + fine_y as usize) };
+
+        // store the data
+        {
+            // NOTE: all of this assumes little endian
+
+            // the tile bitplane byte we want to store our high bg bitplane
+            // in should be zero (its contents should have been shifted
+            // leftwards into 'self.bg_tile_bitplanes_hi.0[1]' previously)
+            debug_assert_eq!(self.bg_tile_bitplanes_hi.0[0], 0);
+            self.bg_tile_bitplanes_hi.0[0] = bg_bitplane_hi;
+
+            debug_assert_eq!(self.bg_tile_bitplanes_lo.0[0], 0);
+            self.bg_tile_bitplanes_lo.0[0] = bg_bitplane_lo;
+
+            debug_assert_eq!(self.bg_tile_palette_indices & 0b11, 0);
+            self.bg_tile_palette_indices |= bg_palette_idx;
         }
+    }
+
+    fn draw_8_pixels_bg_and_sprites(
+        &mut self,
+        ppu: &Ppu,
+        framebuffer: &mut [u32; 256 * 240],
+    ) -> bool {
+        let mut sprite_zero_hit = false;
+
+        for i in 0..8 {
+            let tile_offset = i + ppu.fine_x_scroll;
+            let bg_color_idx = match (
+                ppu.is_background_enable(),
+                ppu.current_scanline_dot + i as u16,
+                ppu.is_background_left_column_enable(),
+            ) {
+                // set index to zero if bg is disabled
+                (false, _, _) => 0,
+                // or if on dots 1-8 and bg is disabled for this area
+                (_, 1..=8, false) => 0,
+                _ => {
+                    let lo = ((self.bg_tile_bitplanes_lo.to_u16() >> (15 - tile_offset)) & 1) as u8;
+                    let hi = (((self.bg_tile_bitplanes_hi.to_u16() >> (15 - tile_offset)) << 1) & 2)
+                        as u8;
+                    lo | hi
+                }
+            };
+
+            let bg_palette_idx = if tile_offset > 7 {
+                self.bg_tile_palette_indices & 0b11
+            } else {
+                (self.bg_tile_palette_indices & 0b1100) >> 2
+            };
+
+            let mut sprite_zero = false;
+
+            let pixel_color = match (
+                ppu.is_sprites_enable(),
+                ppu.current_scanline_dot + i as u16,
+                ppu.is_sprites_left_column_enable(),
+            ) {
+                // draw bg color if sprites are disabled
+                (false, _, _) => Self::calc_pixel_color(ppu, bg_palette_idx, bg_color_idx),
+                // draw bg color if on dots 1-8 and sprite
+                // drawing is disabled for the first 8 pixels
+                (_, 1..=8, false) => Self::calc_pixel_color(ppu, bg_palette_idx, bg_color_idx),
+                // otherwise, search for an active, non-transparent sprite at the current dot
+                _ => match ppu
+                    .oam
+                    .get_sprite_at_dot_info(ppu.current_scanline_dot + i as u16)
+                {
+                    // draw bg color if no sprite was found
+                    None => Self::calc_pixel_color(ppu, bg_palette_idx, bg_color_idx),
+                    Some(info) => {
+                        sprite_zero = info.is_sprite_zero;
+
+                        if info.is_in_front || bg_color_idx == 0 {
+                            Self::calc_pixel_color(ppu, info.palette_index, info.color_index)
+                        } else {
+                            Self::calc_pixel_color(ppu, bg_palette_idx, bg_color_idx)
+                        }
+                    }
+                },
+            };
+
+            if sprite_zero && bg_color_idx != 0 && (ppu.current_scanline_dot + i as u16 - 1) != 0xff
+            {
+                sprite_zero_hit = true;
+            }
+
+            let screen_x = (ppu.current_scanline_dot - 1) as usize + i as usize;
+            let screen_y = ppu.current_scanline as usize;
+            // TODO: OPTIMIZE: unchecked indexing
+            framebuffer[screen_y * 256 + screen_x] = pixel_color;
+        }
+
+        sprite_zero_hit
     }
 
     // draws 8 pixels of backdrop color (or if 'current_vram_addr'
     // >= 0x3f00, draws the color 'current_vram_addr' points to)
-    fn draw_tile_row_backdrop_color(
-        &mut self,
-        ppu: &Ppu,
-        framebuffer: &mut [u32; 256 * 240],
-        pixels_to_draw: u8,
-    ) {
-        for i in 0..pixels_to_draw {
+    fn draw_8_pixels_backdrop_color(&mut self, ppu: &Ppu, framebuffer: &mut [u32; 256 * 240]) {
+        for i in 0..8 {
             let pixel_color = {
                 let bg_color_addr = if ppu.current_vram_addr.get_addr() >= 0x3f00 {
                     logln!("background palette hack triggered");

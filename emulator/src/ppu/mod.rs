@@ -409,16 +409,30 @@ impl<'a> Ppu<'a> {
                     ppu.cycle_count += 8;
                     ppu.current_scanline_dot += 8;
                 }
-                // TODO: start fetching bg pattern and attribute
-                // table data for the next scanline here
-                281..=335 => {
+                281..=320 => {
                     ppu.cycle_count += 8;
                     ppu.current_scanline_dot += 8;
+                }
+                328 => {
+                    ppu.cycle_count += 8;
+                    ppu.current_scanline_dot += 8;
+
+                    if ppu.is_background_enable() || ppu.is_sprites_enable() {
+                        ppu.draw_state.shift_tile_data_by_8();
+                        ppu.draw_state.fetch_current_bg_tile_data(ppu);
+                        ppu.increment_vram_addr_coarse_x();
+                    }
                 }
                 336 => {
                     ppu.cycle_count += 5;
                     ppu.current_scanline_dot = 0;
                     ppu.current_scanline = 0;
+
+                    if ppu.is_background_enable() || ppu.is_sprites_enable() {
+                        ppu.draw_state.shift_tile_data_by_8();
+                        ppu.draw_state.fetch_current_bg_tile_data(ppu);
+                        ppu.increment_vram_addr_coarse_x();
+                    }
                 }
                 _ => (),
             }
@@ -446,25 +460,26 @@ impl<'a> Ppu<'a> {
                         }
                     }
 
-                    // // draw a tile's worth of background and sprite pixels horizontally (or less
-                    // // than a tile's worth, if the current tile straddles the screen boundary)
-                    let (pixels_drawn, sprite_zero_hit) = ppu
+                    let sprite_zero_hit = ppu
                         .draw_state
-                        .draw_tile_row(ppu, util::pixels_to_u32(&mut ppu.renderer));
+                        .draw_8_pixels(ppu, util::pixels_to_u32(&mut ppu.renderer));
 
                     if sprite_zero_hit {
                         ppu.set_sprite_zero_hit(true);
                     }
 
-                    ppu.cycle_count += pixels_drawn as u32;
-                    ppu.current_scanline_dot += pixels_drawn as u16;
+                    ppu.cycle_count += 8;
+                    ppu.current_scanline_dot += 8;
 
                     if ppu.is_background_enable() || ppu.is_sprites_enable() {
                         // if last pixel drawn was 256th (end of scanline)
                         if ppu.current_scanline_dot == 257 {
                             // increment fine y
+                            // NOTE: may wish to increment x here as well (what the ppu does irl)
                             ppu.increment_vram_addr_y();
                         } else {
+                            ppu.draw_state.shift_tile_data_by_8();
+                            ppu.draw_state.fetch_current_bg_tile_data(ppu);
                             ppu.increment_vram_addr_coarse_x();
                         }
                     }
@@ -506,14 +521,30 @@ impl<'a> Ppu<'a> {
                     ppu.cycle_count += 8;
                     ppu.current_scanline_dot += 8;
                 }
-                321..=336 => {
+                321..=328 => {
                     ppu.cycle_count += 8;
                     ppu.current_scanline_dot += 8;
+                }
+                329 => {
+                    ppu.cycle_count += 8;
+                    ppu.current_scanline_dot += 8;
+
+                    if ppu.is_background_enable() || ppu.is_sprites_enable() {
+                        ppu.draw_state.shift_tile_data_by_8();
+                        ppu.draw_state.fetch_current_bg_tile_data(ppu);
+                        ppu.increment_vram_addr_coarse_x();
+                    }
                 }
                 337 => {
                     ppu.cycle_count += 4;
                     ppu.current_scanline_dot = 0;
                     ppu.current_scanline += 1;
+
+                    if ppu.is_background_enable() || ppu.is_sprites_enable() {
+                        ppu.draw_state.shift_tile_data_by_8();
+                        ppu.draw_state.fetch_current_bg_tile_data(ppu);
+                        ppu.increment_vram_addr_coarse_x();
+                    }
                 }
                 _ => (),
             }
@@ -620,6 +651,12 @@ impl<'a> Ppu<'a> {
             if ppu.is_sprites_enable() || ppu.is_background_enable() {
                 ppu.transfer_temp_horizontal_bits();
                 ppu.transfer_temp_vert_bits();
+
+                for _ in 0..2 {
+                    ppu.draw_state.shift_tile_data_by_8();
+                    ppu.draw_state.fetch_current_bg_tile_data(ppu);
+                    ppu.increment_vram_addr_coarse_x();
+                }
             }
 
             ppu.current_scanline = 0;
@@ -638,45 +675,40 @@ impl<'a> Ppu<'a> {
                 }
             }
 
-            let tiles_to_draw = if ppu.fine_x_scroll == 0 { 0..32 } else { 0..33 };
+            for _ in 0..32 {
+                // OPTIMIZE: make separate drawing
+                // algorithm for drawing entire scanlines
+                let sprite_zero_hit = ppu
+                    .draw_state
+                    .draw_8_pixels(ppu, util::pixels_to_u32(&mut ppu.renderer));
 
-            // if rendering is enabled
-            if ppu.is_background_enable() || ppu.is_sprites_enable() {
-                for _ in tiles_to_draw {
-                    // OPTIMIZE: make separate drawing
-                    // algorithm for drawing entire scanlines
-                    let (pixels_drawn, sprite_zero_hit) = ppu
-                        .draw_state
-                        .draw_tile_row(ppu, util::pixels_to_u32(&mut ppu.renderer));
-
-                    if sprite_zero_hit {
-                        ppu.set_sprite_zero_hit(true);
-                    }
-
-                    ppu.current_scanline_dot += pixels_drawn as u16;
-                    ppu.increment_vram_addr_coarse_x();
+                if sprite_zero_hit {
+                    ppu.set_sprite_zero_hit(true);
                 }
 
-                // increment fine y
-                ppu.increment_vram_addr_y();
-            } else {
-                for _ in tiles_to_draw {
-                    let (pixels_drawn, sprite_zero_hit) = ppu
-                        .draw_state
-                        .draw_tile_row(ppu, util::pixels_to_u32(&mut ppu.renderer));
+                ppu.current_scanline_dot += 8;
 
-                    if sprite_zero_hit {
-                        ppu.set_sprite_zero_hit(true);
-                    }
-
-                    ppu.current_scanline_dot += pixels_drawn as u16;
+                if ppu.is_background_enable() || ppu.is_sprites_enable() {
+                    ppu.draw_state.shift_tile_data_by_8();
+                    ppu.draw_state.fetch_current_bg_tile_data(ppu);
+                    ppu.increment_vram_addr_coarse_x();
                 }
             }
 
-            assert_eq!(ppu.current_scanline_dot, 257);
+            if ppu.is_background_enable() || ppu.is_sprites_enable() {
+                ppu.increment_vram_addr_y();
+            }
+
+            debug_assert_eq!(ppu.current_scanline_dot, 257);
 
             if ppu.is_sprites_enable() || ppu.is_background_enable() {
                 ppu.transfer_temp_horizontal_bits();
+
+                for _ in 0..2 {
+                    ppu.draw_state.shift_tile_data_by_8();
+                    ppu.draw_state.fetch_current_bg_tile_data(ppu);
+                    ppu.increment_vram_addr_coarse_x();
+                }
             }
 
             ppu.oam.current_sprite = 0;
@@ -913,33 +945,5 @@ impl<'a> Ppu<'a> {
 
     fn is_currently_rendering(&self) -> bool {
         self.current_scanline < 241 && (self.is_sprites_enable() || self.is_background_enable())
-    }
-
-    fn get_background_pattern_table_addr_1(ppuctrl: u8) -> u16 {
-        ((ppuctrl & 0b10000) as u16) << 8
-    }
-
-    fn is_greyscale_enabled_1(ppumask: u8) -> bool {
-        (ppumask & 1) != 0
-    }
-
-    // whether background will be displayed in the leftmost 8 pixel columns
-    fn is_background_left_column_enable_1(ppumask: u8) -> bool {
-        (ppumask & 2) != 0
-    }
-
-    // whether sprites will be displayed in the leftmost 8 pixel columns
-    fn is_sprites_left_column_enable_1(ppumask: u8) -> bool {
-        (ppumask & 4) != 0
-    }
-
-    // whether background will be displayed
-    fn is_background_enable_1(ppumask: u8) -> bool {
-        (ppumask & 8) != 0
-    }
-
-    // whether sprites will be displayed
-    fn is_sprites_enable_1(ppumask: u8) -> bool {
-        (ppumask & 0b10000) != 0
     }
 }
