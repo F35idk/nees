@@ -26,10 +26,8 @@ pub trait CpuMemoryMap<'a> {
         for (i, addr) in ((start_addr)..=(start_addr + 0xff)).enumerate() {
             let byte = self.read(addr, cpu);
 
-            // write 'byte' to oam.primary[oamaddr]
             let ppu = self.get_ppu();
-            ppu.oam.primary.set_byte(ppu.oamaddr, byte);
-            ppu.oamaddr = ppu.oamaddr.wrapping_add(1);
+            ppu.write_to_oam_and_increment_addr(byte);
 
             cpu.cycle_count += 2;
 

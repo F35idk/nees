@@ -26,7 +26,7 @@ pub struct DrawState {
 }
 
 impl DrawState {
-    pub fn draw_8_pixels(&mut self, ppu: *const Ppu, framebuffer: &mut [u32; 256 * 240]) -> bool {
+    pub fn draw_8_pixels(&self, ppu: *const Ppu, framebuffer: &mut [u32; 256 * 240]) -> bool {
         let ppu: &Ppu = unsafe { std::mem::transmute(ppu) };
 
         if ppu.is_background_enable() || ppu.is_sprites_enable() {
@@ -36,6 +36,7 @@ impl DrawState {
             false
         }
     }
+
     pub fn shift_tile_data_by_8(&mut self) {
         *(self.bg_tile_bitplanes_hi.as_u16()) <<= 8;
         *(self.bg_tile_bitplanes_lo.as_u16()) <<= 8;
@@ -104,15 +105,11 @@ impl DrawState {
         }
     }
 
-    fn draw_8_pixels_bg_and_sprites(
-        &mut self,
-        ppu: &Ppu,
-        framebuffer: &mut [u32; 256 * 240],
-    ) -> bool {
+    fn draw_8_pixels_bg_and_sprites(&self, ppu: &Ppu, framebuffer: &mut [u32; 256 * 240]) -> bool {
         let mut sprite_zero_hit = false;
 
         for i in 0..8 {
-            let tile_offset = i + ppu.fine_x_scroll;
+            let tile_offset = i + ppu.get_fine_x_scroll();
             let bg_color_idx = match (
                 ppu.is_background_enable(),
                 ppu.current_scanline_dot + i as u16,
@@ -183,7 +180,7 @@ impl DrawState {
 
     // draws 8 pixels of backdrop color (or if 'current_vram_addr'
     // >= 0x3f00, draws the color 'current_vram_addr' points to)
-    fn draw_8_pixels_backdrop_color(&mut self, ppu: &Ppu, framebuffer: &mut [u32; 256 * 240]) {
+    fn draw_8_pixels_backdrop_color(&self, ppu: &Ppu, framebuffer: &mut [u32; 256 * 240]) {
         for i in 0..8 {
             let pixel_color = {
                 let bg_color_addr = if ppu.current_vram_addr.get_addr() >= 0x3f00 {

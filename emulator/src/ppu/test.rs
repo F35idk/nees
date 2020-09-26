@@ -57,7 +57,7 @@ fn test_registers() {
     ppu.write_register_by_index(0, ppuctrl, cpu);
 
     assert_eq!(ppu.temp_vram_addr.inner, 0b101_11_10001_00110);
-    assert_eq!(ppu.fine_x_scroll & 0b111, x_coord & 0b111);
+    assert_eq!(ppu.get_fine_x_scroll(), x_coord & 0b111);
     // bits 12-14 of 'temp_vram_addr' should be set to temporary fine y scroll
     assert_eq!((ppu.temp_vram_addr.inner >> 12) as u8, y_coord & 0b111);
 
@@ -145,11 +145,11 @@ fn test_read_2002() {
     cpu_memory.write(1u16, 02, cpu);
     cpu_memory.write(2u16, 0x20, cpu);
 
-    cpu_memory.ppu.low_bits_toggle = true;
+    cpu_memory.ppu.set_low_bits_toggle(true);
     cpu.pc = 0;
     cpu.exec_instruction(cpu_memory);
 
-    assert_eq!(cpu_memory.ppu.low_bits_toggle, false);
+    assert_eq!(cpu_memory.ppu.get_low_bits_toggle(), false);
 }
 
 #[test]
@@ -169,8 +169,8 @@ fn test_write_2005() {
         cpu.exec_instruction(cpu_memory);
     }
 
-    assert_eq!(cpu_memory.ppu.fine_x_scroll, 0b101);
-    assert_eq!(cpu_memory.ppu.low_bits_toggle, true);
+    assert_eq!(cpu_memory.ppu.get_fine_x_scroll(), 0b101);
+    assert_eq!(cpu_memory.ppu.get_low_bits_toggle(), true);
     assert_eq!(cpu_memory.ppu.temp_vram_addr.inner, 0b00_00000_01111);
 
     // LDA #5e (0b01011_110)
@@ -186,7 +186,7 @@ fn test_write_2005() {
     }
 
     assert_eq!(cpu_memory.ppu.temp_vram_addr.inner >> 12, 0b110);
-    assert_eq!(cpu_memory.ppu.low_bits_toggle, false);
+    assert_eq!(cpu_memory.ppu.get_low_bits_toggle(), false);
     assert_eq!(cpu_memory.ppu.temp_vram_addr.inner, 0b110_00_01011_01111);
 }
 
@@ -208,7 +208,7 @@ fn test_write_2006() {
         cpu.exec_instruction(cpu_memory);
     }
 
-    assert_eq!(cpu_memory.ppu.low_bits_toggle, true);
+    assert_eq!(cpu_memory.ppu.get_low_bits_toggle(), true);
     // bit 14 should be cleared and bits 8-13 should be
     // equal to bits 0-6 of the value written to 0x2006
     assert_eq!(cpu_memory.ppu.temp_vram_addr.inner, 0b010_11_01000_00000);
@@ -225,7 +225,7 @@ fn test_write_2006() {
         cpu.exec_instruction(cpu_memory);
     }
 
-    assert_eq!(cpu_memory.ppu.low_bits_toggle, false);
+    assert_eq!(cpu_memory.ppu.get_low_bits_toggle(), false);
     // low 8 bits should all be set equal to the value written
     assert_eq!(cpu_memory.ppu.temp_vram_addr.inner, 0b010_11_01111_10000);
     // 'temp_vram_addr' should've been transferred to 'current_vram_addr'
@@ -327,6 +327,32 @@ fn test_increment_vram_addr_xy() {
 }
 
 #[test]
+// NOTE: this tests the 'misc_bits' bitfield, which is subject
+// to change and may cause this to break eventually
+fn test_misc_bits() {
+    let mmap::Nrom128CpuMemory { ref mut ppu, .. } = init_nes().1;
+
+    // 'even_frame' bit should be se to true by default
+    assert_eq!(ppu.misc_bits, 0b000_010_00000000000000000);
+
+    ppu.set_cycle_count(0b10101110011111111);
+    assert_eq!(ppu.get_cycle_count(), 0b10101110011111111);
+    assert_eq!(ppu.misc_bits, 0b000_010_10101110011111111);
+
+    ppu.set_fine_x_scroll(0b101);
+    assert_eq!(ppu.get_fine_x_scroll(), 0b101);
+    assert_eq!(ppu.misc_bits, 0b101_010_10101110011111111);
+
+    ppu.set_low_bits_toggle(true);
+    assert_eq!(ppu.get_low_bits_toggle(), true);
+    assert_eq!(ppu.misc_bits, 0b101_110_10101110011111111);
+
+    ppu.toggle_even_frame();
+    assert_eq!(ppu.is_even_frame(), false);
+    assert_eq!(ppu.misc_bits, 0b101_100_10101110011111111);
+}
+
+#[test]
 fn test_temp_to_current_vram_transfer() {
     let mmap::Nrom128CpuMemory { ref mut ppu, .. } = init_nes().1;
 
@@ -389,7 +415,7 @@ pub fn test_draw(rom: &[u8]) {
     // set coarse x scroll = 0 (offset by 0 in the nametable)
     ppu.temp_vram_addr.inner |= 0b00000;
     // set fine x scroll = 0
-    ppu.fine_x_scroll = 0b000;
+    ppu.set_fine_x_scroll(0b000);
     // ensure ppu will show background and sprites
     ppu.ppumask = 0b00011110;
     // set color emphasis = red
@@ -404,37 +430,39 @@ pub fn test_draw(rom: &[u8]) {
         for _ in -1..=240 {
             // each scanline is 341 cycles long, except for the pre-render
             // scanline on odd frames, which is 340 cycles long
-            let cycles_in_scanline = 341 - (!ppu.even_frame && ppu.current_scanline == -1) as u64;
-            ppu.cycle_count = 0;
-            while ppu.cycle_count < cycles_in_scanline as u32 {
+            let cycles_in_scanline =
+                341 - (!ppu.is_even_frame() && ppu.current_scanline == -1) as u64;
+            ppu.set_cycle_count(0);
+            while ppu.get_cycle_count() < cycles_in_scanline as u32 {
                 ppu.step(cpu);
             }
-            assert_eq!(ppu.cycle_count, cycles_in_scanline as u32);
+            assert_eq!(ppu.get_cycle_count(), cycles_in_scanline as u32);
         }
 
         // increment fine x
         {
-            if ppu.fine_x_scroll == 0b111 {
+            if ppu.get_fine_x_scroll() == 0b111 {
                 if ppu.temp_vram_addr.get_coarse_x() == 0b11111 {
                     ppu.temp_vram_addr.set_coarse_x(0);
                     ppu.temp_vram_addr.inner ^= 0b10000000000;
                 } else {
                     ppu.temp_vram_addr.inner += 1;
                 }
-                ppu.fine_x_scroll = 0;
+                ppu.set_fine_x_scroll(0);
             } else {
-                ppu.fine_x_scroll += 1;
+                ppu.set_fine_x_scroll(ppu.get_fine_x_scroll() + 1);
             }
         }
 
         // step through vblank scanlines
         for _ in 0..20 {
-            let cycles_in_scanline = 341 - (!ppu.even_frame && ppu.current_scanline == -1) as u32;
-            ppu.cycle_count = 0;
-            while ppu.cycle_count < cycles_in_scanline as u32 {
+            let cycles_in_scanline =
+                341 - (!ppu.is_even_frame() && ppu.current_scanline == -1) as u32;
+            ppu.set_cycle_count(0);
+            while ppu.get_cycle_count() < cycles_in_scanline as u32 {
                 ppu.step(cpu);
             }
-            assert_eq!(ppu.cycle_count, cycles_in_scanline as u32);
+            assert_eq!(ppu.get_cycle_count(), cycles_in_scanline as u32);
         }
 
         let frame_index = ppu.renderer.render_frame();

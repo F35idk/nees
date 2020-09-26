@@ -8,58 +8,50 @@ mod oam;
 mod palette;
 pub mod test;
 
-// TODO: unpub fields
 pub struct Ppu<'a> {
-    // object attribute memory
-    pub oam: oam::Oam,
-    pub draw_state: draw::DrawState,
-    pub cycle_count: u32,
     pub renderer: PixelRenderer,
+    pub current_scanline: i16,
+    current_scanline_dot: u16,
+    oam: oam::Oam,
+    draw_state: draw::DrawState,
     // TODO: investigate how much code bloat generics would cause
     // - would it be worth using it over a trait object?
-    pub memory: &'a mut dyn PpuMemoryMap,
+    memory: &'a mut dyn PpuMemoryMap,
 
     // registers
-    pub ppuctrl: u8,
-    pub ppumask: u8,
-    pub ppustatus: u8,
+    ppuctrl: u8,
+    ppumask: u8,
+    ppustatus: u8,
     // NOTE: on some ppu chips, there are bugs relating to
     // writing to oamaddr. not sure if these need to be
     // emulated, but it may be worth keeping in mind
-    pub oamaddr: u8,
-    pub ppudata_read_buffer: u8,
+    oamaddr: u8,
+    ppudata_read_buffer: u8,
+
+    // bit-field containing current cycle count (low 17 bits),
+    // 'frame_done' boolean (18th bit), 'even_frame' boolean
+    // (19th bit), 'low_bits_toggle' boolean (20th bit) and
+    // fine x scroll value (21st to 23rd bit). getter and
+    // setter functions are used for each of these fields
+    // (see the second impl 'Ppu' impl block)
+    misc_bits: u32,
 
     // internal registers
-    // used to toggle whether reads and writes to 'ppuscroll'
-    // and 'ppuaddr' access the high or low bits of the register.
-    // referred to as 'w' in the nesdev.com 'ppu scrolling' article
-    // OPTIMIZE: pack these together (bitfields, somehow?)
-    pub low_bits_toggle: bool,
-    pub even_frame: bool,
     // address of the current tile to be fetched and drawn. points
     // to a byte in one of the nametables in vram. referred to
     // as 'v' in the nesdev.com 'ppu scrolling' article
-    pub current_vram_addr: VramAddrRegister,
+    current_vram_addr: VramAddrRegister,
     // temporary address, same as above but  doesn't get
     // incremented while drawing. this register is shared
     // by 'ppuscroll' and 'ppuaddr' (so writes to these
     // registers go into this). referred to as 't' in the
     // nesdev.com 'ppu scrolling' article
-    pub temp_vram_addr: VramAddrRegister,
-    // low 3 bits consist of fine x scroll value
-    pub fine_x_scroll: u8,
-
-    // counter variables used for rendering
-    pub current_scanline: i16,
-    pub current_scanline_dot: u16,
-
-    // OPTIMIZE: pack together with other bools
-    pub frame_done: bool,
+    temp_vram_addr: VramAddrRegister,
 }
 
 #[derive(Copy, Clone)]
-pub struct VramAddrRegister {
-    pub inner: u16,
+struct VramAddrRegister {
+    inner: u16,
 }
 
 impl VramAddrRegister {
@@ -105,22 +97,18 @@ impl<'a> Ppu<'a> {
         Self {
             oam: oam::Oam::default(),
             draw_state: draw::DrawState::default(),
-            cycle_count: 0,
             ppuctrl: 0,
             ppumask: 0,
             ppustatus: 0,
             oamaddr: 0,
             ppudata_read_buffer: 0,
-            low_bits_toggle: false,
             current_vram_addr: VramAddrRegister { inner: 0 },
             temp_vram_addr: VramAddrRegister { inner: 0 },
-            fine_x_scroll: 0,
             current_scanline: -1,
             current_scanline_dot: 0,
-            even_frame: true,
             renderer,
             memory,
-            frame_done: false,
+            misc_bits: 0x40000,
         }
     }
 
@@ -153,7 +141,7 @@ impl<'a> Ppu<'a> {
 
         fn read_ppustatus(ppu: &mut Ppu) -> u8 {
             // clear low bits toggle
-            ppu.low_bits_toggle = false;
+            ppu.set_low_bits_toggle(false);
             let status = ppu.ppustatus;
             // clear vblank flag
             ppu.set_vblank(false);
@@ -253,14 +241,13 @@ impl<'a> Ppu<'a> {
                 return;
             }
 
-            ppu.oam.primary.set_byte(ppu.oamaddr, val);
-            ppu.oamaddr = ppu.oamaddr.wrapping_add(1);
+            ppu.write_to_oam_and_increment_addr(val);
             ppu.set_ppustatus_low_bits(val);
         }
 
         fn write_ppuscroll(ppu: &mut Ppu, val: u8) {
             // low bits toggle = 0 => x coordinate is being written
-            if !ppu.low_bits_toggle {
+            if !ppu.get_low_bits_toggle() {
                 // write low 3 bits (fine x) to 'ppu.fine_x_scroll'
                 ppu.set_fine_x_scroll(val & 0b111);
                 // write high 5 bits (coarse x) to low 5 bits
@@ -278,14 +265,13 @@ impl<'a> Ppu<'a> {
             }
 
             ppu.set_ppustatus_low_bits(val);
-            // reset low bits toggle
-            ppu.low_bits_toggle = !ppu.low_bits_toggle;
+            ppu.set_low_bits_toggle(!ppu.get_low_bits_toggle());
         }
 
         fn write_ppuaddr(ppu: &mut Ppu, val: u8) {
             let mut temp_vram_addr_bytes = ppu.temp_vram_addr.inner.to_le_bytes();
 
-            if !ppu.low_bits_toggle {
+            if !ppu.get_low_bits_toggle() {
                 // write low 6 bits into bits 8-13 of temporary
                 // vram address register while clearing bit 14
                 temp_vram_addr_bytes[1] = val & 0b0111111;
@@ -301,12 +287,11 @@ impl<'a> Ppu<'a> {
             }
 
             ppu.set_ppustatus_low_bits(val);
-            ppu.low_bits_toggle = !ppu.low_bits_toggle;
+            ppu.set_low_bits_toggle(!ppu.get_low_bits_toggle());
         }
 
         fn write_ppudata(ppu: &mut Ppu, val: u8) {
             ppu.memory.write(ppu.current_vram_addr.get_addr(), val);
-
             ppu.set_ppustatus_low_bits(val);
 
             // increment 'current_vram_addr' (same as when reading ppudata)
@@ -319,12 +304,18 @@ impl<'a> Ppu<'a> {
         }
     }
 
+    // NOTE: also used by 'CpuMemoryMap::write_oamdma()'
+    pub fn write_to_oam_and_increment_addr(&mut self, val: u8) {
+        self.oam.primary.set_byte(self.oamaddr, val);
+        self.oamaddr = self.oamaddr.wrapping_add(1);
+    }
+
     // catches the ppu up to the cpu (approximately). stops if the end
     // of the frame is reached before the ppu is fully caught up
     pub fn catch_up(&mut self, cpu: &mut cpu::Cpu) {
         // NOTE: cpu.cycle_count could be negative here
         let target_cycles = cpu.cycle_count as i32 * 3;
-        let cycles_to_catch_up = target_cycles - (self.cycle_count as i32);
+        let cycles_to_catch_up = target_cycles - (self.get_cycle_count() as i32);
 
         // if the ppu is behind the cpu by more than 2 scanlines worth of cycles,
         // start by using a separate scanline algorithm to catch up
@@ -335,15 +326,15 @@ impl<'a> Ppu<'a> {
             }
 
             // step using scanline algorithm
-            let n_scanlines = (target_cycles - self.cycle_count as i32) / 341;
+            let n_scanlines = (target_cycles - self.get_cycle_count() as i32) / 341;
             for _ in 0..n_scanlines {
-                debug_assert!(!self.frame_done);
+                debug_assert!(!self.is_frame_done());
                 self.step_scanline(cpu);
             }
         }
 
         // step normally
-        while (self.cycle_count as i32) < target_cycles && !self.frame_done {
+        while (self.get_cycle_count() as i32) < target_cycles && !self.is_frame_done() {
             self.step(cpu);
         }
     }
@@ -374,7 +365,7 @@ impl<'a> Ppu<'a> {
                     ppu.current_scanline_dot += 1;
                     // if rendering, don't increment cycles on odd frames (idle cycle is skipped)
                     if ppu.is_sprites_enable() || ppu.is_background_enable() {
-                        ppu.cycle_count += ppu.even_frame as u32;
+                        ppu.inc_cycle_count(ppu.is_even_frame() as u32);
                     }
                 }
                 1 => {
@@ -382,11 +373,11 @@ impl<'a> Ppu<'a> {
                     ppu.set_vblank(false);
                     ppu.set_sprite_zero_hit(false);
 
-                    ppu.cycle_count += 7;
+                    ppu.inc_cycle_count(7);
                     ppu.current_scanline_dot += 7;
                 }
                 2..=255 => {
-                    ppu.cycle_count += 8;
+                    ppu.inc_cycle_count(8);
                     ppu.current_scanline_dot += 8;
                 }
                 256 => {
@@ -394,11 +385,11 @@ impl<'a> Ppu<'a> {
                         ppu.transfer_temp_horizontal_bits();
                     }
 
-                    ppu.cycle_count += 8;
+                    ppu.inc_cycle_count(8);
                     ppu.current_scanline_dot += 8;
                 }
                 257..=279 => {
-                    ppu.cycle_count += 8;
+                    ppu.inc_cycle_count(8);
                     ppu.current_scanline_dot += 8;
                 }
                 280 => {
@@ -406,15 +397,15 @@ impl<'a> Ppu<'a> {
                         ppu.transfer_temp_vert_bits();
                     }
 
-                    ppu.cycle_count += 8;
+                    ppu.inc_cycle_count(8);
                     ppu.current_scanline_dot += 8;
                 }
                 281..=320 => {
-                    ppu.cycle_count += 8;
+                    ppu.inc_cycle_count(8);
                     ppu.current_scanline_dot += 8;
                 }
                 328 => {
-                    ppu.cycle_count += 8;
+                    ppu.inc_cycle_count(8);
                     ppu.current_scanline_dot += 8;
 
                     if ppu.is_background_enable() || ppu.is_sprites_enable() {
@@ -424,7 +415,7 @@ impl<'a> Ppu<'a> {
                     }
                 }
                 336 => {
-                    ppu.cycle_count += 5;
+                    ppu.inc_cycle_count(5);
                     ppu.current_scanline_dot = 0;
                     ppu.current_scanline = 0;
 
@@ -442,7 +433,7 @@ impl<'a> Ppu<'a> {
             match ppu.current_scanline_dot {
                 0 => {
                     ppu.current_scanline_dot += 1;
-                    ppu.cycle_count += 1;
+                    ppu.inc_cycle_count(1);
                     // reset 'sprites_found' and 'current_sprite' before use (in dots 65-256)
                     ppu.oam.sprites_found = 0;
                     ppu.oam.current_sprite = 0;
@@ -468,7 +459,7 @@ impl<'a> Ppu<'a> {
                         ppu.set_sprite_zero_hit(true);
                     }
 
-                    ppu.cycle_count += 8;
+                    ppu.inc_cycle_count(8);
                     ppu.current_scanline_dot += 8;
 
                     if ppu.is_background_enable() || ppu.is_sprites_enable() {
@@ -504,7 +495,7 @@ impl<'a> Ppu<'a> {
                         ppu.transfer_temp_horizontal_bits();
                     }
 
-                    ppu.cycle_count += 8;
+                    ppu.inc_cycle_count(8);
                     ppu.current_scanline_dot += 8;
                 }
                 258..=320 => {
@@ -518,15 +509,15 @@ impl<'a> Ppu<'a> {
                         );
                     }
 
-                    ppu.cycle_count += 8;
+                    ppu.inc_cycle_count(8);
                     ppu.current_scanline_dot += 8;
                 }
                 321..=328 => {
-                    ppu.cycle_count += 8;
+                    ppu.inc_cycle_count(8);
                     ppu.current_scanline_dot += 8;
                 }
                 329 => {
-                    ppu.cycle_count += 8;
+                    ppu.inc_cycle_count(8);
                     ppu.current_scanline_dot += 8;
 
                     if ppu.is_background_enable() || ppu.is_sprites_enable() {
@@ -536,7 +527,7 @@ impl<'a> Ppu<'a> {
                     }
                 }
                 337 => {
-                    ppu.cycle_count += 4;
+                    ppu.inc_cycle_count(4);
                     ppu.current_scanline_dot = 0;
                     ppu.current_scanline += 1;
 
@@ -557,16 +548,16 @@ impl<'a> Ppu<'a> {
                         ppu.transfer_temp_horizontal_bits();
                     }
 
-                    ppu.cycle_count += 8;
+                    ppu.inc_cycle_count(8);
                     ppu.current_scanline_dot += 8;
                 }
                 336 => {
-                    ppu.cycle_count += 5;
+                    ppu.inc_cycle_count(5);
                     ppu.current_scanline_dot = 0;
                     ppu.current_scanline += 1;
                 }
                 _ => {
-                    ppu.cycle_count += 8;
+                    ppu.inc_cycle_count(8);
                     ppu.current_scanline_dot += 8;
                 }
             }
@@ -575,7 +566,7 @@ impl<'a> Ppu<'a> {
         fn step_vblank_line(ppu: &mut Ppu, cpu: &mut cpu::Cpu) {
             match ppu.current_scanline_dot {
                 0 => {
-                    ppu.cycle_count += 1;
+                    ppu.inc_cycle_count(1);
                     ppu.current_scanline_dot += 1;
                 }
                 1 => {
@@ -586,7 +577,7 @@ impl<'a> Ppu<'a> {
                         }
                     }
 
-                    ppu.cycle_count += 7;
+                    ppu.inc_cycle_count(7);
                     ppu.current_scanline_dot += 7;
                 }
                 256 => {
@@ -594,11 +585,11 @@ impl<'a> Ppu<'a> {
                         ppu.transfer_temp_horizontal_bits();
                     }
 
-                    ppu.cycle_count += 8;
+                    ppu.inc_cycle_count(8);
                     ppu.current_scanline_dot += 8;
                 }
                 336 => {
-                    ppu.cycle_count += 5;
+                    ppu.inc_cycle_count(5);
                     ppu.current_scanline_dot = 0;
 
                     if ppu.current_scanline == 260 {
@@ -607,17 +598,17 @@ impl<'a> Ppu<'a> {
 
                         // toggle 'even_frame' if rendering is enabled
                         if ppu.is_sprites_enable() || ppu.is_background_enable() {
-                            ppu.even_frame = !ppu.even_frame;
+                            ppu.toggle_even_frame();
                         }
 
-                        ppu.frame_done = true;
+                        ppu.set_frame_done(true);
                         return;
                     } else {
                         ppu.current_scanline += 1;
                     }
                 }
                 _ => {
-                    ppu.cycle_count += 8;
+                    ppu.inc_cycle_count(8);
                     ppu.current_scanline_dot += 8;
                 }
             }
@@ -629,6 +620,8 @@ impl<'a> Ppu<'a> {
     fn step_scanline(&mut self, cpu: &mut cpu::Cpu) {
         // NOTE: this function is split into multiple subfunctions
         {
+            debug_assert_eq!(self.current_scanline_dot, 0);
+
             match self.current_scanline {
                 // pre-render scanline
                 -1 => step_pre_render_line_full(self),
@@ -660,7 +653,7 @@ impl<'a> Ppu<'a> {
             }
 
             ppu.current_scanline = 0;
-            ppu.cycle_count += 340 + ppu.even_frame as u32;
+            ppu.inc_cycle_count(340 + ppu.is_even_frame() as u32);
         }
 
         fn step_visible_line_full(ppu: &mut Ppu) {
@@ -725,7 +718,7 @@ impl<'a> Ppu<'a> {
             }
 
             ppu.current_scanline += 1;
-            ppu.cycle_count += 341;
+            ppu.inc_cycle_count(341);
             ppu.current_scanline_dot = 0;
         }
 
@@ -735,7 +728,7 @@ impl<'a> Ppu<'a> {
             }
 
             ppu.current_scanline = 241;
-            ppu.cycle_count += 341;
+            ppu.inc_cycle_count(341);
         }
 
         fn step_first_vblank_line_full(ppu: &mut Ppu, cpu: &mut cpu::Cpu) {
@@ -749,7 +742,7 @@ impl<'a> Ppu<'a> {
             }
 
             ppu.current_scanline = 242;
-            ppu.cycle_count += 341;
+            ppu.inc_cycle_count(341);
         }
 
         fn step_vblank_line_full(ppu: &mut Ppu) {
@@ -758,17 +751,18 @@ impl<'a> Ppu<'a> {
             }
 
             ppu.current_scanline += 1;
-            ppu.cycle_count += 341;
+            ppu.inc_cycle_count(341);
         }
 
         fn step_last_vblank_line_full(ppu: &mut Ppu) {
             if ppu.is_sprites_enable() || ppu.is_background_enable() {
                 ppu.transfer_temp_horizontal_bits();
-                ppu.even_frame = !ppu.even_frame;
+                ppu.toggle_even_frame();
             }
 
             ppu.current_scanline = -1;
-            ppu.cycle_count += 341;
+            ppu.inc_cycle_count(341);
+            ppu.set_frame_done(true);
         }
     }
 
@@ -850,16 +844,64 @@ impl<'a> Ppu<'a> {
         let temp_coarse_x = self.temp_vram_addr.get_coarse_x();
         self.current_vram_addr.set_coarse_x(temp_coarse_x);
     }
+}
 
+// second impl block to separate getter/setter/convenience functions from the rest
+impl<'a> Ppu<'a> {
     // sets the low 5 bits of 'ppustatus' equal to the low 5 bits of 'val'
     pub fn set_ppustatus_low_bits(&mut self, val: u8) {
         self.ppustatus &= !0b11111;
         self.ppustatus |= val & 0b11111;
     }
 
-    // NOTE: this expects the fine x value to be in the low 3 bits of 'fine_x'
-    fn set_fine_x_scroll(&mut self, fine_x: u8) {
-        self.fine_x_scroll = (self.fine_x_scroll & !0b111) | fine_x;
+    pub fn is_frame_done(&self) -> bool {
+        (self.misc_bits & 0x20000) != 0
+    }
+
+    pub fn set_frame_done(&mut self, done: bool) {
+        self.misc_bits = (self.misc_bits & !0x20000) | ((done as u32) << 17);
+    }
+
+    pub fn get_cycle_count(&self) -> u32 {
+        self.misc_bits & 0x1ffff
+    }
+
+    // NOTE: this assumes that 'cyc' is no larger than 17 bits in size!
+    pub fn set_cycle_count(&mut self, cyc: u32) {
+        debug_assert!(cyc <= (341 * 262) + 1);
+        self.misc_bits = (self.misc_bits & !0x1ffff) | cyc;
+    }
+
+    // NOTE: this assumes that adding 'inc' to the cycle count
+    // won't cause it to overflow into the 18th bit!
+    fn inc_cycle_count(&mut self, inc: u32) {
+        debug_assert!((self.misc_bits & 0x1ffff) + inc <= (341 * 262) + 1);
+        self.misc_bits += inc;
+    }
+
+    fn is_even_frame(&self) -> bool {
+        (self.misc_bits & 0x40000) != 0
+    }
+
+    fn toggle_even_frame(&mut self) {
+        self.misc_bits ^= 0x40000;
+    }
+
+    fn get_low_bits_toggle(&self) -> bool {
+        (self.misc_bits & 0x80000) != 0
+    }
+
+    fn set_low_bits_toggle(&mut self, toggle: bool) {
+        self.misc_bits = (self.misc_bits & !0x80000) | ((toggle as u32) << 19);
+    }
+
+    fn get_fine_x_scroll(&self) -> u8 {
+        (self.misc_bits >> 20) as u8
+    }
+
+    // NOTE: this expects the upper 5 bits of 'scroll' to be cleared
+    fn set_fine_x_scroll(&mut self, scroll: u8) {
+        self.misc_bits = (self.misc_bits & !0x700000) | ((scroll as u32) << 20);
     }
 
     fn get_base_nametable_addr(&self) -> u16 {
