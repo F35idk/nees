@@ -3,8 +3,7 @@ use super::{cpu, util};
 use super::memory_map::PpuMemoryMap;
 use super::pixel_renderer::PixelRenderer;
 
-mod draw;
-mod oam;
+mod draw_state;
 mod palette;
 pub mod test;
 
@@ -12,8 +11,9 @@ pub struct Ppu<'a> {
     pub renderer: PixelRenderer,
     pub current_scanline: i16,
     current_scanline_dot: u16,
-    oam: oam::Oam,
-    draw_state: draw::DrawState,
+    primary_oam: PrimaryOam,
+    secondary_oam: SecondaryOam,
+    draw_state: draw_state::DrawState,
     // TODO: investigate how much code bloat generics would cause
     // - would it be worth using it over a trait object?
     memory: &'a mut dyn PpuMemoryMap,
@@ -33,7 +33,7 @@ pub struct Ppu<'a> {
     // (19th bit), 'low_bits_toggle' boolean (20th bit) and
     // fine x scroll value (21st to 23rd bit). getter and
     // setter functions are used for each of these fields
-    // (see the second impl 'Ppu' impl block)
+    // (see the second 'Ppu' impl block)
     misc_bits: u32,
 
     // internal registers
@@ -48,6 +48,62 @@ pub struct Ppu<'a> {
     // nesdev.com 'ppu scrolling' article
     temp_vram_addr: VramAddrRegister,
 }
+
+pub struct PrimaryOam {
+    pub entries: [OamEntry; 64],
+}
+
+pub struct SecondaryOam {
+    pub entries: [OamEntry; 8],
+}
+
+#[derive(Copy, Clone, Default)]
+#[repr(C)]
+pub struct OamEntry {
+    pub y: u8,
+    pub tile_index: u8,
+    pub attributes: u8,
+    pub x: u8,
+}
+
+// convenience methods for the 'SecondaryOam' and 'PrimaryOam' structs
+macro_rules! oam_impl {
+    ($oam:ty, $n_entries:literal) => {
+        impl $oam {
+            pub fn as_bytes<'a>(&'a self) -> &'a [u8; $n_entries * 4] {
+                unsafe { std::mem::transmute(self) }
+            }
+
+            pub fn as_bytes_mut<'a>(&'a mut self) -> &'a mut [u8; $n_entries * 4] {
+                unsafe { std::mem::transmute(self) }
+            }
+
+            pub fn get_byte(&self, index: u8) -> u8 {
+                unsafe { *self.as_bytes().get_unchecked(index as usize) }
+            }
+
+            pub fn set_byte(&mut self, index: u8, val: u8) {
+                unsafe { *self.as_bytes_mut().get_unchecked_mut(index as usize) = val };
+            }
+
+            #[inline]
+            pub unsafe fn get_sprite_unchecked(&self, index: u8) -> OamEntry {
+                *(self.as_bytes().get_unchecked(index as usize) as *const _ as *const _)
+            }
+        }
+
+        impl Default for $oam {
+            fn default() -> Self {
+                Self {
+                    entries: [OamEntry::default(); $n_entries],
+                }
+            }
+        }
+    };
+}
+
+oam_impl!(PrimaryOam, 64);
+oam_impl!(SecondaryOam, 8);
 
 #[derive(Copy, Clone)]
 struct VramAddrRegister {
@@ -95,8 +151,9 @@ impl VramAddrRegister {
 impl<'a> Ppu<'a> {
     pub fn new(renderer: PixelRenderer, memory: &'a mut dyn PpuMemoryMap) -> Self {
         Self {
-            oam: oam::Oam::default(),
-            draw_state: draw::DrawState::default(),
+            draw_state: draw_state::DrawState::default(),
+            secondary_oam: SecondaryOam::default(),
+            primary_oam: PrimaryOam::default(),
             ppuctrl: 0,
             ppumask: 0,
             ppustatus: 0,
@@ -154,7 +211,7 @@ impl<'a> Ppu<'a> {
                 return 0xff;
             }
 
-            let mut byte = ppu.oam.primary.get_byte(ppu.oamaddr);
+            let mut byte = ppu.primary_oam.get_byte(ppu.oamaddr);
             if ppu.oamaddr % 4 == 2 {
                 // if 'byte' is a sprite attribute byte, clear bits 2-4
                 byte &= 0b11100011;
@@ -304,9 +361,9 @@ impl<'a> Ppu<'a> {
         }
     }
 
-    // NOTE: also used by 'CpuMemoryMap::write_oamdma()'
+    // NOTE: this is also used by 'CpuMemoryMap::write_oamdma()'
     pub fn write_to_oam_and_increment_addr(&mut self, val: u8) {
-        self.oam.primary.set_byte(self.oamaddr, val);
+        self.primary_oam.set_byte(self.oamaddr, val);
         self.oamaddr = self.oamaddr.wrapping_add(1);
     }
 
@@ -409,8 +466,8 @@ impl<'a> Ppu<'a> {
                     ppu.current_scanline_dot += 8;
 
                     if ppu.is_background_enable() || ppu.is_sprites_enable() {
-                        ppu.draw_state.shift_tile_data_by_8();
-                        ppu.draw_state.fetch_current_bg_tile_data(ppu);
+                        ppu.draw_state.bg_state.shift_tile_data_by_8();
+                        ppu.draw_state.bg_state.fetch_current_tile_data(ppu);
                         ppu.increment_vram_addr_coarse_x();
                     }
                 }
@@ -420,8 +477,8 @@ impl<'a> Ppu<'a> {
                     ppu.current_scanline = 0;
 
                     if ppu.is_background_enable() || ppu.is_sprites_enable() {
-                        ppu.draw_state.shift_tile_data_by_8();
-                        ppu.draw_state.fetch_current_bg_tile_data(ppu);
+                        ppu.draw_state.bg_state.shift_tile_data_by_8();
+                        ppu.draw_state.bg_state.fetch_current_tile_data(ppu);
                         ppu.increment_vram_addr_coarse_x();
                     }
                 }
@@ -435,8 +492,8 @@ impl<'a> Ppu<'a> {
                     ppu.current_scanline_dot += 1;
                     ppu.inc_cycle_count(1);
                     // reset 'sprites_found' and 'current_sprite' before use (in dots 65-256)
-                    ppu.oam.sprites_found = 0;
-                    ppu.oam.current_sprite = 0;
+                    ppu.draw_state.sprite_state.sprites_found = 0;
+                    ppu.draw_state.sprite_state.current_sprite = 0;
                 }
                 1..=256 => {
                     if ppu.current_scanline_dot >= 65
@@ -444,7 +501,9 @@ impl<'a> Ppu<'a> {
                     {
                         // evaluate sprite on next scanline
                         for _ in 0..3 {
-                            ppu.oam.eval_next_scanline_sprite(
+                            ppu.draw_state.sprite_state.eval_next_scanline_sprite(
+                                &ppu.primary_oam,
+                                &mut ppu.secondary_oam,
                                 ppu.current_scanline,
                                 ppu.current_scanline_dot,
                             );
@@ -469,8 +528,8 @@ impl<'a> Ppu<'a> {
                             // NOTE: may wish to increment x here as well (what the ppu does irl)
                             ppu.increment_vram_addr_y();
                         } else {
-                            ppu.draw_state.shift_tile_data_by_8();
-                            ppu.draw_state.fetch_current_bg_tile_data(ppu);
+                            ppu.draw_state.bg_state.shift_tile_data_by_8();
+                            ppu.draw_state.bg_state.fetch_current_tile_data(ppu);
                             ppu.increment_vram_addr_coarse_x();
                         }
                     }
@@ -478,12 +537,13 @@ impl<'a> Ppu<'a> {
                 257 => {
                     // set current sprite to zero so it can be re-used
                     // in 'fetch_next_scanline_sprite_data()'
-                    ppu.oam.current_sprite = 0;
-                    debug_assert!(ppu.oam.sprites_found <= 8);
+                    ppu.draw_state.sprite_state.current_sprite = 0;
+                    debug_assert!(ppu.draw_state.sprite_state.sprites_found <= 8);
 
-                    // fetch sprite data for the sprites found previosuly (during dots 65-256)
+                    // fetch sprite data for the sprites found previously (during dots 65-256)
                     if ppu.is_sprites_enable() {
-                        ppu.oam.fetch_next_scanline_sprite_data(
+                        ppu.draw_state.sprite_state.fetch_next_scanline_sprite_data(
+                            &ppu.secondary_oam,
                             ppu.current_scanline,
                             ppu.current_scanline_dot,
                             ppu.get_8x8_sprite_pattern_table_addr(),
@@ -501,7 +561,8 @@ impl<'a> Ppu<'a> {
                 258..=320 => {
                     // continue fetching sprite data
                     if ppu.is_sprites_enable() {
-                        ppu.oam.fetch_next_scanline_sprite_data(
+                        ppu.draw_state.sprite_state.fetch_next_scanline_sprite_data(
+                            &ppu.secondary_oam,
                             ppu.current_scanline,
                             ppu.current_scanline_dot,
                             ppu.get_8x8_sprite_pattern_table_addr(),
@@ -521,8 +582,8 @@ impl<'a> Ppu<'a> {
                     ppu.current_scanline_dot += 8;
 
                     if ppu.is_background_enable() || ppu.is_sprites_enable() {
-                        ppu.draw_state.shift_tile_data_by_8();
-                        ppu.draw_state.fetch_current_bg_tile_data(ppu);
+                        ppu.draw_state.bg_state.shift_tile_data_by_8();
+                        ppu.draw_state.bg_state.fetch_current_tile_data(ppu);
                         ppu.increment_vram_addr_coarse_x();
                     }
                 }
@@ -532,8 +593,8 @@ impl<'a> Ppu<'a> {
                     ppu.current_scanline += 1;
 
                     if ppu.is_background_enable() || ppu.is_sprites_enable() {
-                        ppu.draw_state.shift_tile_data_by_8();
-                        ppu.draw_state.fetch_current_bg_tile_data(ppu);
+                        ppu.draw_state.bg_state.shift_tile_data_by_8();
+                        ppu.draw_state.bg_state.fetch_current_tile_data(ppu);
                         ppu.increment_vram_addr_coarse_x();
                     }
                 }
@@ -646,8 +707,8 @@ impl<'a> Ppu<'a> {
                 ppu.transfer_temp_vert_bits();
 
                 for _ in 0..2 {
-                    ppu.draw_state.shift_tile_data_by_8();
-                    ppu.draw_state.fetch_current_bg_tile_data(ppu);
+                    ppu.draw_state.bg_state.shift_tile_data_by_8();
+                    ppu.draw_state.bg_state.fetch_current_tile_data(ppu);
                     ppu.increment_vram_addr_coarse_x();
                 }
             }
@@ -658,13 +719,18 @@ impl<'a> Ppu<'a> {
 
         fn step_visible_line_full(ppu: &mut Ppu) {
             ppu.current_scanline_dot = 1;
-            ppu.oam.sprites_found = 0;
-            ppu.oam.current_sprite = 0;
+            ppu.draw_state.sprite_state.sprites_found = 0;
+            ppu.draw_state.sprite_state.current_sprite = 0;
 
             // FIXME: 72 iterations?
             if ppu.is_sprites_enable() || ppu.is_background_enable() {
                 for _ in 0..72 {
-                    ppu.oam.eval_next_scanline_sprite(ppu.current_scanline, 65);
+                    ppu.draw_state.sprite_state.eval_next_scanline_sprite(
+                        &ppu.primary_oam,
+                        &mut ppu.secondary_oam,
+                        ppu.current_scanline,
+                        65,
+                    );
                 }
             }
 
@@ -682,8 +748,8 @@ impl<'a> Ppu<'a> {
                 ppu.current_scanline_dot += 8;
 
                 if ppu.is_background_enable() || ppu.is_sprites_enable() {
-                    ppu.draw_state.shift_tile_data_by_8();
-                    ppu.draw_state.fetch_current_bg_tile_data(ppu);
+                    ppu.draw_state.bg_state.shift_tile_data_by_8();
+                    ppu.draw_state.bg_state.fetch_current_tile_data(ppu);
                     ppu.increment_vram_addr_coarse_x();
                 }
             }
@@ -698,17 +764,18 @@ impl<'a> Ppu<'a> {
                 ppu.transfer_temp_horizontal_bits();
 
                 for _ in 0..2 {
-                    ppu.draw_state.shift_tile_data_by_8();
-                    ppu.draw_state.fetch_current_bg_tile_data(ppu);
+                    ppu.draw_state.bg_state.shift_tile_data_by_8();
+                    ppu.draw_state.bg_state.fetch_current_tile_data(ppu);
                     ppu.increment_vram_addr_coarse_x();
                 }
             }
 
-            ppu.oam.current_sprite = 0;
+            ppu.draw_state.sprite_state.current_sprite = 0;
 
             if ppu.is_sprites_enable() {
                 for _ in 0..8 {
-                    ppu.oam.fetch_next_scanline_sprite_data(
+                    ppu.draw_state.sprite_state.fetch_next_scanline_sprite_data(
+                        &ppu.secondary_oam,
                         ppu.current_scanline,
                         ppu.current_scanline_dot,
                         ppu.get_8x8_sprite_pattern_table_addr(),

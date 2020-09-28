@@ -1,12 +1,11 @@
-use super::super::memory_map::PpuMemoryMap;
+use super::super::{PrimaryOam, SecondaryOam};
+use super::PpuMemoryMap;
 
 #[derive(Default)]
-pub struct Oam {
-    pub primary: PrimaryOam,
-    secondary: SecondaryOam,
+pub struct SpriteDrawState {
     // contains data for the 8 sprites to be drawn on the current or
-    // next scanline (is filled with sprite data for the next scanline
-    // on cycles 257-320)
+    // next scanline (should be filled with sprite data for the next
+    // scanline on cycles 257-320)
     current_sprites_data: [SpriteRenderData; 8],
     // during sprite evaluation (dots 65-256 of each visible scanline),
     // this is used as the index of the current sprite to be evaluated
@@ -18,24 +17,7 @@ pub struct Oam {
     pub sprites_found: u8,
 }
 
-#[derive(Copy, Clone, Default)]
-#[repr(C)]
-pub struct OamEntry {
-    pub y: u8,
-    pub tile_index: u8,
-    pub attributes: u8,
-    pub x: u8,
-}
-
-pub struct PrimaryOam {
-    pub entries: [OamEntry; 64],
-}
-
-pub struct SecondaryOam {
-    pub entries: [OamEntry; 8],
-}
-
-// struct used internally in 'Oam' to store sprite data between scanlines
+// struct used internally in 'SpriteDrawState' to store sprite data between scanlines
 #[derive(Copy, Clone, Default)]
 struct SpriteRenderData {
     x: u8,
@@ -45,61 +27,30 @@ struct SpriteRenderData {
     attributes: u8,
 }
 
-// convenience info struct returned by 'Oam::get_sprite_at_dot_info()'.
-// isn't stored persistently anywhere
-pub struct SpritePixelInfo {
+// convenience info struct returned by 'SpriteDrawState::get_sprite_at_dot_info()'.
+// isn't stored persistently anywhere. this struct and its associated function is
+// (as of writing) only used by 'super::DrawState' in 'draw_8_pixels()' when drawing
+// sprites.
+pub(super) struct SpritePixelInfo {
     pub color_index: u8,
     pub palette_index: u8,
     pub is_in_front: bool,
     pub is_sprite_zero: bool,
 }
 
-// convenience methods for the 'SecondaryOam' and 'PrimaryOam' structs
-macro_rules! oam_impl {
-    ($oam:ty, $n_entries:literal) => {
-        impl $oam {
-            pub fn as_bytes<'a>(&'a self) -> &'a [u8; $n_entries * 4] {
-                unsafe { std::mem::transmute(self) }
-            }
-
-            pub fn as_bytes_mut<'a>(&'a mut self) -> &'a mut [u8; $n_entries * 4] {
-                unsafe { std::mem::transmute(self) }
-            }
-
-            pub fn get_byte(&self, index: u8) -> u8 {
-                unsafe { *self.as_bytes().get_unchecked(index as usize) }
-            }
-
-            pub fn set_byte(&mut self, index: u8, val: u8) {
-                unsafe { *self.as_bytes_mut().get_unchecked_mut(index as usize) = val };
-            }
-
-            #[inline]
-            pub unsafe fn get_sprite_unchecked(&mut self, index: u8) -> OamEntry {
-                *(self.as_bytes_mut().get_unchecked_mut(index as usize) as *mut _ as *mut _)
-            }
-        }
-
-        impl Default for $oam {
-            fn default() -> Self {
-                Self {
-                    entries: [OamEntry::default(); $n_entries],
-                }
-            }
-        }
-    };
-}
-
-oam_impl!(PrimaryOam, 64);
-oam_impl!(SecondaryOam, 8);
-
-impl Oam {
-    pub fn eval_next_scanline_sprite(&mut self, current_scanline: i16, current_scanline_dot: u16) {
+impl SpriteDrawState {
+    pub fn eval_next_scanline_sprite(
+        &mut self,
+        primary_oam: &PrimaryOam,
+        secondary_oam: &mut SecondaryOam,
+        current_scanline: i16,
+        current_scanline_dot: u16,
+    ) {
         assert!(matches!(current_scanline, -1..=239));
         assert!(matches!(current_scanline_dot, 65..=256));
 
         if self.sprites_found < 8 {
-            let mut sprite = unsafe { self.primary.get_sprite_unchecked(self.current_sprite) };
+            let mut sprite = unsafe { primary_oam.get_sprite_unchecked(self.current_sprite) };
 
             // NOTE: 'sprite.y' is 1 less than the screen y coordinate
             if ((current_scanline) as u16).wrapping_sub(sprite.y as u16) < 8 {
@@ -112,7 +63,7 @@ impl Oam {
                 }
 
                 // copy sprite into secondary oam
-                self.secondary.entries[self.sprites_found as usize] = sprite;
+                secondary_oam.entries[self.sprites_found as usize] = sprite;
                 self.sprites_found += 1;
             }
         } else {
@@ -128,6 +79,7 @@ impl Oam {
 
     pub fn fetch_next_scanline_sprite_data(
         &mut self,
+        secondary_oam: &SecondaryOam,
         current_scanline: i16,
         current_scanline_dot: u16,
         pattern_table_addr: u16,
@@ -140,7 +92,7 @@ impl Oam {
         if (self.current_sprite >> 2) < self.sprites_found {
             // fill a slot in 'current_sprites_data' with data for the current sprite
 
-            let sprite = unsafe { self.secondary.get_sprite_unchecked(self.current_sprite) };
+            let sprite = unsafe { secondary_oam.get_sprite_unchecked(self.current_sprite) };
             let tile_index = sprite.tile_index;
             let tile = {
                 let sprite_table_ptr = memory.get_pattern_tables();
@@ -196,7 +148,12 @@ impl Oam {
 
     // returns a 'SpritePixelInfo' struct describing the first (highest priority) non-transparent
     // sprite pixel at the current dot, or None if no such sprite pixel was found
-    pub fn get_sprite_at_dot_info(&self, current_scanline_dot: u16) -> Option<SpritePixelInfo> {
+    // TODO: since this isn't needed anywhere else than 'super::DrawState::draw_8_pixels()', maybe
+    // consider inlining it into there?
+    pub(super) fn get_sprite_at_dot_info(
+        &self,
+        current_scanline_dot: u16,
+    ) -> Option<SpritePixelInfo> {
         self.current_sprites_data
             .iter()
             // bit 2 of 'attributes' being set indicates end of array
