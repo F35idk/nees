@@ -1,4 +1,4 @@
-use pixel_renderer::xcb::{self, xproto};
+use super::xcb;
 
 pub enum Keys {}
 
@@ -19,11 +19,15 @@ impl Keys {
 pub struct XcbWindowWrapper {
     pub win: xcb::Window,
     pub connection: xcb::Connection,
-    pub delete_reply: xproto::InternAtomReply,
+    pub delete_reply: xcb::InternAtomReply,
     pub events: EventStore,
 }
 
 #[derive(Default)]
+// struct needed for ignoring auto-repeated key release events. by storing the next event
+// in the 'next' field, the struct allows 'peeking' into the next event without losing
+// access to it in the process. xcb's internal event queue lacks such a 'peek' function,
+// meaning any reads from it will automatically dequeue the event that was read
 pub struct EventStore {
     pub curr: Option<xcb::GenericEvent>,
     pub next: Option<xcb::GenericEvent>,
@@ -31,32 +35,20 @@ pub struct EventStore {
 
 impl EventStore {
     pub fn update(&mut self, new_event: Option<xcb::GenericEvent>) {
-        // free internal data in 'curr' event
-        if let Some(ref p) = self.curr {
-            unsafe {
-                libc::free(p.ptr as *mut libc::c_void);
-            }
-        }
-
-        // copy 'next' into 'curr' without freeing 'curr' again
-        unsafe {
-            std::ptr::copy_nonoverlapping(&self.next, &mut self.curr, 1);
-        }
-
-        // set 'next' = 'new_event' without dropping the old 'next'
-        unsafe { std::ptr::write(&mut self.next, new_event) }
+        // drop the original 'curr' and replace it with 'next' while replacing 'next' with 'new_event'
+        self.curr = std::mem::replace(&mut self.next, new_event);
     }
 
     pub fn get_current(&mut self) -> &Option<xcb::GenericEvent> {
         if let Some(current) = self
             .curr
             .as_ref()
-            .filter(|c| ((c.response_type() & !0x80) & xcb::KEY_RELEASE) == xcb::KEY_RELEASE)
+            .filter(|c| (c.response_type() & !0x80) == xcb::KEY_RELEASE)
         {
             if let Some(next) = self
                 .next
                 .as_ref()
-                .filter(|c| ((c.response_type() & !0x80) & xcb::KEY_PRESS) == xcb::KEY_PRESS)
+                .filter(|c| (c.response_type() & !0x80) == xcb::KEY_PRESS)
             {
                 let key_release: &xcb::KeyReleaseEvent = unsafe { xcb::cast_event(&current) };
                 let next_key_press: &xcb::KeyPressEvent = unsafe { xcb::cast_event(&next) };
@@ -86,12 +78,12 @@ impl XcbWindowWrapper {
         let value_list = [
             (xcb::CW_BACK_PIXEL, screen.white_pixel()),
             (
-                xproto::CW_EVENT_MASK,
-                xproto::EVENT_MASK_KEY_PRESS | xproto::EVENT_MASK_KEY_RELEASE,
+                xcb::CW_EVENT_MASK,
+                xcb::EVENT_MASK_KEY_PRESS | xcb::EVENT_MASK_KEY_RELEASE,
             ),
         ];
 
-        xproto::create_window(
+        xcb::create_window(
             &connection,
             xcb::COPY_FROM_PARENT as u8,
             win,
@@ -114,7 +106,7 @@ impl XcbWindowWrapper {
 
         let del_window_atom = [del_window_reply.atom()];
 
-        xcb::xproto::change_property(
+        xcb::change_property(
             &connection,
             xcb::PROP_MODE_REPLACE as u8,
             win,
@@ -124,7 +116,7 @@ impl XcbWindowWrapper {
             &del_window_atom,
         );
 
-        xproto::change_property(
+        xcb::change_property(
             &connection,
             xcb::PROP_MODE_REPLACE as u8,
             win,
