@@ -1,5 +1,5 @@
 use super::super::PixelRenderer;
-use super::super::{apu, cpu, memory_map as mmap, parse, win};
+use super::super::{apu, controller as ctrl, cpu, memory_map as mmap, parse, win};
 use mmap::{CpuMemoryMap, PpuMemoryMap};
 
 fn init_nes() -> (cpu::Cpu, mmap::Nrom128CpuMemory<'static>) {
@@ -10,7 +10,8 @@ fn init_nes() -> (cpu::Cpu, mmap::Nrom128CpuMemory<'static>) {
     let ppu = super::Ppu::new(renderer, ppu_memory);
     let apu = apu::Apu {};
     let cpu = cpu::Cpu::default();
-    let cpu_memory = mmap::Nrom128CpuMemory::new(ppu, apu);
+    let controller = ctrl::Controller::default();
+    let cpu_memory = mmap::Nrom128CpuMemory::new(ppu, apu, controller);
 
     (cpu, cpu_memory)
 }
@@ -253,7 +254,7 @@ fn test_write_2003_read_2004() {
     }
 
     // set oam[0xff] = 0xee
-    cpu_memory.ppu.oam.primary.set_byte(0xff, 0xee);
+    cpu_memory.ppu.primary_oam.set_byte(0xff, 0xee);
 
     // LDA $2004 (read from oamdata, i.e read the byte at oam[oamaddr])
     cpu_memory.write(5u16, 0xad, cpu);
