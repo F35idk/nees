@@ -83,16 +83,26 @@ fn main() {
                         // if paused, call 'wait_for_event()' until an 'ESC'
                         // key press is received
                         while is_paused {
-                            if let Some(win::Keys::ESC) = win
+                            match win
                                 .connection
                                 .wait_for_event()
-                                .as_ref()
-                                .filter(|e| e.response_type() & !0x80 == xcb::KEY_PRESS)
-                                .map(|e| unsafe { xcb::cast_event(e) })
-                                .map(|e| key_syms.press_lookup_keysym(e, 0))
+                                .map(|e| (e.response_type() & !0x80, e))
                             {
-                                // unpause
-                                is_paused = false;
+                                Some((xcb::KEY_PRESS, e)) => {
+                                    let press = unsafe { xcb::cast_event(&e) };
+                                    let sym = key_syms.press_lookup_keysym(press, 0);
+
+                                    if sym == win::Keys::ESC {
+                                        // unpause
+                                        is_paused = false;
+                                    }
+                                }
+                                Some((xcb::CONFIGURE_NOTIFY, _)) => {
+                                    // make sure to re-render frame on resize events
+                                    let idx = cpu_memory.ppu.renderer.render_frame();
+                                    cpu_memory.ppu.renderer.present(idx);
+                                }
+                                _ => (),
                             }
                         }
                     } else {
