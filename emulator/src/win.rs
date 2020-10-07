@@ -20,49 +20,6 @@ pub struct XcbWindowWrapper {
     pub win: xcb::Window,
     pub connection: xcb::Connection,
     pub delete_reply: xcb::InternAtomReply,
-    pub events: EventStore,
-}
-
-#[derive(Default)]
-// struct needed for ignoring auto-repeated key release events. by storing the next event
-// in the 'next' field, the struct allows 'peeking' into the next event without losing
-// access to it in the process. xcb's internal event queue lacks such a 'peek' function,
-// meaning any reads from it will automatically dequeue the event that was read
-pub struct EventStore {
-    pub curr: Option<xcb::GenericEvent>,
-    pub next: Option<xcb::GenericEvent>,
-}
-
-impl EventStore {
-    pub fn update(&mut self, new_event: Option<xcb::GenericEvent>) {
-        // drop the original 'curr' and replace it with 'next' while replacing 'next' with 'new_event'
-        self.curr = std::mem::replace(&mut self.next, new_event);
-    }
-
-    pub fn get_current(&mut self) -> &Option<xcb::GenericEvent> {
-        if let Some(current) = self
-            .curr
-            .as_ref()
-            .filter(|c| (c.response_type() & !0x80) == xcb::KEY_RELEASE)
-        {
-            if let Some(next) = self
-                .next
-                .as_ref()
-                .filter(|c| (c.response_type() & !0x80) == xcb::KEY_PRESS)
-            {
-                let key_release: &xcb::KeyReleaseEvent = unsafe { xcb::cast_event(&current) };
-                let next_key_press: &xcb::KeyPressEvent = unsafe { xcb::cast_event(&next) };
-
-                if key_release.time() == next_key_press.time() {
-                    // ignore key release event if next event is a key press that occured
-                    // at the exact same time (this means autorepeat has kicked in)
-                    return &None;
-                }
-            }
-        }
-
-        &self.curr
-    }
 }
 
 impl XcbWindowWrapper {
@@ -130,7 +87,6 @@ impl XcbWindowWrapper {
             win,
             connection,
             delete_reply: del_window_reply,
-            events: EventStore::default(),
         })
     }
 

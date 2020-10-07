@@ -70,52 +70,66 @@ fn main() {
     let mut is_paused = false;
 
     loop {
-        // update 'events' with the next event in the xcb event queue
-        let new_event = win.connection.poll_for_event();
-        win.events.update(new_event);
-
-        while let Some(e) = win.events.get_current() {
-            // handle the different event types
+        let mut current_event = win.connection.poll_for_event();
+        while let Some(e) = current_event {
             match e.response_type() & !0x80 {
                 xcb::KEY_PRESS => {
                     let key_press: &xcb::KeyPressEvent = unsafe { xcb::cast_event(&e) };
                     let key_sym = key_syms.press_lookup_keysym(key_press, 0);
 
-                    match key_sym {
-                        win::Keys::ESC => {
-                            is_paused = !is_paused;
+                    if key_sym == win::Keys::ESC {
+                        is_paused = !is_paused;
 
-                            while is_paused {
-                                if let Some(e) =
-                                    win.connection.wait_for_event().as_ref().filter(|e| {
-                                        matches!(e.response_type() & !0x80, xcb::KEY_PRESS)
-                                    })
-                                {
-                                    let press: &xcb::KeyPressEvent = unsafe { xcb::cast_event(&e) };
-                                    let sym = key_syms.press_lookup_keysym(press, 0);
-
-                                    if sym == win::Keys::ESC {
-                                        is_paused = false;
-                                    }
-                                }
+                        // if paused, call 'wait_for_event()' until an 'ESC'
+                        // key press is received
+                        while is_paused {
+                            if let Some(win::Keys::ESC) = win
+                                .connection
+                                .wait_for_event()
+                                .as_ref()
+                                .filter(|e| e.response_type() & !0x80 == xcb::KEY_PRESS)
+                                .map(|e| unsafe { xcb::cast_event(e) })
+                                .map(|e| key_syms.press_lookup_keysym(e, 0))
+                            {
+                                // unpause
+                                is_paused = false;
                             }
                         }
-                        _ => cpu_memory.controller.set_key(key_sym),
+                    } else {
+                        cpu_memory.controller.set_key(key_sym);
                     }
                 }
                 xcb::KEY_RELEASE => {
                     let key_release: &xcb::KeyReleaseEvent = unsafe { xcb::cast_event(&e) };
-                    let key_sym = key_syms.release_lookup_keysym(key_release, 0);
+                    let next_event = win.connection.poll_for_queued_event();
 
+                    // check if the next event is a key press
+                    if let Some(next_key_press) = next_event
+                        .as_ref()
+                        .filter(|e| e.response_type() & !0x80 == xcb::KEY_PRESS)
+                        .map::<&xcb::KeyPressEvent, _>(|e| unsafe { xcb::cast_event(e) })
+                    {
+                        if key_release.time() == next_key_press.time()
+                            && key_release.detail() == next_key_press.detail()
+                        {
+                            // ignore key release event if next event is a key press that
+                            // occured at the exact same time (this means autorepeat has
+                            // kicked in)
+                            current_event = win.connection.poll_for_queued_event();
+                            continue;
+                        }
+                    }
+
+                    let key_sym = key_syms.release_lookup_keysym(key_release, 0);
                     cpu_memory.controller.unset_key(key_sym);
+
+                    current_event = next_event;
+                    continue;
                 }
                 _ => (),
             }
 
-            // get the next event in the queue without reading from the connection
-            let new_event = win.connection.poll_for_queued_event();
-            // update 'events' with the new event
-            win.events.update(new_event);
+            current_event = win.connection.poll_for_queued_event();
         }
 
         let start_of_frame = std::time::Instant::now();
