@@ -1,25 +1,8 @@
 use super::super::PixelRenderer;
-use super::super::{apu, controller as ctrl, cpu, memory_map as mmap, parse, win};
-use mmap::{CpuMemoryMap, PpuMemoryMap};
+use super::super::{cpu, memory_map as mem, parse, util, win};
+use mem::{CpuMemoryMap, PpuMemoryMap};
 
-fn init_nes() -> (cpu::Cpu, mmap::Nrom128CpuMemory<'static>) {
-    let mut win = win::XcbWindowWrapper::new("test", 20, 20).unwrap();
-    let renderer = PixelRenderer::new(&mut win.connection, win.win, 256, 240).unwrap();
-
-    let ppu_memory = Box::leak(Box::new(mmap::NromPpuMemory::new()));
-    let ppu = super::Ppu::new(renderer, ppu_memory);
-    let apu = apu::Apu {};
-    let cpu = cpu::Cpu::default();
-    let controller = ctrl::Controller::default();
-    let cpu_memory = mmap::Nrom128CpuMemory::new(ppu, apu, controller);
-
-    (cpu, cpu_memory)
-}
-
-#[test]
-fn test_registers() {
-    let (ref mut cpu, mmap::Nrom128CpuMemory { ref mut ppu, .. }) = init_nes();
-
+fn test_registers(cpu: &mut cpu::Cpu, ppu: &mut super::Ppu) {
     ppu.ppuctrl = 0b00000011;
     assert_eq!(ppu.get_base_nametable_addr(), 0x2c00);
 
@@ -83,10 +66,7 @@ fn test_registers() {
     assert_eq!(ppu.current_vram_addr.inner, 0x4fe8 % 0x4000);
 }
 
-#[test]
-fn test_write_2007() {
-    let (ref mut cpu, ref mut cpu_memory) = init_nes();
-
+fn test_write_2007(cpu: &mut cpu::Cpu, cpu_memory: &mut mem::Nrom128CpuMemory) {
     // LDA #ee
     cpu_memory.write(0u16, 0xa9, cpu);
     cpu_memory.write(1u16, 0xee, cpu);
@@ -117,10 +97,7 @@ fn test_write_2007() {
     assert_eq!(cpu_memory.ppu.read_register_by_index(7), 0xee);
 }
 
-#[test]
-fn test_write_2000() {
-    let (ref mut cpu, ref mut cpu_memory) = init_nes();
-
+fn test_write_2000(cpu: &mut cpu::Cpu, cpu_memory: &mut mem::Nrom128CpuMemory) {
     // LDA #ff
     cpu_memory.write(0u16, 0xa9, cpu);
     cpu_memory.write(1u16, 0xff, cpu);
@@ -137,10 +114,7 @@ fn test_write_2000() {
     assert_eq!(cpu_memory.ppu.temp_vram_addr.inner, 0b11_00000_00000)
 }
 
-#[test]
-fn test_read_2002() {
-    let (ref mut cpu, ref mut cpu_memory) = init_nes();
-
+fn test_read_2002(cpu: &mut cpu::Cpu, cpu_memory: &mut mem::Nrom128CpuMemory) {
     // LDA $2002
     cpu_memory.write(0u16, 0xad, cpu);
     cpu_memory.write(1u16, 02, cpu);
@@ -153,10 +127,7 @@ fn test_read_2002() {
     assert_eq!(cpu_memory.ppu.get_low_bits_toggle(), false);
 }
 
-#[test]
-fn test_write_2005() {
-    let (ref mut cpu, ref mut cpu_memory) = init_nes();
-
+fn test_write_2005(cpu: &mut cpu::Cpu, cpu_memory: &mut mem::Nrom128CpuMemory) {
     // LDA #7d (0b01111_101)
     cpu_memory.write(0u16, 0xa9, cpu);
     cpu_memory.write(1u16, 0x7d, cpu);
@@ -191,10 +162,7 @@ fn test_write_2005() {
     assert_eq!(cpu_memory.ppu.temp_vram_addr.inner, 0b110_00_01011_01111);
 }
 
-#[test]
-fn test_write_2006() {
-    let (ref mut cpu, ref mut cpu_memory) = init_nes();
-
+fn test_write_2006(cpu: &mut cpu::Cpu, cpu_memory: &mut mem::Nrom128CpuMemory) {
     // LDA #ed (0b11101101)
     cpu_memory.write(0u16, 0xa9, cpu);
     cpu_memory.write(1u16, 0xed, cpu);
@@ -236,10 +204,7 @@ fn test_write_2006() {
     );
 }
 
-#[test]
-fn test_write_2003_read_2004() {
-    let (ref mut cpu, ref mut cpu_memory) = init_nes();
-
+fn test_write_2003_read_2004(cpu: &mut cpu::Cpu, cpu_memory: &mut mem::Nrom128CpuMemory) {
     // LDA #ff
     cpu_memory.write(0u16, 0xa9, cpu);
     cpu_memory.write(1u16, 0xff, cpu);
@@ -266,10 +231,7 @@ fn test_write_2003_read_2004() {
     assert_eq!(cpu.a, 0xee);
 }
 
-#[test]
-fn test_increment_vram_addr() {
-    let (ref mut cpu, mmap::Nrom128CpuMemory { ref mut ppu, .. }) = init_nes();
-
+fn test_increment_vram_addr(cpu: &mut cpu::Cpu, ppu: &mut super::Ppu) {
     ppu.current_vram_addr.inner = 0;
     // set increment mode to 32
     ppu.write_register_by_index(0, 0b00000100, cpu);
@@ -299,10 +261,7 @@ fn test_increment_vram_addr() {
     assert_eq!(ppu.current_vram_addr.inner, 0x200b);
 }
 
-#[test]
-fn test_increment_vram_addr_xy() {
-    let mmap::Nrom128CpuMemory { ref mut ppu, .. } = init_nes().1;
-
+fn test_increment_vram_addr_xy(ppu: &mut super::Ppu) {
     ppu.current_vram_addr.inner = 0b01_01010_11111;
     ppu.increment_vram_addr_coarse_x();
     // increment should overflow into bit 10
@@ -327,12 +286,9 @@ fn test_increment_vram_addr_xy() {
     assert_eq!(ppu.current_vram_addr.inner, 0b111_10_11111_01010);
 }
 
-#[test]
 // NOTE: this tests the 'misc_bits' bitfield, which is subject
 // to change and may cause this to break eventually
-fn test_misc_bits() {
-    let mmap::Nrom128CpuMemory { ref mut ppu, .. } = init_nes().1;
-
+fn test_misc_bits(ppu: &mut super::Ppu) {
     // 'even_frame' bit should be se to true by default
     assert_eq!(ppu.misc_bits, 0b000_010_00000000000000000);
 
@@ -353,10 +309,7 @@ fn test_misc_bits() {
     assert_eq!(ppu.misc_bits, 0b101_100_10101110011111111);
 }
 
-#[test]
-fn test_temp_to_current_vram_transfer() {
-    let mmap::Nrom128CpuMemory { ref mut ppu, .. } = init_nes().1;
-
+fn test_temp_to_current_vram_transfer(ppu: &mut super::Ppu) {
     ppu.temp_vram_addr.inner = 0b01_00000_10101;
     ppu.current_vram_addr.inner = 0b10_10000_00000;
     ppu.transfer_temp_horizontal_bits();
@@ -370,6 +323,43 @@ fn test_temp_to_current_vram_transfer() {
     assert_eq!(ppu.current_vram_addr.inner, 0b11_10101_10000);
 }
 
+#[test]
+fn test_all() {
+    let (ref mut cpu, ref mut cpu_memory) = util::init_nes();
+
+    test_registers(cpu, &mut cpu_memory.ppu);
+    util::reset_nes_state(cpu, cpu_memory);
+
+    test_write_2007(cpu, cpu_memory);
+    util::reset_nes_state(cpu, cpu_memory);
+
+    test_write_2000(cpu, cpu_memory);
+    util::reset_nes_state(cpu, cpu_memory);
+
+    test_read_2002(cpu, cpu_memory);
+    util::reset_nes_state(cpu, cpu_memory);
+
+    test_write_2005(cpu, cpu_memory);
+    util::reset_nes_state(cpu, cpu_memory);
+
+    test_write_2006(cpu, cpu_memory);
+    util::reset_nes_state(cpu, cpu_memory);
+
+    test_write_2003_read_2004(cpu, cpu_memory);
+    util::reset_nes_state(cpu, cpu_memory);
+
+    test_increment_vram_addr(cpu, &mut cpu_memory.ppu);
+    util::reset_nes_state(cpu, cpu_memory);
+
+    test_increment_vram_addr_xy(&mut cpu_memory.ppu);
+    util::reset_nes_state(cpu, cpu_memory);
+
+    test_misc_bits(&mut cpu_memory.ppu);
+    util::reset_nes_state(cpu, cpu_memory);
+
+    test_temp_to_current_vram_transfer(&mut cpu_memory.ppu);
+}
+
 // draws the pattern table at address 0x1000 of 'rom'
 pub fn test_draw(rom: &[u8]) {
     assert!(parse::is_valid(&rom));
@@ -377,7 +367,7 @@ pub fn test_draw(rom: &[u8]) {
     let prg_size = 0x4000 * (parse::get_prg_size(&rom) as usize);
     let chr_size = 0x2000 * (parse::get_chr_size(&rom) as usize);
 
-    let mut ppu_memory = mmap::NromPpuMemory::new();
+    let mut ppu_memory = mem::NromPpuMemory::new();
 
     // load 'rom' into chr ram
     ppu_memory.load_chr_ram(&rom[0x10 + prg_size..=prg_size + chr_size + 0xf]);

@@ -169,6 +169,22 @@ impl<'a> Ppu<'a> {
         }
     }
 
+    pub fn reset_state(&mut self) {
+        self.draw_state = draw_state::DrawState::default();
+        self.secondary_oam = SecondaryOam::default();
+        self.primary_oam = PrimaryOam::default();
+        self.ppuctrl = 0;
+        self.ppumask = 0;
+        self.ppustatus = 0;
+        self.oamaddr = 0;
+        self.ppudata_read_buffer = 0;
+        self.current_vram_addr = VramAddrRegister { inner: 0 };
+        self.temp_vram_addr = VramAddrRegister { inner: 0 };
+        self.current_scanline = -1;
+        self.current_scanline_dot = 0;
+        self.misc_bits = 0x40000;
+    }
+
     // used for reading the registers located in the cpu memory map at 0x2000-0x2007
     pub fn read_register_by_index(&mut self, index: u8) -> u8 {
         // NOTE: to help readability, this function and a few others on 'Ppu' are
