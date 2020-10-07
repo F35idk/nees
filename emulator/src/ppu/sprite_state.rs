@@ -1,5 +1,5 @@
-use super::super::{PrimaryOam, SecondaryOam};
 use super::PpuMemoryMap;
+use super::{PrimaryOam, SecondaryOam};
 
 #[derive(Default)]
 pub struct SpriteDrawState {
@@ -28,10 +28,8 @@ struct SpriteRenderData {
 }
 
 // convenience info struct returned by 'SpriteDrawState::get_sprite_at_dot_info()'.
-// isn't stored persistently anywhere. this struct and its associated function is
-// (as of writing) only used by 'super::DrawState' in 'draw_8_pixels()' when drawing
-// sprites.
-pub(super) struct SpritePixelInfo {
+// isn't stored persistently anywhere.
+pub struct SpritePixelInfo {
     pub color_index: u8,
     pub palette_index: u8,
     pub is_in_front: bool,
@@ -46,8 +44,8 @@ impl SpriteDrawState {
         current_scanline: i16,
         current_scanline_dot: u16,
     ) {
-        assert!(matches!(current_scanline, -1..=239));
-        assert!(matches!(current_scanline_dot, 65..=256));
+        debug_assert!(matches!(current_scanline, -1..=239));
+        debug_assert!(matches!(current_scanline_dot, 65..=256));
 
         if self.sprites_found < 8 {
             let mut sprite = unsafe { primary_oam.get_sprite_unchecked(self.current_sprite) };
@@ -85,9 +83,9 @@ impl SpriteDrawState {
         pattern_table_addr: u16,
         memory: &mut dyn PpuMemoryMap,
     ) {
-        assert!(matches!(current_scanline, -1..=239));
-        assert!(matches!(current_scanline_dot, 257..=320));
-        assert!(self.sprites_found <= 8);
+        debug_assert!(matches!(current_scanline, -1..=239));
+        debug_assert!(matches!(current_scanline_dot, 257..=320));
+        debug_assert!(self.sprites_found <= 8);
 
         if (self.current_sprite >> 2) < self.sprites_found {
             // fill a slot in 'current_sprites_data' with data for the current sprite
@@ -109,8 +107,8 @@ impl SpriteDrawState {
             // NOTE: 'sprite.y' is 1 less than the screen y coordinate
             let y_offset = current_scanline - y as i16;
 
-            assert!(y_offset >= 0);
-            assert!(y_offset < 8);
+            debug_assert!(y_offset >= 0);
+            debug_assert!(y_offset < 8);
 
             let (tile_bitplane_lo, tile_bitplane_hi) = if attributes & 0b10000000 != 0 {
                 // use flipped tile bitplanes if sprite is vertically flipped
@@ -148,12 +146,7 @@ impl SpriteDrawState {
 
     // returns a 'SpritePixelInfo' struct describing the first (highest priority) non-transparent
     // sprite pixel at the current dot, or None if no such sprite pixel was found
-    // TODO: since this isn't needed anywhere else than 'super::DrawState::draw_8_pixels()', maybe
-    // consider inlining it into there?
-    pub(super) fn get_sprite_at_dot_info(
-        &self,
-        current_scanline_dot: u16,
-    ) -> Option<SpritePixelInfo> {
+    pub fn get_sprite_at_dot_info(&self, current_scanline_dot: u16) -> Option<SpritePixelInfo> {
         self.current_sprites_data
             .iter()
             // bit 2 of 'attributes' being set indicates end of array
