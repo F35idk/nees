@@ -622,6 +622,10 @@ impl<'a> Ppu<'a> {
                         ppu.bg_state.fetch_current_tile_data(ppu);
                         ppu.increment_vram_addr_coarse_x();
                     }
+
+                    if ppu.current_scanline == 240 {
+                        ppu.set_frame_done(true);
+                    }
                 }
                 _ => (),
             }
@@ -686,9 +690,6 @@ impl<'a> Ppu<'a> {
                         if ppu.is_sprites_enable() || ppu.is_background_enable() {
                             ppu.toggle_even_frame();
                         }
-
-                        ppu.set_frame_done(true);
-                        return;
                     } else {
                         ppu.current_scanline += 1;
                     }
@@ -808,8 +809,6 @@ impl<'a> Ppu<'a> {
                 }
             }
 
-            ppu.current_scanline += 1;
-
             if ppu.current_scanline == 0 && (ppu.is_background_enable() || ppu.is_sprites_enable())
             {
                 ppu.inc_cycle_count(340 + !ppu.is_even_frame() as u32);
@@ -817,6 +816,11 @@ impl<'a> Ppu<'a> {
                 ppu.inc_cycle_count(341);
             }
 
+            if ppu.current_scanline == 239 {
+                ppu.set_frame_done(true);
+            }
+
+            ppu.current_scanline += 1;
             ppu.current_scanline_dot = 0;
         }
 
@@ -860,7 +864,6 @@ impl<'a> Ppu<'a> {
 
             ppu.current_scanline = -1;
             ppu.inc_cycle_count(341);
-            ppu.set_frame_done(true);
         }
     }
 

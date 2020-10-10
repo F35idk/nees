@@ -61,6 +61,7 @@ fn main() {
         cpu_memory.read(0xfffd, &mut cpu),
     ]);
 
+    cpu_memory.ppu.current_scanline = 240;
     cpu.cycle_count = 0;
     cpu.p = 04;
     cpu.sp = 0xfd;
@@ -70,6 +71,8 @@ fn main() {
     let mut is_paused = false;
 
     loop {
+        let start_of_frame = std::time::Instant::now();
+
         let mut current_event = win.connection.poll_for_event();
         while let Some(e) = current_event {
             match e.response_type() & !0x80 {
@@ -142,19 +145,8 @@ fn main() {
             current_event = win.connection.poll_for_queued_event();
         }
 
-        let start_of_frame = std::time::Instant::now();
-        let pre_vblank_cycles = ((242i32 * 341i32) / 3) as i16 - 7;
-
-        // run the cpu until vblank
-        while cpu.cycle_count < pre_vblank_cycles {
-            // NOTE: 'exec_instruction()' ticks the ppu whenever it
-            // interacts with it (through writes to 'cpu_memory')
-            cpu.exec_instruction(&mut cpu_memory);
-        }
-
-        assert!(cpu_memory.ppu.current_scanline < 241);
-
         // run cpu and ppu side by side until frame is done
+        // OPTIMIZE: no need to constantly catch the ppu up
         while !cpu_memory.ppu.is_frame_done() {
             cpu.exec_instruction(&mut cpu_memory);
             cpu_memory.ppu.catch_up(&mut cpu);
