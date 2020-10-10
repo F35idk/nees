@@ -409,7 +409,7 @@ impl<'a> Ppu<'a> {
         }
 
         // step normally
-        while (self.get_cycle_count() as i32) < target_cycles && !self.is_frame_done() {
+        while (self.get_cycle_count() as i32) < target_cycles {
             self.step(cpu);
         }
     }
