@@ -438,10 +438,7 @@ impl<'a> Ppu<'a> {
                 // idle cycle
                 0 => {
                     ppu.current_scanline_dot += 1;
-                    // if rendering, don't increment cycles on odd frames (idle cycle is skipped)
-                    if ppu.is_sprites_enable() || ppu.is_background_enable() {
-                        ppu.inc_cycle_count(ppu.is_even_frame() as u32);
-                    }
+                    ppu.inc_cycle_count(1);
                 }
                 1 => {
                     // clear vblank and sprite zero hit flags
@@ -508,7 +505,18 @@ impl<'a> Ppu<'a> {
             match ppu.current_scanline_dot {
                 0 => {
                     ppu.current_scanline_dot += 1;
-                    ppu.inc_cycle_count(1);
+
+                    // if rendering is enabled and we're on the first visible scanline,
+                    // only increment cycle count if current frame is even-numbered (idle
+                    // cycle is skipped on odd frames)
+                    if ppu.current_scanline == 0
+                        && (ppu.is_background_enable() || ppu.is_sprites_enable())
+                    {
+                        ppu.inc_cycle_count(ppu.is_even_frame() as u32)
+                    } else {
+                        ppu.inc_cycle_count(1);
+                    }
+
                     // reset 'sprites_found' and 'current_sprite' before use (in dots 65-256)
                     ppu.sprite_state.sprites_found = 0;
                     ppu.sprite_state.current_sprite = 0;
@@ -731,7 +739,7 @@ impl<'a> Ppu<'a> {
             }
 
             ppu.current_scanline = 0;
-            ppu.inc_cycle_count(340 + ppu.is_even_frame() as u32);
+            ppu.inc_cycle_count(341);
         }
 
         fn step_visible_line_full(ppu: &mut Ppu) {
@@ -801,7 +809,14 @@ impl<'a> Ppu<'a> {
             }
 
             ppu.current_scanline += 1;
-            ppu.inc_cycle_count(341);
+
+            if ppu.current_scanline == 0 && (ppu.is_background_enable() || ppu.is_sprites_enable())
+            {
+                ppu.inc_cycle_count(340 + !ppu.is_even_frame() as u32);
+            } else {
+                ppu.inc_cycle_count(341);
+            }
+
             ppu.current_scanline_dot = 0;
         }
 
