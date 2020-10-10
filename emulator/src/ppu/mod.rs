@@ -11,6 +11,7 @@ pub mod test;
 pub struct Ppu<'a> {
     pub renderer: PixelRenderer,
     pub current_scanline: i16,
+    pub cycle_count: i32,
     current_scanline_dot: u16,
     primary_oam: PrimaryOam,
     secondary_oam: SecondaryOam,
@@ -30,13 +31,12 @@ pub struct Ppu<'a> {
     oamaddr: u8,
     ppudata_read_buffer: u8,
 
-    // bit-field containing current cycle count (low 17 bits),
-    // 'frame_done' boolean (18th bit), 'even_frame' boolean
-    // (19th bit), 'low_bits_toggle' boolean (20th bit) and
-    // fine x scroll value (21st to 23rd bit). getter and
-    // setter functions are used for each of these fields
-    // (see the second 'Ppu' impl block)
-    misc_bits: u32,
+    // bit-field containing 'frame_done' boolean (first bit), 'even_frame'
+    // boolean (second bit), 'low_bits_toggle' boolean (third bit) and
+    // fine x scroll value (fourth to sixth bit). getter and setter
+    // functions are used for each of these fields (see the second 'Ppu'
+    // impl block)
+    misc_bits: u8,
 
     // internal registers
     // address of the current tile to be fetched and drawn. points
@@ -168,7 +168,8 @@ impl<'a> Ppu<'a> {
             current_scanline_dot: 0,
             renderer,
             memory,
-            misc_bits: 0x40000,
+            misc_bits: 0b000_010,
+            cycle_count: 0,
         }
     }
 
@@ -184,7 +185,8 @@ impl<'a> Ppu<'a> {
         self.temp_vram_addr = VramAddrRegister { inner: 0 };
         self.current_scanline = -1;
         self.current_scanline_dot = 0;
-        self.misc_bits = 0x40000;
+        self.misc_bits = 0b000_010;
+        self.cycle_count = 0;
     }
 
     // used for reading the registers located in the cpu memory map at 0x2000-0x2007
@@ -390,7 +392,7 @@ impl<'a> Ppu<'a> {
     pub fn catch_up(&mut self, cpu: &mut cpu::Cpu) {
         // NOTE: cpu.cycle_count could be negative here
         let target_cycles = cpu.cycle_count as i32 * 3;
-        let cycles_to_catch_up = target_cycles - (self.get_cycle_count() as i32);
+        let cycles_to_catch_up = target_cycles - (self.cycle_count);
 
         // if the ppu is behind the cpu by more than 2 scanlines worth of cycles,
         // start by using a separate scanline algorithm to catch up
@@ -401,7 +403,7 @@ impl<'a> Ppu<'a> {
             }
 
             // step using scanline algorithm
-            let n_scanlines = (target_cycles - self.get_cycle_count() as i32) / 341;
+            let n_scanlines = (target_cycles - self.cycle_count) / 341;
             for _ in 0..n_scanlines {
                 debug_assert!(!self.is_frame_done());
                 self.step_scanline(cpu);
@@ -409,7 +411,7 @@ impl<'a> Ppu<'a> {
         }
 
         // step normally
-        while (self.get_cycle_count() as i32) < target_cycles {
+        while (self.cycle_count as i32) < target_cycles {
             self.step(cpu);
         }
     }
@@ -438,18 +440,18 @@ impl<'a> Ppu<'a> {
                 // idle cycle
                 0 => {
                     ppu.current_scanline_dot += 1;
-                    ppu.inc_cycle_count(1);
+                    ppu.cycle_count += 1;
                 }
                 1 => {
                     // clear vblank and sprite zero hit flags
                     ppu.set_vblank(false);
                     ppu.set_sprite_zero_hit(false);
 
-                    ppu.inc_cycle_count(7);
+                    ppu.cycle_count += 7;
                     ppu.current_scanline_dot += 7;
                 }
                 2..=255 => {
-                    ppu.inc_cycle_count(8);
+                    ppu.cycle_count += 8;
                     ppu.current_scanline_dot += 8;
                 }
                 256 => {
@@ -457,11 +459,11 @@ impl<'a> Ppu<'a> {
                         ppu.transfer_temp_horizontal_bits();
                     }
 
-                    ppu.inc_cycle_count(8);
+                    ppu.cycle_count += 8;
                     ppu.current_scanline_dot += 8;
                 }
                 257..=279 => {
-                    ppu.inc_cycle_count(8);
+                    ppu.cycle_count += 8;
                     ppu.current_scanline_dot += 8;
                 }
                 280 => {
@@ -469,15 +471,15 @@ impl<'a> Ppu<'a> {
                         ppu.transfer_temp_vert_bits();
                     }
 
-                    ppu.inc_cycle_count(8);
+                    ppu.cycle_count += 8;
                     ppu.current_scanline_dot += 8;
                 }
                 281..=320 => {
-                    ppu.inc_cycle_count(8);
+                    ppu.cycle_count += 8;
                     ppu.current_scanline_dot += 8;
                 }
                 328 => {
-                    ppu.inc_cycle_count(8);
+                    ppu.cycle_count += 8;
                     ppu.current_scanline_dot += 8;
 
                     if ppu.is_background_enable() || ppu.is_sprites_enable() {
@@ -487,7 +489,7 @@ impl<'a> Ppu<'a> {
                     }
                 }
                 336 => {
-                    ppu.inc_cycle_count(5);
+                    ppu.cycle_count += 5;
                     ppu.current_scanline_dot = 0;
                     ppu.current_scanline = 0;
 
@@ -512,9 +514,9 @@ impl<'a> Ppu<'a> {
                     if ppu.current_scanline == 0
                         && (ppu.is_background_enable() || ppu.is_sprites_enable())
                     {
-                        ppu.inc_cycle_count(ppu.is_even_frame() as u32)
+                        ppu.cycle_count += ppu.is_even_frame() as i32;
                     } else {
-                        ppu.inc_cycle_count(1);
+                        ppu.cycle_count += 1;
                     }
 
                     // reset 'sprites_found' and 'current_sprite' before use (in dots 65-256)
@@ -543,7 +545,7 @@ impl<'a> Ppu<'a> {
                         ppu.set_sprite_zero_hit(true);
                     }
 
-                    ppu.inc_cycle_count(8);
+                    ppu.cycle_count += 8;
                     ppu.current_scanline_dot += 8;
 
                     if ppu.is_background_enable() || ppu.is_sprites_enable() {
@@ -580,7 +582,7 @@ impl<'a> Ppu<'a> {
                         ppu.transfer_temp_horizontal_bits();
                     }
 
-                    ppu.inc_cycle_count(8);
+                    ppu.cycle_count += 8;
                     ppu.current_scanline_dot += 8;
                 }
                 258..=320 => {
@@ -595,15 +597,15 @@ impl<'a> Ppu<'a> {
                         );
                     }
 
-                    ppu.inc_cycle_count(8);
+                    ppu.cycle_count += 8;
                     ppu.current_scanline_dot += 8;
                 }
                 321..=328 => {
-                    ppu.inc_cycle_count(8);
+                    ppu.cycle_count += 8;
                     ppu.current_scanline_dot += 8;
                 }
                 329 => {
-                    ppu.inc_cycle_count(8);
+                    ppu.cycle_count += 8;
                     ppu.current_scanline_dot += 8;
 
                     if ppu.is_background_enable() || ppu.is_sprites_enable() {
@@ -613,7 +615,7 @@ impl<'a> Ppu<'a> {
                     }
                 }
                 337 => {
-                    ppu.inc_cycle_count(4);
+                    ppu.cycle_count += 4;
                     ppu.current_scanline_dot = 0;
                     ppu.current_scanline += 1;
 
@@ -638,16 +640,16 @@ impl<'a> Ppu<'a> {
                         ppu.transfer_temp_horizontal_bits();
                     }
 
-                    ppu.inc_cycle_count(8);
+                    ppu.cycle_count += 8;
                     ppu.current_scanline_dot += 8;
                 }
                 336 => {
-                    ppu.inc_cycle_count(5);
+                    ppu.cycle_count += 5;
                     ppu.current_scanline_dot = 0;
                     ppu.current_scanline += 1;
                 }
                 _ => {
-                    ppu.inc_cycle_count(8);
+                    ppu.cycle_count += 8;
                     ppu.current_scanline_dot += 8;
                 }
             }
@@ -656,7 +658,7 @@ impl<'a> Ppu<'a> {
         fn step_vblank_line(ppu: &mut Ppu, cpu: &mut cpu::Cpu) {
             match ppu.current_scanline_dot {
                 0 => {
-                    ppu.inc_cycle_count(1);
+                    ppu.cycle_count += 1;
                     ppu.current_scanline_dot += 1;
                 }
                 1 => {
@@ -667,7 +669,7 @@ impl<'a> Ppu<'a> {
                         }
                     }
 
-                    ppu.inc_cycle_count(7);
+                    ppu.cycle_count += 7;
                     ppu.current_scanline_dot += 7;
                 }
                 256 => {
@@ -675,11 +677,11 @@ impl<'a> Ppu<'a> {
                         ppu.transfer_temp_horizontal_bits();
                     }
 
-                    ppu.inc_cycle_count(8);
+                    ppu.cycle_count += 8;
                     ppu.current_scanline_dot += 8;
                 }
                 336 => {
-                    ppu.inc_cycle_count(5);
+                    ppu.cycle_count += 5;
                     ppu.current_scanline_dot = 0;
 
                     if ppu.current_scanline == 260 {
@@ -695,7 +697,7 @@ impl<'a> Ppu<'a> {
                     }
                 }
                 _ => {
-                    ppu.inc_cycle_count(8);
+                    ppu.cycle_count += 8;
                     ppu.current_scanline_dot += 8;
                 }
             }
@@ -740,7 +742,7 @@ impl<'a> Ppu<'a> {
             }
 
             ppu.current_scanline = 0;
-            ppu.inc_cycle_count(341);
+            ppu.cycle_count += 341;
         }
 
         fn step_visible_line_full(ppu: &mut Ppu) {
@@ -750,14 +752,12 @@ impl<'a> Ppu<'a> {
 
             // FIXME: 72 iterations?
             if ppu.is_sprites_enable() || ppu.is_background_enable() {
-                for _ in 0..72 {
-                    ppu.sprite_state.eval_next_scanline_sprite(
-                        &ppu.primary_oam,
-                        &mut ppu.secondary_oam,
-                        ppu.current_scanline,
-                        65,
-                    );
-                }
+                ppu.sprite_state.eval_next_scanline_sprite(
+                    &ppu.primary_oam,
+                    &mut ppu.secondary_oam,
+                    ppu.current_scanline,
+                    65,
+                );
             }
 
             for _ in 0..32 {
@@ -811,9 +811,9 @@ impl<'a> Ppu<'a> {
 
             if ppu.current_scanline == 0 && (ppu.is_background_enable() || ppu.is_sprites_enable())
             {
-                ppu.inc_cycle_count(340 + !ppu.is_even_frame() as u32);
+                ppu.cycle_count += 340 + ppu.is_even_frame() as i32;
             } else {
-                ppu.inc_cycle_count(341);
+                ppu.cycle_count += 341;
             }
 
             if ppu.current_scanline == 239 {
@@ -830,7 +830,7 @@ impl<'a> Ppu<'a> {
             }
 
             ppu.current_scanline = 241;
-            ppu.inc_cycle_count(341);
+            ppu.cycle_count += 341;
         }
 
         fn step_first_vblank_line_full(ppu: &mut Ppu, cpu: &mut cpu::Cpu) {
@@ -844,7 +844,7 @@ impl<'a> Ppu<'a> {
             }
 
             ppu.current_scanline = 242;
-            ppu.inc_cycle_count(341);
+            ppu.cycle_count += 341;
         }
 
         fn step_vblank_line_full(ppu: &mut Ppu) {
@@ -853,7 +853,7 @@ impl<'a> Ppu<'a> {
             }
 
             ppu.current_scanline += 1;
-            ppu.inc_cycle_count(341);
+            ppu.cycle_count += 341;
         }
 
         fn step_last_vblank_line_full(ppu: &mut Ppu) {
@@ -863,7 +863,7 @@ impl<'a> Ppu<'a> {
             }
 
             ppu.current_scanline = -1;
-            ppu.inc_cycle_count(341);
+            ppu.cycle_count += 341;
         }
     }
 
@@ -1084,53 +1084,36 @@ impl<'a> Ppu<'a> {
     }
 
     pub fn is_frame_done(&self) -> bool {
-        (self.misc_bits & 0x20000) != 0
+        (self.misc_bits & 1) != 0
     }
 
     pub fn set_frame_done(&mut self, done: bool) {
-        self.misc_bits = (self.misc_bits & !0x20000) | ((done as u32) << 17);
-    }
-
-    pub fn get_cycle_count(&self) -> u32 {
-        self.misc_bits & 0x1ffff
-    }
-
-    // NOTE: this assumes that 'cyc' is no larger than 17 bits in size!
-    pub fn set_cycle_count(&mut self, cyc: u32) {
-        debug_assert!(cyc <= (341 * 262) + 1);
-        self.misc_bits = (self.misc_bits & !0x1ffff) | cyc;
-    }
-
-    // NOTE: this assumes that adding 'inc' to the cycle count
-    // won't cause it to overflow into the 18th bit!
-    fn inc_cycle_count(&mut self, inc: u32) {
-        debug_assert!((self.misc_bits & 0x1ffff) + inc <= (341 * 262) + 1);
-        self.misc_bits += inc;
+        self.misc_bits = (self.misc_bits & !1) | (done as u8);
     }
 
     fn is_even_frame(&self) -> bool {
-        (self.misc_bits & 0x40000) != 0
+        (self.misc_bits & 2) != 0
     }
 
     fn toggle_even_frame(&mut self) {
-        self.misc_bits ^= 0x40000;
+        self.misc_bits ^= 2;
     }
 
     fn get_low_bits_toggle(&self) -> bool {
-        (self.misc_bits & 0x80000) != 0
+        (self.misc_bits & 0b100) != 0
     }
 
     fn set_low_bits_toggle(&mut self, toggle: bool) {
-        self.misc_bits = (self.misc_bits & !0x80000) | ((toggle as u32) << 19);
+        self.misc_bits = (self.misc_bits & !0b100) | ((toggle as u8) << 2);
     }
 
     fn get_fine_x_scroll(&self) -> u8 {
-        (self.misc_bits >> 20) as u8
+        (self.misc_bits >> 3) as u8
     }
 
     // NOTE: this expects the upper 5 bits of 'scroll' to be cleared
     fn set_fine_x_scroll(&mut self, scroll: u8) {
-        self.misc_bits = (self.misc_bits & !0x700000) | ((scroll as u32) << 20);
+        self.misc_bits = (self.misc_bits & !0b111_000) | ((scroll as u8) << 3);
     }
 
     fn get_base_nametable_addr(&self) -> u16 {

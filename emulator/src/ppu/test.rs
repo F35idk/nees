@@ -289,24 +289,39 @@ fn test_increment_vram_addr_xy(ppu: &mut super::Ppu) {
 // NOTE: this tests the 'misc_bits' bitfield, which is subject
 // to change and may cause this to break eventually
 fn test_misc_bits(ppu: &mut super::Ppu) {
-    // 'even_frame' bit should be se to true by default
-    assert_eq!(ppu.misc_bits, 0b000_010_00000000000000000);
+    // // 'even_frame' bit should be se to true by default
+    // assert_eq!(ppu.misc_bits, 0b000_010_00000000000000000);
 
-    ppu.set_cycle_count(0b10101110011111111);
-    assert_eq!(ppu.get_cycle_count(), 0b10101110011111111);
-    assert_eq!(ppu.misc_bits, 0b000_010_10101110011111111);
+    // ppu.set_cycle_count(0b10101110011111111);
+    // assert_eq!(ppu.cycle_count, 0b10101110011111111);
+    // assert_eq!(ppu.misc_bits, 0b000_010_10101110011111111);
+
+    // ppu.set_fine_x_scroll(0b101);
+    // assert_eq!(ppu.get_fine_x_scroll(), 0b101);
+    // assert_eq!(ppu.misc_bits, 0b101_010_10101110011111111);
+
+    // ppu.set_low_bits_toggle(true);
+    // assert_eq!(ppu.get_low_bits_toggle(), true);
+    // assert_eq!(ppu.misc_bits, 0b101_110_10101110011111111);
+
+    // ppu.toggle_even_frame();
+    // assert_eq!(ppu.is_even_frame(), false);
+    // assert_eq!(ppu.misc_bits, 0b101_100_10101110011111111);
+
+    // 'even_frame' bit should be se to true by default
+    assert_eq!(ppu.misc_bits, 0b000_010);
 
     ppu.set_fine_x_scroll(0b101);
     assert_eq!(ppu.get_fine_x_scroll(), 0b101);
-    assert_eq!(ppu.misc_bits, 0b101_010_10101110011111111);
+    assert_eq!(ppu.misc_bits, 0b101_010);
 
     ppu.set_low_bits_toggle(true);
     assert_eq!(ppu.get_low_bits_toggle(), true);
-    assert_eq!(ppu.misc_bits, 0b101_110_10101110011111111);
+    assert_eq!(ppu.misc_bits, 0b101_110);
 
     ppu.toggle_even_frame();
     assert_eq!(ppu.is_even_frame(), false);
-    assert_eq!(ppu.misc_bits, 0b101_100_10101110011111111);
+    assert_eq!(ppu.misc_bits, 0b101_100);
 }
 
 fn test_temp_to_current_vram_transfer(ppu: &mut super::Ppu) {
@@ -423,11 +438,11 @@ pub fn test_draw(rom: &[u8]) {
             // scanline on odd frames, which is 340 cycles long
             let cycles_in_scanline =
                 341 - (!ppu.is_even_frame() && ppu.current_scanline == -1) as u64;
-            ppu.set_cycle_count(0);
-            while ppu.get_cycle_count() < cycles_in_scanline as u32 {
+            ppu.cycle_count = 0;
+            while ppu.cycle_count < cycles_in_scanline as i32 {
                 ppu.step(cpu);
             }
-            assert_eq!(ppu.get_cycle_count(), cycles_in_scanline as u32);
+            assert_eq!(ppu.cycle_count, cycles_in_scanline as i32);
         }
 
         // increment fine x
@@ -449,11 +464,11 @@ pub fn test_draw(rom: &[u8]) {
         for _ in 0..20 {
             let cycles_in_scanline =
                 341 - (!ppu.is_even_frame() && ppu.current_scanline == -1) as u32;
-            ppu.set_cycle_count(0);
-            while ppu.get_cycle_count() < cycles_in_scanline as u32 {
+            ppu.cycle_count = 0;
+            while ppu.cycle_count < cycles_in_scanline as i32 {
                 ppu.step(cpu);
             }
-            assert_eq!(ppu.get_cycle_count(), cycles_in_scanline as u32);
+            assert_eq!(ppu.cycle_count, cycles_in_scanline as i32);
         }
 
         let frame_index = ppu.renderer.render_frame();

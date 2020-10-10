@@ -17,7 +17,7 @@ use pixel_renderer::PixelRenderer;
 use xcb_util::keysyms;
 
 fn main() {
-    let rom = std::fs::read("some_rom.nes").unwrap();
+    let rom = std::fs::read("Super Mario Bros (PC10).nes").unwrap();
     assert!(parse::is_valid(&rom));
     logln!("{}", std::str::from_utf8(&rom[0..=3]).unwrap());
     logln!("is nes 2.0: {}", parse::is_nes_2_format(&rom));
@@ -153,9 +153,9 @@ fn main() {
         }
 
         // reset counters
-        cpu_memory.ppu.set_cycle_count(0);
-        cpu.cycle_count -= 29781;
+        cpu_memory.ppu.cycle_count -= cpu.cycle_count as i32 * 3;
         cpu_memory.ppu.set_frame_done(false);
+        cpu.cycle_count = 0;
 
         let idx = cpu_memory.ppu.renderer.render_frame();
         let elapsed = start_of_frame.elapsed();
