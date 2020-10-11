@@ -82,7 +82,7 @@ impl SpriteDrawState {
                 if self.current_sprite_idx & 0b11 == 2 {
                     // the byte just copied into secondary oam is an 'attributes' byte
 
-                    assert_eq!(
+                    debug_assert_eq!(
                         byte,
                         secondary_oam.entries[self.sprites_found as usize].attributes
                     );
@@ -98,9 +98,9 @@ impl SpriteDrawState {
                     // the byte just copied is the last byte on the current sprite
                     self.sprites_found += 1;
 
-                    assert!({
+                    debug_assert!({
                         if self.sprites_found == 8 {
-                            (self.current_sprite_idx + 1) % 4 == 0
+                            (self.current_sprite_idx.wrapping_add(1)) % 4 == 0
                         } else {
                             true
                         }

@@ -529,6 +529,11 @@ impl<'a> Ppu<'a> {
                     if ppu.current_scanline_dot >= 65
                         && (ppu.is_sprites_enable() || ppu.is_background_enable())
                     {
+                        assert!(
+                            !ppu.get_sprite_size(),
+                            "8x16 sprites are yet to be implemented"
+                        );
+
                         // evaluate sprite on next scanline
                         for _ in 0..4 {
                             let sprite_overflow = ppu.sprite_state.eval_next_scanline_sprite(
@@ -760,6 +765,11 @@ impl<'a> Ppu<'a> {
             ppu.sprite_state.current_sprite_idx = 0;
 
             if ppu.is_sprites_enable() || ppu.is_background_enable() {
+                assert!(
+                    !ppu.get_sprite_size(),
+                    "8x16 sprites are yet to be implemented"
+                );
+
                 // NOTE: each call to 'eval_next_scanline_sprite()' performs the equivalent
                 // of 2 cycles worth of sprite evaluation, and there are 192 cycles
                 // available for sprite evaluation (cycles 65-256), meaning we should loop
