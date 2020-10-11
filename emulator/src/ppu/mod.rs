@@ -523,6 +523,9 @@ impl<'a> Ppu<'a> {
                     // reset 'sprites_found', 'eval_done' and 'current_sprite_idx' before use (in dots 65-256)
                     ppu.sprite_state.sprites_found = 0;
                     ppu.sprite_state.eval_done = false;
+                    // TODO: obscure behavior where 'current_sprite_idx' is set equal to
+                    // the current value of oamaddr (at the start of sprite evaluation,
+                    // meaning a litle later than this)
                     ppu.sprite_state.current_sprite_idx = 0;
                 }
                 1..=256 => {
@@ -574,6 +577,7 @@ impl<'a> Ppu<'a> {
                     }
                 }
                 257 => {
+                    ppu.oamaddr = 0;
                     // set current sprite to zero so it can be re-used
                     // in 'fetch_next_scanline_sprite_data()'
                     ppu.sprite_state.current_sprite_idx = 0;
@@ -598,6 +602,8 @@ impl<'a> Ppu<'a> {
                     ppu.current_scanline_dot += 8;
                 }
                 258..=320 => {
+                    ppu.oamaddr = 0;
+
                     // continue fetching sprite data
                     if ppu.is_sprites_enable() {
                         ppu.sprite_state.fetch_next_scanline_sprite_data(
@@ -825,6 +831,7 @@ impl<'a> Ppu<'a> {
             }
 
             ppu.sprite_state.current_sprite_idx = 0;
+            ppu.oamaddr = 0;
 
             if ppu.is_sprites_enable() {
                 for _ in 0..8 {
