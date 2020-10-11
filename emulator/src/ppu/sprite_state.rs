@@ -8,7 +8,9 @@ pub struct SpriteDrawState {
     // scanline on cycles 257-320)
     current_sprites_data: [SpriteRenderData; 8],
     // holds the bits corresponding to the 'n' and 'm' OAM indices
-    // (from nesdev.com 'PPU Sprite Evaluation' page).
+    // (from nesdev.com 'PPU Sprite Evaluation' page). is used
+    // both during sprite evaluation (dots 65-256 of each visible
+    // scanline) and sprite fetching (dots 257-320)
     pub current_sprite_idx: u8,
     // number of sprites found on the next scanline
     pub sprites_found: u8,
@@ -38,11 +40,12 @@ pub struct SpritePixelInfo {
 impl SpriteDrawState {
     pub fn eval_next_scanline_sprite(
         &mut self,
+        mut sprite_overflow: bool,
         primary_oam: &PrimaryOam,
         secondary_oam: &mut SecondaryOam,
         current_scanline: i16,
         current_scanline_dot: u16,
-    ) {
+    ) -> bool {
         debug_assert!(matches!(current_scanline, 0..=239));
         debug_assert!(matches!(current_scanline_dot, 65..=256));
 
@@ -107,11 +110,30 @@ impl SpriteDrawState {
                 // set index to point to next byte (increment 'm')
                 self.current_sprite_idx = self.current_sprite_idx.wrapping_add(1);
             }
-        } else {
-            // TODO: sprite overflow stuff (if this is reached, sprites_found == 8)
+        } else if !sprite_overflow {
+            let sprite_y = primary_oam.get_byte(self.current_sprite_idx);
+
+            if (current_scanline as u16).wrapping_sub(sprite_y as u16) < 8 {
+                sprite_overflow = true;
+            } else {
+                // increment 'n' (from nesdev.com 'PPU Sprite Evaluation' page)
+                self.current_sprite_idx = self.current_sprite_idx.wrapping_add(4);
+
+                if self.current_sprite_idx & !0b11 == 0 {
+                    // 'n' has overflown back to zero
+                    self.eval_done = true;
+                }
+
+                // increment 'm' without carry (from nesdev.com 'PPU Sprite Evaluation' page)
+                self.current_sprite_idx = if self.current_sprite_idx & 0b11 == 0b11 {
+                    self.current_sprite_idx & 0b11
+                } else {
+                    self.current_sprite_idx + 1
+                };
+            }
         }
 
-        }
+        sprite_overflow
     }
 
     pub fn fetch_next_scanline_sprite_data(

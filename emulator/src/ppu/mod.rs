@@ -443,9 +443,10 @@ impl<'a> Ppu<'a> {
                     ppu.cycle_count += 1;
                 }
                 1 => {
-                    // clear vblank and sprite zero hit flags
+                    // clear vblank, sprite zero hit and sprite overflow flags
                     ppu.set_vblank(false);
                     ppu.set_sprite_zero_hit(false);
+                    ppu.set_sprite_overflow(false);
 
                     ppu.cycle_count += 7;
                     ppu.current_scanline_dot += 7;
@@ -529,13 +530,18 @@ impl<'a> Ppu<'a> {
                         && (ppu.is_sprites_enable() || ppu.is_background_enable())
                     {
                         // evaluate sprite on next scanline
-                            ppu.sprite_state.eval_next_scanline_sprite(
                         for _ in 0..4 {
+                            let sprite_overflow = ppu.sprite_state.eval_next_scanline_sprite(
+                                ppu.is_sprite_overflow(),
                                 &ppu.primary_oam,
                                 &mut ppu.secondary_oam,
                                 ppu.current_scanline,
                                 ppu.current_scanline_dot,
                             );
+
+                            if sprite_overflow {
+                                ppu.set_sprite_overflow(true);
+                            }
                         }
                     }
 
@@ -730,6 +736,7 @@ impl<'a> Ppu<'a> {
         fn step_pre_render_line_full(ppu: &mut Ppu) {
             ppu.set_vblank(false);
             ppu.set_sprite_zero_hit(false);
+            ppu.set_sprite_overflow(false);
 
             if ppu.is_sprites_enable() || ppu.is_background_enable() {
                 ppu.transfer_temp_horizontal_bits();
@@ -758,12 +765,17 @@ impl<'a> Ppu<'a> {
                 // available for sprite evaluation (cycles 65-256), meaning we should loop
                 // 192/2 = 96 times
                 for _ in 0..96 {
-                    ppu.sprite_state.eval_next_scanline_sprite(
+                    let sprite_overflow = ppu.sprite_state.eval_next_scanline_sprite(
+                        ppu.is_sprite_overflow(),
                         &ppu.primary_oam,
                         &mut ppu.secondary_oam,
                         ppu.current_scanline,
                         65,
                     );
+
+                    if sprite_overflow {
+                        ppu.set_sprite_overflow(true);
+                    }
                 }
             }
 
