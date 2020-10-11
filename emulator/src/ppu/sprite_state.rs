@@ -7,14 +7,13 @@ pub struct SpriteDrawState {
     // next scanline (should be filled with sprite data for the next
     // scanline on cycles 257-320)
     current_sprites_data: [SpriteRenderData; 8],
-    // during sprite evaluation (dots 65-256 of each visible scanline),
-    // this is used as the index of the current sprite to be evaluated
-    // in primary oam. during sprite fetching (dots 257-320 of each
-    // visible scanline) it is used as an index into secondary oam to
-    // get the current sprite to fetch data for
-    pub current_sprite: u8,
+    // holds the bits corresponding to the 'n' and 'm' OAM indices
+    // (from nesdev.com 'PPU Sprite Evaluation' page).
+    pub current_sprite_idx: u8,
     // number of sprites found on the next scanline
     pub sprites_found: u8,
+    // OPTIMIZE: pack 'eval_done' into same byte as 'sprites_found'
+    pub eval_done: bool,
 }
 
 // struct used internally in 'SpriteDrawState' to store sprite data between scanlines
@@ -44,34 +43,74 @@ impl SpriteDrawState {
         current_scanline: i16,
         current_scanline_dot: u16,
     ) {
-        debug_assert!(matches!(current_scanline, -1..=239));
+        debug_assert!(matches!(current_scanline, 0..=239));
         debug_assert!(matches!(current_scanline_dot, 65..=256));
 
+        if self.eval_done {
+            return false;
+        }
+
         if self.sprites_found < 8 {
-            let mut sprite = unsafe { primary_oam.get_sprite_unchecked(self.current_sprite) };
+            // copy the byte pointed to by 'current_sprite_idx' from primary to secondary oam
+            let byte = primary_oam.get_byte(self.current_sprite_idx);
+            secondary_oam.set_byte(
+                (self.sprites_found << 2) | self.current_sprite_idx & 0b11,
+                byte,
+            );
 
-            // NOTE: 'sprite.y' is 1 less than the screen y coordinate
-            if ((current_scanline) as u16).wrapping_sub(sprite.y as u16) < 8 {
-                // clear bits 2-4 of attribute byte
-                sprite.attributes &= 0b11100011;
+            if self.current_sprite_idx & 0b11 == 0 {
+                // if 'current_sprite_idx' is a multiple of 4, treat 'byte' as a sprite
+                // y-coordinate and use it to test whether the current sprite is in range
 
-                if self.current_sprite == 0 {
-                    // set bit 3 of 'attributes' to indicate sprite zero
-                    sprite.attributes |= 0b1000
+                // NOTE: sprite y-coordinate is 1 less than the actual screen y-coordinate
+                if (current_scanline as u16).wrapping_sub(byte as u16) < 8 {
+                    // set index to point to next byte (on the same sprite)
+                    self.current_sprite_idx += 1;
+                } else {
+                    // set index to point to next sprite
+                    self.current_sprite_idx = self.current_sprite_idx.wrapping_add(4);
+
+                    if self.current_sprite_idx == 0 {
+                        // index has overflown back to zero
+                        self.eval_done = true;
+                    }
+                }
+            } else {
+                if self.current_sprite_idx & 0b11 == 2 {
+                    // the byte just copied into secondary oam is an 'attributes' byte
+
+                    assert_eq!(
+                        byte,
+                        secondary_oam.entries[self.sprites_found as usize].attributes
+                    );
+
+                    // clear unused bits
+                    secondary_oam.entries[self.sprites_found as usize].attributes &= 0b11100011;
+
+                    if self.current_sprite_idx & !0b11 == 0 {
+                        // if the byte belongs to sprite zero, set bit 3
+                        secondary_oam.entries[self.sprites_found as usize].attributes |= 0b1000;
+                    }
+                } else if self.current_sprite_idx & 0b11 == 0b11 {
+                    // the byte just copied is the last byte on the current sprite
+                    self.sprites_found += 1;
+
+                    assert!({
+                        if self.sprites_found == 8 {
+                            (self.current_sprite_idx + 1) % 4 == 0
+                        } else {
+                            true
+                        }
+                    });
                 }
 
-                // copy sprite into secondary oam
-                secondary_oam.entries[self.sprites_found as usize] = sprite;
-                self.sprites_found += 1;
+                // set index to point to next byte (increment 'm')
+                self.current_sprite_idx = self.current_sprite_idx.wrapping_add(1);
             }
         } else {
             // TODO: sprite overflow stuff (if this is reached, sprites_found == 8)
         }
 
-        // increment 'current_sprite'
-        self.current_sprite = self.current_sprite.wrapping_add(1 << 2);
-        if self.current_sprite == 0 {
-            // FIXME: fail the first y-copy?
         }
     }
 
@@ -87,10 +126,11 @@ impl SpriteDrawState {
         debug_assert!(matches!(current_scanline_dot, 257..=320));
         debug_assert!(self.sprites_found <= 8);
 
-        if (self.current_sprite >> 2) < self.sprites_found {
+        if (self.current_sprite_idx >> 2) < self.sprites_found {
             // fill a slot in 'current_sprites_data' with data for the current sprite
 
-            let sprite = unsafe { secondary_oam.get_sprite_unchecked(self.current_sprite) };
+            let sprite =
+                unsafe { secondary_oam.get_sprite_unchecked(self.current_sprite_idx & !0b11) };
             let tile_index = sprite.tile_index;
             let tile = {
                 let sprite_table_ptr = memory.get_pattern_tables();
@@ -124,18 +164,18 @@ impl SpriteDrawState {
             };
 
             // FIXME: indexing
-            self.current_sprites_data[(self.current_sprite >> 2) as usize] = SpriteRenderData {
+            self.current_sprites_data[(self.current_sprite_idx >> 2) as usize] = SpriteRenderData {
                 tile_bitplane_lo,
                 tile_bitplane_hi,
                 attributes,
                 x,
             };
 
-            self.current_sprite = self.current_sprite.wrapping_add(1 << 2);
+            self.current_sprite_idx = self.current_sprite_idx.wrapping_add(4);
         } else {
             // fill a slot in 'current_sprites_data' with sentinel value
             // (bit 2 of 'attributes' being set indicates end of array)
-            self.current_sprites_data[(self.current_sprite >> 2) as usize] = SpriteRenderData {
+            self.current_sprites_data[(self.current_sprite_idx >> 2) as usize] = SpriteRenderData {
                 tile_bitplane_lo: 0,
                 tile_bitplane_hi: 0,
                 attributes: 0b100,

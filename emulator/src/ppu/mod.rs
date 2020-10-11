@@ -519,17 +519,18 @@ impl<'a> Ppu<'a> {
                         ppu.cycle_count += 1;
                     }
 
-                    // reset 'sprites_found' and 'current_sprite' before use (in dots 65-256)
+                    // reset 'sprites_found', 'eval_done' and 'current_sprite_idx' before use (in dots 65-256)
                     ppu.sprite_state.sprites_found = 0;
-                    ppu.sprite_state.current_sprite = 0;
+                    ppu.sprite_state.eval_done = false;
+                    ppu.sprite_state.current_sprite_idx = 0;
                 }
                 1..=256 => {
                     if ppu.current_scanline_dot >= 65
                         && (ppu.is_sprites_enable() || ppu.is_background_enable())
                     {
                         // evaluate sprite on next scanline
-                        for _ in 0..3 {
                             ppu.sprite_state.eval_next_scanline_sprite(
+                        for _ in 0..4 {
                                 &ppu.primary_oam,
                                 &mut ppu.secondary_oam,
                                 ppu.current_scanline,
@@ -564,7 +565,7 @@ impl<'a> Ppu<'a> {
                 257 => {
                     // set current sprite to zero so it can be re-used
                     // in 'fetch_next_scanline_sprite_data()'
-                    ppu.sprite_state.current_sprite = 0;
+                    ppu.sprite_state.current_sprite_idx = 0;
                     debug_assert!(ppu.sprite_state.sprites_found <= 8);
 
                     // fetch sprite data for the sprites found previously (during dots 65-256)
@@ -748,16 +749,22 @@ impl<'a> Ppu<'a> {
         fn step_visible_line_full(ppu: &mut Ppu) {
             ppu.current_scanline_dot = 1;
             ppu.sprite_state.sprites_found = 0;
-            ppu.sprite_state.current_sprite = 0;
+            ppu.sprite_state.eval_done = false;
+            ppu.sprite_state.current_sprite_idx = 0;
 
-            // FIXME: 72 iterations?
             if ppu.is_sprites_enable() || ppu.is_background_enable() {
-                ppu.sprite_state.eval_next_scanline_sprite(
-                    &ppu.primary_oam,
-                    &mut ppu.secondary_oam,
-                    ppu.current_scanline,
-                    65,
-                );
+                // NOTE: each call to 'eval_next_scanline_sprite()' performs the equivalent
+                // of 2 cycles worth of sprite evaluation, and there are 192 cycles
+                // available for sprite evaluation (cycles 65-256), meaning we should loop
+                // 192/2 = 96 times
+                for _ in 0..96 {
+                    ppu.sprite_state.eval_next_scanline_sprite(
+                        &ppu.primary_oam,
+                        &mut ppu.secondary_oam,
+                        ppu.current_scanline,
+                        65,
+                    );
+                }
             }
 
             for _ in 0..32 {
@@ -795,7 +802,7 @@ impl<'a> Ppu<'a> {
                 }
             }
 
-            ppu.sprite_state.current_sprite = 0;
+            ppu.sprite_state.current_sprite_idx = 0;
 
             if ppu.is_sprites_enable() {
                 for _ in 0..8 {
