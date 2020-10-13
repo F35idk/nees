@@ -100,8 +100,8 @@ fn main() {
                                         is_paused = false;
                                     }
                                 }
-                                Some((xcb::CONFIGURE_NOTIFY, _)) => {
-                                    // make sure to re-render frame on resize events
+                                Some((xcb::CONFIGURE_NOTIFY, _)) | Some((xcb::EXPOSE, _)) => {
+                                    // make sure to re-render frame on resize/expose events
                                     let idx = cpu_memory.ppu.renderer.render_frame();
                                     cpu_memory.ppu.renderer.present(idx);
                                 }

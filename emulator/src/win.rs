@@ -36,7 +36,8 @@ impl XcbWindowWrapper {
             (xcb::CW_BACK_PIXEL, screen.white_pixel()),
             (
                 xcb::CW_EVENT_MASK,
-                xcb::EVENT_MASK_KEY_PRESS
+                xcb::EVENT_MASK_EXPOSURE
+                    | xcb::EVENT_MASK_KEY_PRESS
                     | xcb::EVENT_MASK_KEY_RELEASE
                     | xcb::EVENT_MASK_STRUCTURE_NOTIFY,
             ),
