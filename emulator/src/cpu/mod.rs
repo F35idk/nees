@@ -180,9 +180,9 @@ impl Cpu {
             // NOP (undocumented)
             0x1a | 0x3a | 0x5a | 0x7a | 0xda | 0xfa => self.nop(),
             // SKB/NOP (undocumented)
-            0x80 | 0x82 | 0x89 | 0xc2 | 0xe2 => self.nop_imm(),
+            0x80 | 0x82 | 0x89 | 0xc2 | 0xe2 => self.nop_imm(memory),
             // NOP/IGN (undocumented)
-            0x04 | 0x44 | 0x64 => self.nop_zero_page(),
+            0x04 | 0x44 | 0x64 => self.nop_zero_page(memory),
             0x14 | 0x34 | 0x54 | 0x74 | 0xd4 | 0xf4 => self.nop_zero_page_indexed(memory),
             0x0c => self.nop_abs(memory),
             0x1c | 0x3c | 0x5c | 0x7c | 0xdc | 0xfc => self.nop_abs_indexed(self.x, memory),
@@ -920,16 +920,12 @@ impl Cpu {
         self.cycle_count += 2;
     }
 
-    fn nop_imm(&mut self) {
-        self.pc += 2;
-        self.cycle_count += 2;
+    fn nop_imm(&mut self, memory: &mut dyn CpuMemoryMap) {
+        let _ = addressing::read_imm(self, memory);
     }
 
-    fn nop_zero_page(&mut self) {
-        // NOTE: no need to call 'read()' here, as the nop won't have any side
-        // effects when the address of its operand is restricted to the zero page
-        self.pc += 2;
-        self.cycle_count += 3;
+    fn nop_zero_page(&mut self, memory: &mut dyn CpuMemoryMap) {
+        let _ = addressing::read_zero_page(self, memory);
     }
 
     fn nop_zero_page_indexed(&mut self, memory: &mut dyn CpuMemoryMap) {
