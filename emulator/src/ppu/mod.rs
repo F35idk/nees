@@ -448,22 +448,22 @@ impl<'a> Ppu<'a> {
                     ppu.set_sprite_zero_hit(false);
                     ppu.set_sprite_overflow(false);
 
-                    ppu.cycle_count += 7;
-                    ppu.current_scanline_dot += 7;
-                }
-                2..=255 => {
                     ppu.cycle_count += 8;
                     ppu.current_scanline_dot += 8;
                 }
-                256 => {
+                2..=256 => {
+                    ppu.cycle_count += 8;
+                    ppu.current_scanline_dot += 8;
+                }
+                257 => {
                     if ppu.is_sprites_enable() || ppu.is_background_enable() {
                         ppu.transfer_temp_horizontal_bits();
                     }
 
-                    ppu.cycle_count += 8;
-                    ppu.current_scanline_dot += 8;
+                    ppu.cycle_count += 7;
+                    ppu.current_scanline_dot += 7;
                 }
-                257..=279 => {
+                258..=279 => {
                     ppu.cycle_count += 8;
                     ppu.current_scanline_dot += 8;
                 }
