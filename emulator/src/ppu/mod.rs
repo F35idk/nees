@@ -687,13 +687,9 @@ impl<'a> Ppu<'a> {
                     ppu.current_scanline_dot = 0;
 
                     if ppu.current_scanline == 260 {
+                        ppu.toggle_even_frame();
                         // reset scanline count
                         ppu.current_scanline = -1;
-
-                        // toggle 'even_frame' if rendering is enabled
-                        if ppu.is_sprites_enable() || ppu.is_background_enable() {
-                            ppu.toggle_even_frame();
-                        }
                     } else {
                         ppu.current_scanline += 1;
                     }
