@@ -32,10 +32,10 @@ pub struct Ppu<'a> {
     ppudata_read_buffer: u8,
 
     // bit-field containing 'frame_done' boolean (first bit), 'even_frame'
-    // boolean (second bit), 'low_bits_toggle' boolean (third bit) and
-    // fine x scroll value (fourth to sixth bit). getter and setter
-    // functions are used for each of these fields (see the second 'Ppu'
-    // impl block)
+    // boolean (second bit), 'low_bits_toggle' boolean (third bit), fine
+    // x scroll value (fourth to sixth bit) and 'suppress_vblank_flag'
+    // boolean (seventh bit). getter and setter functions are used for
+    // each of these fields (see the second 'Ppu' impl block)
     misc_bits: u8,
 
     // internal registers
@@ -222,6 +222,14 @@ impl<'a> Ppu<'a> {
             let status = ppu.ppustatus;
             // clear vblank flag
             ppu.set_vblank(false);
+
+            if ppu.current_scanline == 241 && ppu.current_scanline_dot == 1 {
+                // if there is one cycle left before the vblank flag will be set
+                // (when scanline = 241 and dot = 1, the flag will be set on the
+                // next call to 'step()'), prevent the vblank flag from being set
+                ppu.set_suppress_vblank_flag(true);
+            }
+
             status
         }
 
@@ -672,8 +680,9 @@ impl<'a> Ppu<'a> {
                     ppu.current_scanline_dot += 1;
                 }
                 1 => {
-                    if ppu.current_scanline == 241 {
+                    if (ppu.current_scanline == 241) && !ppu.is_suppress_vblank_flag() {
                         ppu.set_vblank(true);
+
                         if ppu.is_vblank_nmi_enabled() {
                             cpu.nmi = true;
                         }
@@ -690,6 +699,8 @@ impl<'a> Ppu<'a> {
                         ppu.toggle_even_frame();
                         // reset scanline count
                         ppu.current_scanline = -1;
+                        // ensure next frame's vblank flag will not be suppressed
+                        ppu.set_suppress_vblank_flag(false);
                     } else {
                         ppu.current_scanline += 1;
                     }
@@ -1117,6 +1128,14 @@ impl<'a> Ppu<'a> {
     // NOTE: this expects the upper 5 bits of 'scroll' to be cleared
     fn set_fine_x_scroll(&mut self, scroll: u8) {
         self.misc_bits = (self.misc_bits & !0b111_000) | ((scroll as u8) << 3);
+    }
+
+    fn is_suppress_vblank_flag(&self) -> bool {
+        (self.misc_bits & 0b1_000_000) != 0
+    }
+
+    fn set_suppress_vblank_flag(&mut self, suppress: bool) {
+        self.misc_bits = (self.misc_bits & !0b1_000_000) | ((suppress as u8) << 6);
     }
 
     fn get_base_nametable_addr(&self) -> u16 {
