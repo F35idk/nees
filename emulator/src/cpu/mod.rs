@@ -347,7 +347,7 @@ impl Cpu {
 
         self.a = res_2;
         self.set_c_from_bool(carry_1 | carry_2);
-        self.set_v_from_bool(overflow_1 | overflow_2);
+        self.set_v_from_bool(overflow_1 ^ overflow_2);
         self.set_z_from_val(res_2);
         self.set_n_from_val(res_2);
     }
@@ -1135,7 +1135,7 @@ impl Cpu {
 
         self.a = res_2;
         self.set_c_from_bool(!(borrow_1 | borrow_2));
-        self.set_v_from_bool(overflow_1 | overflow_2);
+        self.set_v_from_bool(overflow_1 ^ overflow_2);
         self.set_z_from_val(res_2);
         self.set_n_from_val(res_2);
     }
