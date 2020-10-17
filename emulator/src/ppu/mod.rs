@@ -653,14 +653,6 @@ impl<'a> Ppu<'a> {
 
         fn step_idle_line(ppu: &mut Ppu) {
             match ppu.current_scanline_dot {
-                256 => {
-                    if ppu.is_sprites_enable() || ppu.is_background_enable() {
-                        ppu.transfer_temp_horizontal_bits();
-                    }
-
-                    ppu.cycle_count += 8;
-                    ppu.current_scanline_dot += 8;
-                }
                 336 => {
                     ppu.cycle_count += 5;
                     ppu.current_scanline_dot = 0;
@@ -689,14 +681,6 @@ impl<'a> Ppu<'a> {
 
                     ppu.cycle_count += 7;
                     ppu.current_scanline_dot += 7;
-                }
-                256 => {
-                    if ppu.is_sprites_enable() || ppu.is_background_enable() {
-                        ppu.transfer_temp_horizontal_bits();
-                    }
-
-                    ppu.cycle_count += 8;
-                    ppu.current_scanline_dot += 8;
                 }
                 336 => {
                     ppu.cycle_count += 5;
@@ -861,10 +845,6 @@ impl<'a> Ppu<'a> {
         }
 
         fn step_idle_line_full(ppu: &mut Ppu) {
-            if ppu.is_sprites_enable() || ppu.is_background_enable() {
-                ppu.transfer_temp_horizontal_bits();
-            }
-
             ppu.current_scanline = 241;
             ppu.cycle_count += 341;
         }
@@ -875,26 +855,17 @@ impl<'a> Ppu<'a> {
                 cpu.nmi = true;
             }
 
-            if ppu.is_sprites_enable() || ppu.is_background_enable() {
-                ppu.transfer_temp_horizontal_bits();
-            }
-
             ppu.current_scanline = 242;
             ppu.cycle_count += 341;
         }
 
         fn step_vblank_line_full(ppu: &mut Ppu) {
-            if ppu.is_sprites_enable() || ppu.is_background_enable() {
-                ppu.transfer_temp_horizontal_bits();
-            }
-
             ppu.current_scanline += 1;
             ppu.cycle_count += 341;
         }
 
         fn step_last_vblank_line_full(ppu: &mut Ppu) {
             if ppu.is_sprites_enable() || ppu.is_background_enable() {
-                ppu.transfer_temp_horizontal_bits();
                 ppu.toggle_even_frame();
             }
 
