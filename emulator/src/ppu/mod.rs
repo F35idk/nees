@@ -51,6 +51,12 @@ pub struct Ppu<'a> {
     temp_vram_addr: VramAddrRegister,
 }
 
+#[derive(Copy, Clone)]
+enum SpriteSize {
+    S8x8 = 8,
+    S8x16 = 16,
+}
+
 pub struct PrimaryOam {
     pub entries: [OamEntry; 64],
 }
@@ -616,6 +622,7 @@ impl<'a> Ppu<'a> {
                     if ppu.is_sprites_enable() {
                         ppu.sprite_state.fetch_next_scanline_sprite_data(
                             &ppu.secondary_oam,
+                            ppu.get_sprite_size(),
                             ppu.current_scanline,
                             ppu.current_scanline_dot,
                             ppu.get_8x8_sprite_pattern_table_addr(),
@@ -774,6 +781,7 @@ impl<'a> Ppu<'a> {
                 for _ in 0..96 {
                     let sprite_overflow = ppu.sprite_state.eval_next_scanline_sprite(
                         ppu.is_sprite_overflow(),
+                        ppu.get_sprite_size(),
                         &ppu.primary_oam,
                         &mut ppu.secondary_oam,
                         ppu.current_scanline,
@@ -828,6 +836,7 @@ impl<'a> Ppu<'a> {
                 for _ in 0..8 {
                     ppu.sprite_state.fetch_next_scanline_sprite_data(
                         &ppu.secondary_oam,
+                        ppu.get_sprite_size(),
                         ppu.current_scanline,
                         ppu.current_scanline_dot,
                         ppu.get_8x8_sprite_pattern_table_addr(),
@@ -1157,9 +1166,12 @@ impl<'a> Ppu<'a> {
         ((self.ppuctrl & 0b10000) as u16) << 8
     }
 
-    // TODO: enum or whatever
-    fn get_sprite_size(&self) -> bool {
-        (self.ppuctrl & 0b100000) != 0
+    fn get_sprite_size(&self) -> SpriteSize {
+        if self.ppuctrl & 0b100000 != 0 {
+            SpriteSize::S8x16
+        } else {
+            SpriteSize::S8x8
+        }
     }
 
     // TODO: enum or whatever

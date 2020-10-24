@@ -41,6 +41,7 @@ impl SpriteDrawState {
     pub fn eval_next_scanline_sprite(
         &mut self,
         mut sprite_overflow: bool,
+        sprite_height: SpriteSize,
         primary_oam: &PrimaryOam,
         secondary_oam: &mut SecondaryOam,
         current_scanline: i16,
@@ -66,7 +67,7 @@ impl SpriteDrawState {
                 // y-coordinate and use it to test whether the current sprite is in range
 
                 // NOTE: sprite y-coordinate is 1 less than the actual screen y-coordinate
-                if (current_scanline as u16).wrapping_sub(byte as u16) < 8 {
+                if (current_scanline as u16).wrapping_sub(byte as u16) < sprite_height as u16 {
                     // set index to point to next byte (on the same sprite)
                     self.current_sprite_idx += 1;
                 } else {
@@ -113,7 +114,7 @@ impl SpriteDrawState {
         } else if !sprite_overflow {
             let sprite_y = primary_oam.get_byte(self.current_sprite_idx);
 
-            if (current_scanline as u16).wrapping_sub(sprite_y as u16) < 8 {
+            if (current_scanline as u16).wrapping_sub(sprite_y as u16) < sprite_height as u16 {
                 sprite_overflow = true;
             } else {
                 // increment 'n' (from nesdev.com 'PPU Sprite Evaluation' page)
@@ -139,6 +140,7 @@ impl SpriteDrawState {
     pub fn fetch_next_scanline_sprite_data(
         &mut self,
         secondary_oam: &SecondaryOam,
+        sprite_height: SpriteSize,
         current_scanline: i16,
         current_scanline_dot: u16,
         pattern_table_addr: u16,
@@ -153,35 +155,58 @@ impl SpriteDrawState {
 
             let sprite =
                 unsafe { secondary_oam.get_sprite_unchecked(self.current_sprite_idx & !0b11) };
+            let x = sprite.x;
+            let y = sprite.y;
+            let attributes = sprite.attributes;
+            let is_vert_flipped = attributes & 0b10000000 != 0;
             let tile_index = sprite.tile_index;
+
+            // get the sprite tile and the current scanline's distance from it
             let tile = {
-                let sprite_table_ptr = memory.get_pattern_tables();
-                unsafe {
-                    *((sprite_table_ptr
-                        .get_unchecked(pattern_table_addr as usize + tile_index as usize * 16))
-                        as *const _ as *const [u8; 16])
+                let pattern_table_ptr = memory.get_pattern_tables();
+
+                match sprite_height {
+                    SpriteSize::S8x8 => unsafe {
+                        *((pattern_table_ptr
+                            .get_unchecked(pattern_table_addr as usize + tile_index as usize * 16))
+                            as *const _ as *const [u8; 16])
+                    },
+                    SpriteSize::S8x16 => {
+                        let pattern_table_addr = (tile_index as u16 & 1) << 12;
+                        let mut tile_index = tile_index & !1;
+
+                        debug_assert!((current_scanline as u8).wrapping_sub(sprite.y) < 16);
+
+                        if (current_scanline as u8).wrapping_sub(sprite.y) >= 8 {
+                            tile_index |= 1;
+                        }
+
+                        if is_vert_flipped {
+                            tile_index ^= 1;
+                        }
+
+                        unsafe {
+                            *((pattern_table_ptr.get_unchecked(
+                                pattern_table_addr as usize + tile_index as usize * 16,
+                            )) as *const _ as *const [u8; 16])
+                        }
+                    }
                 }
             };
 
-            let x = sprite.x;
-            let attributes = sprite.attributes;
-            let y = sprite.y;
             // NOTE: 'sprite.y' is 1 less than the screen y coordinate
-            let y_offset = current_scanline - y as i16;
+            let y_offset = (current_scanline as u8 - y) % 8;
 
-            debug_assert!(y_offset >= 0);
-            debug_assert!(y_offset < 8);
-
-            let (tile_bitplane_lo, tile_bitplane_hi) = if attributes & 0b10000000 != 0 {
+            let (tile_bitplane_lo, tile_bitplane_hi) = if is_vert_flipped {
                 // use flipped tile bitplanes if sprite is vertically flipped
                 (
-                    unsafe { *tile.get_unchecked(7 - y_offset as usize) },
-                    unsafe { *tile.get_unchecked(15 - y_offset as usize) },
+                    unsafe { *tile.get_unchecked(7 - (y_offset as usize)) },
+                    unsafe { *tile.get_unchecked(15 - (y_offset as usize)) },
                 )
             } else {
                 (
-                    unsafe { *tile.get_unchecked(0 + y_offset as usize) },
-                    unsafe { *tile.get_unchecked(8 + y_offset as usize) },
+                    unsafe { *tile.get_unchecked(0 + (y_offset as usize)) },
+                    unsafe { *tile.get_unchecked(8 + (y_offset as usize)) },
                 )
             };
 
