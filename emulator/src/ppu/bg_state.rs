@@ -36,8 +36,8 @@ impl BgDrawState {
         let ppu: &Ppu = unsafe { std::mem::transmute(ppu) };
 
         let current_bg_tile = {
-            // get tile index from nametable using 'current_vram_addr' + 0x2000
-            let addr = ppu.current_vram_addr.get_addr() | 0x2000;
+            // get tile index from nametable using lower 12 bits of 'current_vram_addr' + 0x2000
+            let addr = (ppu.current_vram_addr.get_addr() & 0xfff) | 0x2000;
             let tile_index = ppu.memory.read(addr);
             let background_table_addr = ppu.get_background_pattern_table_addr() as usize;
             let background_table_ptr = ppu.memory.get_pattern_tables();
