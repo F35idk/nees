@@ -146,7 +146,7 @@ impl SpriteDrawState {
         pattern_table_addr: u16,
         memory: &mut dyn PpuMemoryMap,
     ) {
-        debug_assert!(matches!(current_scanline, -1..=239));
+        debug_assert!(matches!(current_scanline, 0..=239));
         debug_assert!(matches!(current_scanline_dot, 257..=320));
         debug_assert!(self.sprites_found <= 8);
 
@@ -161,7 +161,6 @@ impl SpriteDrawState {
             let is_vert_flipped = attributes & 0b10000000 != 0;
             let tile_index = sprite.tile_index;
 
-            // get the sprite tile and the current scanline's distance from it
             let tile = {
                 let pattern_table_ptr = memory.get_pattern_tables();
 
