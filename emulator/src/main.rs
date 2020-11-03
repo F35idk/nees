@@ -47,10 +47,10 @@ fn main() {
 
     ppu_memory.load_chr_ram(&rom[0x10 + prg_size..=prg_size + chr_size + 0xf]);
 
-    let ppu = ppu::Ppu::new(renderer, &mut ppu_memory);
+    let ppu = ppu::Ppu::new(renderer);
     let apu = apu::Apu {};
     let controller = controller::Controller::default();
-    let mut cpu_memory = mem::Nrom256CpuMemory::new(ppu, apu, controller);
+    let mut cpu_memory = mem::Nrom256CpuMemory::new(ppu, ppu_memory, apu, controller);
     let mut cpu = cpu::Cpu::default();
 
     cpu_memory.load_prg_rom(&rom[0x10..=prg_size + 0xf]);
@@ -62,8 +62,9 @@ fn main() {
     ]);
 
     cpu_memory.ppu.current_scanline = 240;
+    cpu_memory.ppu.cycle_count = 0;
     cpu.cycle_count = 0;
-    cpu.p = 04;
+    cpu.p = 4;
     cpu.sp = 0xfd;
 
     win.map_and_flush();
@@ -149,7 +150,9 @@ fn main() {
         // OPTIMIZE: no need to constantly catch the ppu up
         while !cpu_memory.ppu.is_frame_done() {
             cpu.exec_instruction(&mut cpu_memory);
-            cpu_memory.ppu.catch_up(&mut cpu);
+            cpu_memory
+                .ppu
+                .catch_up(&mut cpu, &mut cpu_memory.ppu_memory);
         }
 
         // reset counters

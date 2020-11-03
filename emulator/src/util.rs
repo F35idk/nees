@@ -7,21 +7,21 @@ pub fn pixels_to_u32<'a>(pixel_renderer: &'a mut PixelRenderer) -> &'a mut [u32;
 }
 
 // used by test functions
-pub fn init_nes() -> (cpu::Cpu, mem::Nrom128CpuMemory<'static>) {
+pub fn init_nes() -> (cpu::Cpu, mem::Nrom128CpuMemory) {
     let mut win = win::XcbWindowWrapper::new("test", 20, 20).unwrap();
     let renderer = PixelRenderer::new(&mut win.connection, win.win, 256, 240).unwrap();
 
-    let ppu_memory = Box::leak(Box::new(mem::NromPpuMemory::new()));
-    let ppu = ppu::Ppu::new(renderer, ppu_memory);
+    let ppu_memory = mem::NromPpuMemory::new();
+    let ppu = ppu::Ppu::new(renderer);
     let apu = apu::Apu {};
     let cpu = cpu::Cpu::default();
     let controller = ctrl::Controller::default();
-    let cpu_memory = mem::Nrom128CpuMemory::new(ppu, apu, controller);
+    let cpu_memory = mem::Nrom128CpuMemory::new(ppu, ppu_memory, apu, controller);
 
     (cpu, cpu_memory)
 }
 
-pub fn reset_nes_state(cpu: &mut cpu::Cpu, cpu_memory: &mut mem::Nrom128CpuMemory<'static>) {
+pub fn reset_nes_state(cpu: &mut cpu::Cpu, cpu_memory: &mut mem::Nrom128CpuMemory) {
     cpu_memory.ppu.reset_state();
     cpu_memory.controller = ctrl::Controller::default();
     cpu_memory.apu = apu::Apu {};

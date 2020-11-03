@@ -1,3 +1,4 @@
+use super::super::memory_map::PpuMemoryMap;
 use super::Ppu;
 
 #[derive(Default)]
@@ -32,21 +33,22 @@ impl BgDrawState {
         self.tile_palette_indices <<= 2;
     }
 
-    pub fn fetch_current_tile_data(&mut self, ppu: *const Ppu) {
-        let ppu: &Ppu = unsafe { std::mem::transmute(ppu) };
+    pub fn fetch_current_tile_data(&mut self, ppu: *const Ppu, memory: &dyn PpuMemoryMap) {
+        let ppu: &Ppu = unsafe { &*(ppu as *const _) };
 
         let current_bg_tile = {
             // get tile index from nametable using lower 12 bits of 'current_vram_addr' + 0x2000
             let addr = (ppu.current_vram_addr.get_addr() & 0xfff) | 0x2000;
-            let tile_index = ppu.memory.read(addr);
+            let tile_index = memory.read(addr);
+
             let background_table_addr = ppu.get_background_pattern_table_addr() as usize;
-            let background_table_ptr = ppu.memory.get_pattern_tables();
+            let pattern_table_ptr = memory.get_pattern_tables();
 
             unsafe {
                 // get tile from pattern table using the tile index
                 // SAFETY: 'current_tile_index' * 16 cannot be
                 // larger than 0x1000 (the size of a pattern table)
-                *((background_table_ptr
+                *((pattern_table_ptr
                     .get_unchecked(background_table_addr + tile_index as usize * 16))
                     as *const _ as *const [u8; 16])
             }
@@ -63,7 +65,7 @@ impl BgDrawState {
                 | (coarse_x >> 2) as u16;
 
             // get the 'attribute' byte from the attribute table
-            let attribute = ppu.memory.read(attribute_addr);
+            let attribute = memory.read(attribute_addr);
             // calculate how much to shift 'attribute' by to get the current tile's palette index
             let shift_amt = ((coarse_y << 1) & 0b100) | (coarse_x & 0b10);
 

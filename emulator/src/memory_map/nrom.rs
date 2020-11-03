@@ -2,8 +2,9 @@ use super::super::{apu, controller as ctrl, cpu, ppu, win, PixelRenderer};
 use super::{CpuMemoryMap, PpuMemoryMap};
 
 // the cpu memory map for games that use the 'NROM-128' cartridge/mapper (ines mapper 0)
-pub struct Nrom128CpuMemory<'a> {
-    pub ppu: ppu::Ppu<'a>,
+pub struct Nrom128CpuMemory {
+    pub ppu: ppu::Ppu,
+    pub ppu_memory: NromPpuMemory,
     pub apu: apu::Apu,
     pub controller: ctrl::Controller,
     // the addresses passed to the read/write calls translate
@@ -12,7 +13,7 @@ pub struct Nrom128CpuMemory<'a> {
     // [0..=0x7ff] = internal ram
     // [0x800..=0x47ff] = prg rom
     // [0x4800..=0x57ff] = prg ram
-    pub memory: [u8; 0x5800],
+    memory: [u8; 0x5800],
 }
 
 // the ppu memory map for both 'NROM-128' and 'NROM-256'
@@ -23,13 +24,19 @@ pub struct NromPpuMemory {
     pub hor_mirroring: bool,
 }
 
-impl<'a> Nrom128CpuMemory<'a> {
-    pub fn new(ppu: ppu::Ppu<'a>, apu: apu::Apu, controller: ctrl::Controller) -> Self {
+impl Nrom128CpuMemory {
+    pub fn new(
+        ppu: ppu::Ppu,
+        ppu_memory: NromPpuMemory,
+        apu: apu::Apu,
+        controller: ctrl::Controller,
+    ) -> Self {
         Self {
             ppu,
             apu,
             controller,
             memory: [0; 0x5800],
+            ppu_memory,
         }
     }
 
@@ -55,7 +62,7 @@ impl NromPpuMemory {
     }
 }
 
-impl<'a> CpuMemoryMap<'a> for Nrom128CpuMemory<'a> {
+impl CpuMemoryMap for Nrom128CpuMemory {
     fn read(&mut self, mut addr: u16, cpu: &mut cpu::Cpu) -> u8 {
         // address lines a13-a15 = 000 (0-0x1fff) => internal ram
         if (addr >> 13) == 0 {
@@ -68,10 +75,12 @@ impl<'a> CpuMemoryMap<'a> for Nrom128CpuMemory<'a> {
         // address lines a13-a15 = 001 (0x2000-0x3fff) => ppu registers
         if (addr >> 13) == 1 {
             // catch ppu up to cpu before reading
-            self.ppu.catch_up(cpu);
+            self.ppu.catch_up(cpu, &mut self.ppu_memory);
             // ignore all but low 3 bits
             addr &= 0b111;
-            return self.ppu.read_register_by_index(addr as u8);
+            return self
+                .ppu
+                .read_register_by_index(addr as u8, &self.ppu_memory);
         }
 
         // address lines a13-a15 = 011 (0x6000-0x7fff) => prg ram
@@ -112,9 +121,10 @@ impl<'a> CpuMemoryMap<'a> for Nrom128CpuMemory<'a> {
 
         if (addr >> 13) == 1 {
             // catch ppu up to cpu before writing
-            self.ppu.catch_up(cpu);
+            self.ppu.catch_up(cpu, &mut self.ppu_memory);
+
             self.ppu
-                .write_register_by_index(addr as u8 & 0b111, val, cpu);
+                .write_register_by_index(addr as u8 & 0b111, val, cpu, &mut self.ppu_memory);
 
             return;
         }
@@ -131,7 +141,7 @@ impl<'a> CpuMemoryMap<'a> for Nrom128CpuMemory<'a> {
 
         // ppu oamdma register
         if addr == 0x4014 {
-            self.ppu.catch_up(cpu);
+            self.ppu.catch_up(cpu, &mut self.ppu_memory);
             self.write_oamdma(val, cpu);
             return;
         }
@@ -140,8 +150,8 @@ impl<'a> CpuMemoryMap<'a> for Nrom128CpuMemory<'a> {
         // necessary to explicitly ignore attempts to write to rom
     }
 
-    fn get_ppu(&mut self) -> &mut ppu::Ppu<'a> {
-        &mut self.ppu
+    fn get_ppu(&mut self) -> (&mut ppu::Ppu, &mut dyn PpuMemoryMap) {
+        (&mut self.ppu, &mut self.ppu_memory)
     }
 
     fn get_apu(&mut self) -> &mut apu::Apu {
@@ -231,8 +241,9 @@ impl PpuMemoryMap for NromPpuMemory {
 }
 
 // 'NROM-256' (also ines mapper 0)
-pub struct Nrom256CpuMemory<'a> {
-    pub ppu: ppu::Ppu<'a>,
+pub struct Nrom256CpuMemory {
+    pub ppu: ppu::Ppu,
+    pub ppu_memory: NromPpuMemory,
     pub apu: apu::Apu,
     pub controller: ctrl::Controller,
     // [0..=0x7ff] = internal ram
@@ -241,13 +252,19 @@ pub struct Nrom256CpuMemory<'a> {
     memory: [u8; 0x9800],
 }
 
-impl<'a> Nrom256CpuMemory<'a> {
-    pub fn new(ppu: ppu::Ppu<'a>, apu: apu::Apu, controller: ctrl::Controller) -> Self {
+impl Nrom256CpuMemory {
+    pub fn new(
+        ppu: ppu::Ppu,
+        ppu_memory: NromPpuMemory,
+        apu: apu::Apu,
+        controller: ctrl::Controller,
+    ) -> Self {
         Self {
             ppu,
             apu,
             controller,
             memory: [0; 0x9800],
+            ppu_memory,
         }
     }
 
@@ -257,7 +274,7 @@ impl<'a> Nrom256CpuMemory<'a> {
     }
 }
 
-impl<'a> CpuMemoryMap<'a> for Nrom256CpuMemory<'a> {
+impl CpuMemoryMap for Nrom256CpuMemory {
     fn read(&mut self, mut addr: u16, cpu: &mut cpu::Cpu) -> u8 {
         if (addr >> 13) == 0 {
             addr &= !0b1100000000000;
@@ -266,9 +283,11 @@ impl<'a> CpuMemoryMap<'a> for Nrom256CpuMemory<'a> {
 
         if (addr >> 13) == 1 {
             // catch ppu up to cpu before reading
-            self.ppu.catch_up(cpu);
+            self.ppu.catch_up(cpu, &mut self.ppu_memory);
             addr &= 0b111;
-            return self.ppu.read_register_by_index(addr as u8);
+            return self
+                .ppu
+                .read_register_by_index(addr as u8, &self.ppu_memory);
         }
 
         if (addr >> 13) == 3 {
@@ -301,9 +320,9 @@ impl<'a> CpuMemoryMap<'a> for Nrom256CpuMemory<'a> {
         }
 
         if (addr >> 13) == 1 {
-            self.ppu.catch_up(cpu);
+            self.ppu.catch_up(cpu, &mut self.ppu_memory);
             self.ppu
-                .write_register_by_index(addr as u8 & 0b111, val, cpu);
+                .write_register_by_index(addr as u8 & 0b111, val, cpu, &mut self.ppu_memory);
 
             return;
         }
@@ -319,7 +338,7 @@ impl<'a> CpuMemoryMap<'a> for Nrom256CpuMemory<'a> {
         }
 
         if addr == 0x4014 {
-            self.ppu.catch_up(cpu);
+            self.ppu.catch_up(cpu, &mut self.ppu_memory);
             self.write_oamdma(val, cpu);
             return;
         }
@@ -329,8 +348,8 @@ impl<'a> CpuMemoryMap<'a> for Nrom256CpuMemory<'a> {
         }
     }
 
-    fn get_ppu(&mut self) -> &mut ppu::Ppu<'a> {
-        &mut self.ppu
+    fn get_ppu(&mut self) -> (&mut ppu::Ppu, &mut dyn PpuMemoryMap) {
+        (&mut self.ppu, &mut self.ppu_memory)
     }
 
     fn get_apu(&mut self) -> &mut apu::Apu {
@@ -341,13 +360,11 @@ impl<'a> CpuMemoryMap<'a> for Nrom256CpuMemory<'a> {
 mod test {
     use super::*;
 
-    fn init_ppu_apu_cpu_controller(
-        ppu_memory: &mut dyn PpuMemoryMap,
-    ) -> (ppu::Ppu, apu::Apu, cpu::Cpu, ctrl::Controller) {
+    fn init_ppu_apu_cpu_controller() -> (ppu::Ppu, apu::Apu, cpu::Cpu, ctrl::Controller) {
         let mut win = win::XcbWindowWrapper::new("test", 20, 20).unwrap();
         let renderer = PixelRenderer::new(&mut win.connection, win.win, 256, 240).unwrap();
 
-        let ppu = ppu::Ppu::new(renderer, ppu_memory);
+        let ppu = ppu::Ppu::new(renderer);
         let apu = apu::Apu {};
         let cpu = cpu::Cpu::default();
         let controller = ctrl::Controller::default();
@@ -377,9 +394,9 @@ mod test {
             0
         }
 
-        let ref mut ppu_memory = NromPpuMemory::new();
-        let (ppu, apu, mut cpu, controller) = init_ppu_apu_cpu_controller(ppu_memory);
-        let mut cpu_memory = Nrom128CpuMemory::new(ppu, apu, controller);
+        let ppu_memory = NromPpuMemory::new();
+        let (ppu, apu, mut cpu, controller) = init_ppu_apu_cpu_controller();
+        let mut cpu_memory = Nrom128CpuMemory::new(ppu, ppu_memory, apu, controller);
 
         // internal ram reads
         assert_eq!(calc_cpu_read_addr(0xa0e), 0x20e);
@@ -432,9 +449,9 @@ mod test {
             0
         }
 
-        let ref mut ppu_memory = NromPpuMemory::new();
-        let (ppu, apu, mut cpu, controller) = init_ppu_apu_cpu_controller(ppu_memory);
-        let mut cpu_memory = Nrom256CpuMemory::new(ppu, apu, controller);
+        let ppu_memory = NromPpuMemory::new();
+        let (ppu, apu, mut cpu, controller) = init_ppu_apu_cpu_controller();
+        let mut cpu_memory = Nrom256CpuMemory::new(ppu, ppu_memory, apu, controller);
 
         // internal ram reads
         assert_eq!(calc_cpu_read_addr(0xa0e), 0x20e);

@@ -2,7 +2,7 @@ use super::super::PixelRenderer;
 use super::super::{cpu, memory_map as mem, parse, util, win};
 use mem::{CpuMemoryMap, PpuMemoryMap};
 
-fn test_registers(cpu: &mut cpu::Cpu, ppu: &mut super::Ppu) {
+fn test_registers(cpu: &mut cpu::Cpu, ppu: &mut super::Ppu, ppu_memory: &mut dyn PpuMemoryMap) {
     ppu.ppuctrl = 0b00000011;
     assert_eq!(ppu.get_base_nametable_addr(), 0x2c00);
 
@@ -34,11 +34,11 @@ fn test_registers(cpu: &mut cpu::Cpu, ppu: &mut super::Ppu) {
 
     let x_coord = 0b00110_011;
     let y_coord = 0b10001_101;
-    ppu.write_register_by_index(5, x_coord, cpu);
-    ppu.write_register_by_index(5, y_coord, cpu);
+    ppu.write_register_by_index(5, x_coord, cpu, ppu_memory);
+    ppu.write_register_by_index(5, y_coord, cpu, ppu_memory);
 
     let ppuctrl = 0b00000011;
-    ppu.write_register_by_index(0, ppuctrl, cpu);
+    ppu.write_register_by_index(0, ppuctrl, cpu, ppu_memory);
 
     assert_eq!(ppu.temp_vram_addr.inner, 0b101_11_10001_00110);
     assert_eq!(ppu.get_fine_x_scroll(), x_coord & 0b111);
@@ -47,8 +47,8 @@ fn test_registers(cpu: &mut cpu::Cpu, ppu: &mut super::Ppu) {
 
     let addr_hi = 0x21;
     let addr_low = 0x0f;
-    ppu.write_register_by_index(6, addr_hi, cpu);
-    ppu.write_register_by_index(6, addr_low, cpu);
+    ppu.write_register_by_index(6, addr_hi, cpu, ppu_memory);
+    ppu.write_register_by_index(6, addr_low, cpu, ppu_memory);
 
     assert_eq!(ppu.current_vram_addr.get_addr(), 0x210f);
 
@@ -59,8 +59,8 @@ fn test_registers(cpu: &mut cpu::Cpu, ppu: &mut super::Ppu) {
 
     let addr_hi = 0x4f;
     let addr_low = 0xe8;
-    ppu.write_register_by_index(6, addr_hi, cpu);
-    ppu.write_register_by_index(6, addr_low, cpu);
+    ppu.write_register_by_index(6, addr_hi, cpu, ppu_memory);
+    ppu.write_register_by_index(6, addr_low, cpu, ppu_memory);
 
     // address is mirrored down
     assert_eq!(ppu.current_vram_addr.inner, 0x4fe8 % 0x4000);
@@ -92,9 +92,19 @@ fn test_write_2007(cpu: &mut cpu::Cpu, cpu_memory: &mut mem::Nrom128CpuMemory) {
     cpu_memory.ppu.current_vram_addr.inner = 0;
 
     // first read should yield nothing
-    assert_eq!(cpu_memory.ppu.read_register_by_index(7), 0);
+    assert_eq!(
+        cpu_memory
+            .ppu
+            .read_register_by_index(7, &cpu_memory.ppu_memory),
+        0
+    );
     // second read should get contents at addr
-    assert_eq!(cpu_memory.ppu.read_register_by_index(7), 0xee);
+    assert_eq!(
+        cpu_memory
+            .ppu
+            .read_register_by_index(7, &cpu_memory.ppu_memory),
+        0xee
+    );
 }
 
 fn test_write_2000(cpu: &mut cpu::Cpu, cpu_memory: &mut mem::Nrom128CpuMemory) {
@@ -231,16 +241,20 @@ fn test_write_2003_read_2004(cpu: &mut cpu::Cpu, cpu_memory: &mut mem::Nrom128Cp
     assert_eq!(cpu.a, 0xee);
 }
 
-fn test_increment_vram_addr(cpu: &mut cpu::Cpu, ppu: &mut super::Ppu) {
+fn test_increment_vram_addr(
+    cpu: &mut cpu::Cpu,
+    ppu: &mut super::Ppu,
+    ppu_memory: &mut dyn PpuMemoryMap,
+) {
     ppu.current_vram_addr.inner = 0;
     // set increment mode to 32
-    ppu.write_register_by_index(0, 0b00000100, cpu);
+    ppu.write_register_by_index(0, 0b00000100, cpu, ppu_memory);
     ppu.increment_vram_addr();
     assert_eq!(ppu.current_vram_addr.inner, 32);
 
     ppu.current_vram_addr.inner = 0;
     // set increment mode to 1
-    ppu.write_register_by_index(0, 0b00000000, cpu);
+    ppu.write_register_by_index(0, 0b00000000, cpu, ppu_memory);
     ppu.increment_vram_addr();
     assert_eq!(ppu.current_vram_addr.inner, 1);
 
@@ -251,12 +265,12 @@ fn test_increment_vram_addr(cpu: &mut cpu::Cpu, ppu: &mut super::Ppu) {
 
     // check wrapping behavior ((3fe0 + 0x20) % 4000 = 0)
     ppu.current_vram_addr.inner = 0x3fe0;
-    ppu.write_register_by_index(0, 0b00000100, cpu);
+    ppu.write_register_by_index(0, 0b00000100, cpu, ppu_memory);
     ppu.increment_vram_addr();
     assert_eq!(ppu.current_vram_addr.inner, 0);
 
     ppu.current_vram_addr.inner = 0x200a;
-    ppu.write_register_by_index(0, 0b00000000, cpu);
+    ppu.write_register_by_index(0, 0b00000000, cpu, ppu_memory);
     ppu.increment_vram_addr();
     assert_eq!(ppu.current_vram_addr.inner, 0x200b);
 }
@@ -342,7 +356,7 @@ fn test_temp_to_current_vram_transfer(ppu: &mut super::Ppu) {
 fn test_all() {
     let (ref mut cpu, ref mut cpu_memory) = util::init_nes();
 
-    test_registers(cpu, &mut cpu_memory.ppu);
+    test_registers(cpu, &mut cpu_memory.ppu, &mut cpu_memory.ppu_memory);
     util::reset_nes_state(cpu, cpu_memory);
 
     test_write_2007(cpu, cpu_memory);
@@ -363,7 +377,7 @@ fn test_all() {
     test_write_2003_read_2004(cpu, cpu_memory);
     util::reset_nes_state(cpu, cpu_memory);
 
-    test_increment_vram_addr(cpu, &mut cpu_memory.ppu);
+    test_increment_vram_addr(cpu, &mut cpu_memory.ppu, &mut cpu_memory.ppu_memory);
     util::reset_nes_state(cpu, cpu_memory);
 
     test_increment_vram_addr_xy(&mut cpu_memory.ppu);
@@ -373,116 +387,4 @@ fn test_all() {
     util::reset_nes_state(cpu, cpu_memory);
 
     test_temp_to_current_vram_transfer(&mut cpu_memory.ppu);
-}
-
-// draws the pattern table at address 0x1000 of 'rom'
-pub fn test_draw(rom: &[u8]) {
-    assert!(parse::is_valid(&rom));
-
-    let prg_size = 0x4000 * (parse::get_prg_size(&rom) as usize);
-    let chr_size = 0x2000 * (parse::get_chr_size(&rom) as usize);
-
-    let mut ppu_memory = mem::NromPpuMemory::new();
-
-    // load 'rom' into chr ram
-    ppu_memory.load_chr_ram(&rom[0x10 + prg_size..=prg_size + chr_size + 0xf]);
-
-    {
-        // set universal background color = black
-        ppu_memory.palettes[0] = 0x0f;
-        // set palette 2 = [red, green, blue]
-        ppu_memory.palettes[8 + 1] = 0x06;
-        ppu_memory.palettes[8 + 2] = 0x19;
-        ppu_memory.palettes[8 + 3] = 0x02;
-        for (i, byte) in ppu_memory.nametables.iter_mut().enumerate() {
-            // set nametable bytes to point to tiles 0-255 in the attribute table
-            *byte = i as u8;
-        }
-        for attr in ppu_memory.nametables[0x3c0..0x400].iter_mut() {
-            // ensure all tiles will use palette 2
-            *attr = 0b10101010;
-        }
-        for attr in ppu_memory.nametables[0x400 + 0x3c0..].iter_mut() {
-            *attr = 0b10101010;
-        }
-    }
-
-    // set nametable mirroring = vertical
-    ppu_memory.hor_mirroring = false;
-
-    let mut win = win::XcbWindowWrapper::new("test", 1200, 600).unwrap();
-    let renderer = PixelRenderer::new(&mut win.connection, win.win, 256, 240).unwrap();
-
-    let mut ppu = super::Ppu::new(renderer, &mut ppu_memory);
-    let ref mut cpu = cpu::Cpu::new_nestest();
-
-    // set background pattern table addr = 0x1000 and base nametable addr = 0x2400
-    ppu.write_register_by_index(0, 0b100001, cpu);
-    // set coarse x scroll = 0 (offset by 0 in the nametable)
-    ppu.temp_vram_addr.inner |= 0b00000;
-    // set fine x scroll = 0
-    ppu.set_fine_x_scroll(0b000);
-    // ensure ppu will show background and sprites
-    ppu.ppumask = 0b00011110;
-    // set color emphasis = red
-    ppu.ppumask |= 0b00100000;
-
-    win.map_and_flush();
-
-    loop {
-        let start_of_frame = std::time::Instant::now();
-
-        // step through pre-render scanline, all visible scanlines and idle scanline (scanline 240)
-        for _ in -1..=240 {
-            // each scanline is 341 cycles long, except for the pre-render
-            // scanline on odd frames, which is 340 cycles long
-            let cycles_in_scanline =
-                341 - (!ppu.is_even_frame() && ppu.current_scanline == -1) as u64;
-            ppu.cycle_count = 0;
-            while ppu.cycle_count < cycles_in_scanline as i32 {
-                ppu.step(cpu);
-            }
-            assert_eq!(ppu.cycle_count, cycles_in_scanline as i32);
-        }
-
-        // increment fine x
-        {
-            if ppu.get_fine_x_scroll() == 0b111 {
-                if ppu.temp_vram_addr.get_coarse_x() == 0b11111 {
-                    ppu.temp_vram_addr.set_coarse_x(0);
-                    ppu.temp_vram_addr.inner ^= 0b10000000000;
-                } else {
-                    ppu.temp_vram_addr.inner += 1;
-                }
-                ppu.set_fine_x_scroll(0);
-            } else {
-                ppu.set_fine_x_scroll(ppu.get_fine_x_scroll() + 1);
-            }
-        }
-
-        // step through vblank scanlines
-        for _ in 0..20 {
-            let cycles_in_scanline =
-                341 - (!ppu.is_even_frame() && ppu.current_scanline == -1) as u32;
-            ppu.cycle_count = 0;
-            while ppu.cycle_count < cycles_in_scanline as i32 {
-                ppu.step(cpu);
-            }
-            assert_eq!(ppu.cycle_count, cycles_in_scanline as i32);
-        }
-
-        let frame_index = ppu.renderer.render_frame();
-        let elapsed = start_of_frame.elapsed();
-
-        let time_left = match std::time::Duration::from_nanos(16_666_677).checked_sub(elapsed) {
-            Some(t) => t,
-            None => {
-                println!("frame took {} μs to render!", elapsed.as_micros());
-                std::time::Duration::default()
-            }
-        };
-
-        std::thread::sleep(time_left);
-        ppu.renderer.present(frame_index);
-    }
 }

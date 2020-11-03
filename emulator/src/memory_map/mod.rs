@@ -8,17 +8,16 @@ use super::{apu, cpu, ppu};
 // address spaces. allows implementing custom memory read/write
 // behavior for the various 'mappers' used by nes games/cartridges
 
-pub trait CpuMemoryMap<'a> {
+pub trait CpuMemoryMap {
     fn read(&mut self, addr: u16, cpu: &mut cpu::Cpu) -> u8;
     fn write(&mut self, addr: u16, val: u8, cpu: &mut cpu::Cpu);
-    fn get_ppu(&mut self) -> &mut ppu::Ppu<'a>;
+    fn get_ppu(&mut self) -> (&mut ppu::Ppu, &mut dyn PpuMemoryMap);
     fn get_apu(&mut self) -> &mut apu::Apu;
-
     // provided method for writing to the 'oamdma' register on the
     // ppu (0x4014). requires 'read()' to be implemented. intented
     // to be used by 'write()' implementations.
     fn write_oamdma(&mut self, val: u8, cpu: &mut cpu::Cpu) {
-        self.get_ppu().set_ppustatus_low_bits(val);
+        self.get_ppu().0.set_ppustatus_low_bits(val);
 
         // if 'val' is $XX, start address should be $XX00
         let start_addr = (val as u16) << 8;
@@ -26,7 +25,7 @@ pub trait CpuMemoryMap<'a> {
         for (i, addr) in ((start_addr)..=(start_addr + 0xff)).enumerate() {
             let byte = self.read(addr, cpu);
 
-            let ppu = self.get_ppu();
+            let (ppu, ppu_memory) = self.get_ppu();
             ppu.write_to_oam_and_increment_addr(byte);
 
             cpu.cycle_count += 2;
@@ -38,7 +37,7 @@ pub trait CpuMemoryMap<'a> {
                 // happens, the cpu could end up running quite far ahead of the ppu before it
                 // is ultimately caught up in the next frame. realistically, this shouldn't
                 // be a problem if it ever happens, but it may be worth keeping in mind
-                ppu.catch_up(cpu);
+                ppu.catch_up(cpu, ppu_memory);
             }
         }
 

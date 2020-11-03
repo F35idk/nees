@@ -1,5 +1,5 @@
 use super::PpuMemoryMap;
-use super::{PrimaryOam, SecondaryOam};
+use super::{PrimaryOam, SecondaryOam, SpriteSize};
 
 #[derive(Default)]
 pub struct SpriteDrawState {
@@ -144,7 +144,7 @@ impl SpriteDrawState {
         current_scanline: i16,
         current_scanline_dot: u16,
         pattern_table_addr: u16,
-        memory: &mut dyn PpuMemoryMap,
+        memory: &dyn PpuMemoryMap,
     ) {
         debug_assert!(matches!(current_scanline, 0..=239));
         debug_assert!(matches!(current_scanline_dot, 257..=320));
