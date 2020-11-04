@@ -64,16 +64,16 @@ impl NromPpuMemory {
 
 impl CpuMemoryMap for Nrom128CpuMemory {
     fn read(&mut self, mut addr: u16, cpu: &mut cpu::Cpu) -> u8 {
-        // address lines a13-a15 = 000 (0-0x1fff) => internal ram
-        if (addr >> 13) == 0 {
+        // internal ram
+        if super::is_0_to_1fff(addr) {
             // mask off bit 11 and 12 for mirroring
             addr &= !0b1100000000000;
             // TODO: revert to unchecked indexing
             return unsafe { *self.memory.get(addr as usize).unwrap() };
         }
 
-        // address lines a13-a15 = 001 (0x2000-0x3fff) => ppu registers
-        if (addr >> 13) == 1 {
+        // ppu registers
+        if super::is_2000_to_3fff(addr) {
             // catch ppu up to cpu before reading
             self.ppu.catch_up(cpu, &mut self.ppu_memory);
             // ignore all but low 3 bits
@@ -83,8 +83,8 @@ impl CpuMemoryMap for Nrom128CpuMemory {
                 .read_register_by_index(addr as u8, &self.ppu_memory);
         }
 
-        // address lines a13-a15 = 011 (0x6000-0x7fff) => prg ram
-        if (addr >> 13) == 3 {
+        //  prg ram
+        if super::is_6000_to_7fff(addr) {
             // mask off bit 12 for mirroring
             addr &= !0b1000000000000;
             // subtract offset of 0x1800 to get index in range 0x4800-0x57ff
@@ -109,7 +109,7 @@ impl CpuMemoryMap for Nrom128CpuMemory {
 
     fn write(&mut self, addr: u16, val: u8, cpu: &mut cpu::Cpu) {
         // NOTE: see 'calc_cpu_read_addr()' for comments explaining address calculation
-        if (addr >> 13) == 0 {
+        if super::is_0_to_1fff(addr) {
             unsafe {
                 *self
                     .memory
@@ -119,7 +119,7 @@ impl CpuMemoryMap for Nrom128CpuMemory {
             return;
         }
 
-        if (addr >> 13) == 1 {
+        if super::is_2000_to_3fff(addr) {
             // catch ppu up to cpu before writing
             self.ppu.catch_up(cpu, &mut self.ppu_memory);
 
@@ -129,7 +129,7 @@ impl CpuMemoryMap for Nrom128CpuMemory {
             return;
         }
 
-        if (addr >> 13) == 3 {
+        if super::is_6000_to_7fff(addr) {
             unsafe {
                 *self
                     .memory
@@ -276,12 +276,12 @@ impl Nrom256CpuMemory {
 
 impl CpuMemoryMap for Nrom256CpuMemory {
     fn read(&mut self, mut addr: u16, cpu: &mut cpu::Cpu) -> u8 {
-        if (addr >> 13) == 0 {
+        if super::is_0_to_1fff(addr) {
             addr &= !0b1100000000000;
             return unsafe { *self.memory.get(addr as usize).unwrap() };
         }
 
-        if (addr >> 13) == 1 {
+        if super::is_2000_to_3fff(addr) {
             // catch ppu up to cpu before reading
             self.ppu.catch_up(cpu, &mut self.ppu_memory);
             addr &= 0b111;
@@ -290,7 +290,7 @@ impl CpuMemoryMap for Nrom256CpuMemory {
                 .read_register_by_index(addr as u8, &self.ppu_memory);
         }
 
-        if (addr >> 13) == 3 {
+        if super::is_6000_to_7fff(addr) {
             addr &= !0b1000000000000;
             addr += 0x2800;
             return unsafe { *self.memory.get(addr as usize).unwrap() };
@@ -309,7 +309,7 @@ impl CpuMemoryMap for Nrom256CpuMemory {
     }
 
     fn write(&mut self, addr: u16, val: u8, cpu: &mut cpu::Cpu) {
-        if (addr >> 13) == 0 {
+        if super::is_0_to_1fff(addr) {
             unsafe {
                 *self
                     .memory
@@ -319,7 +319,7 @@ impl CpuMemoryMap for Nrom256CpuMemory {
             return;
         }
 
-        if (addr >> 13) == 1 {
+        if super::is_2000_to_3fff(addr) {
             self.ppu.catch_up(cpu, &mut self.ppu_memory);
             self.ppu
                 .write_register_by_index(addr as u8 & 0b111, val, cpu, &mut self.ppu_memory);
@@ -327,7 +327,7 @@ impl CpuMemoryMap for Nrom256CpuMemory {
             return;
         }
 
-        if (addr >> 13) == 3 {
+        if super::is_6000_to_7fff(addr) {
             unsafe {
                 *self
                     .memory
@@ -375,15 +375,15 @@ mod test {
     #[test]
     fn test_cpu_calc_addr_128() {
         fn calc_cpu_read_addr(addr: u16) -> u16 {
-            if (addr >> 13) == 0 {
+            if crate::memory_map::is_0_to_1fff(addr) {
                 return addr & !0b1100000000000;
             }
 
-            if (addr >> 13) == 1 {
+            if crate::memory_map::is_2000_to_3fff(addr) {
                 return (addr & 0b111) | 0x5800;
             }
 
-            if (addr >> 13) == 3 {
+            if crate::memory_map::is_6000_to_7fff(addr) {
                 return (addr & !0b1000000000000) - 0x1800;
             }
 
@@ -429,16 +429,16 @@ mod test {
     // TODO: when more mappers are added, make mapper-agnostic test functions
     fn test_cpu_calc_addr_256() {
         fn calc_cpu_read_addr(addr: u16) -> u16 {
-            if (addr >> 13) == 0 {
+            if crate::memory_map::is_0_to_1fff(addr) {
                 return addr & !0b1100000000000;
             }
 
-            if (addr >> 13) == 1 {
+            if crate::memory_map::is_2000_to_3fff(addr) {
                 // ppu registers
                 return addr & 0b111;
             }
 
-            if (addr >> 13) == 3 {
+            if crate::memory_map::is_6000_to_7fff(addr) {
                 return (addr & !0b1000000000000) - 0x2800;
             }
 

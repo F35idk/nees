@@ -55,3 +55,21 @@ pub trait PpuMemoryMap {
     fn write(&mut self, addr: u16, val: u8);
     fn get_pattern_tables<'a>(&'a self) -> &'a [u8; 0x2000];
 }
+
+// convenience functions for address calculation. to be
+// used by memory map implementations
+
+fn is_0_to_1fff(addr: u16) -> bool {
+    // address lines a13-a15 = 000 => (0-0x1fff, internal cpu ram)
+    (addr >> 13) == 0
+}
+
+fn is_2000_to_3fff(addr: u16) -> bool {
+    // address lines a13-a15 = 001 => (0x2000-0x3fff, ppu registers)
+    (addr >> 13) == 1
+}
+
+fn is_6000_to_7fff(addr: u16) -> bool {
+    // address lines a13-a15 = 011 => (0x6000-0x7fff, prg ram/wram)
+    (addr >> 13) == 3
+}
