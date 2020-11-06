@@ -11,20 +11,20 @@ pub fn init_nes() -> (cpu::Cpu, mem::Nrom128CpuMemory) {
     let mut win = win::XcbWindowWrapper::new("test", 20, 20).unwrap();
     let renderer = PixelRenderer::new(&mut win.connection, win.win, 256, 240).unwrap();
 
-    let ppu_memory = mem::NromPpuMemory::new();
-    let ppu = ppu::Ppu::new(renderer);
+    let ppu_memory = mem::NromPpuMemory::new(false);
+    let ppu = ppu::Ppu::new();
     let apu = apu::Apu {};
     let cpu = cpu::Cpu::default();
     let controller = ctrl::Controller::default();
-    let cpu_memory = mem::Nrom128CpuMemory::new(ppu, ppu_memory, apu, controller);
+    let cpu_memory = mem::Nrom128CpuMemory::new(ppu, ppu_memory, apu, controller, renderer);
 
     (cpu, cpu_memory)
 }
 
 pub fn reset_nes_state(cpu: &mut cpu::Cpu, cpu_memory: &mut mem::Nrom128CpuMemory) {
-    cpu_memory.ppu.reset_state();
-    cpu_memory.controller = ctrl::Controller::default();
-    cpu_memory.apu = apu::Apu {};
+    cpu_memory.base.ppu.reset_state();
+    cpu_memory.base.controller = ctrl::Controller::default();
+    cpu_memory.base.apu = apu::Apu {};
     *cpu = cpu::Cpu::default();
 }
 

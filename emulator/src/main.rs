@@ -34,23 +34,23 @@ fn main() {
     let mut win = win::XcbWindowWrapper::new("mynes", 1200, 600).unwrap();
     let renderer = PixelRenderer::new(&mut win.connection, win.win, 256, 240).unwrap();
     let key_syms = keysyms::KeySymbols::new(&win.connection);
-    let mut ppu_memory = mem::NromPpuMemory::new();
+
+    let hor_mirroring = match parse::get_mirroring_type(&rom) {
+        parse::MirroringType::Hor => true,
+        parse::MirroringType::Vert => false,
+        parse::MirroringType::FourScreen => panic!("nrom doesn't support 4-screen vram"),
+    };
 
     let prg_size = 0x4000 * (parse::get_prg_size(&rom) as usize);
     let chr_size = 0x2000 * (parse::get_chr_size(&rom) as usize);
 
-    match parse::get_mirroring_type(&rom) {
-        parse::MirroringType::Hor => ppu_memory.hor_mirroring = true,
-        parse::MirroringType::Vert => ppu_memory.hor_mirroring = false,
-        _ => (),
-    }
-
+    let mut ppu_memory = mem::NromPpuMemory::new(hor_mirroring);
     ppu_memory.load_chr_ram(&rom[0x10 + prg_size..=prg_size + chr_size + 0xf]);
 
-    let ppu = ppu::Ppu::new(renderer);
+    let ppu = ppu::Ppu::new();
     let apu = apu::Apu {};
     let controller = controller::Controller::default();
-    let mut cpu_memory = mem::Nrom256CpuMemory::new(ppu, ppu_memory, apu, controller);
+    let mut cpu_memory = mem::Nrom256CpuMemory::new(ppu, ppu_memory, apu, controller, renderer);
     let mut cpu = cpu::Cpu::default();
 
     cpu_memory.load_prg_rom(&rom[0x10..=prg_size + 0xf]);
@@ -61,8 +61,8 @@ fn main() {
         cpu_memory.read(0xfffd, &mut cpu),
     ]);
 
-    cpu_memory.ppu.current_scanline = 240;
-    cpu_memory.ppu.cycle_count = 0;
+    cpu_memory.base.ppu.current_scanline = 240;
+    cpu_memory.base.ppu.cycle_count = 0;
     cpu.cycle_count = 0;
     cpu.p = 4;
     cpu.sp = 0xfd;
@@ -103,14 +103,14 @@ fn main() {
                                 }
                                 Some((xcb::CONFIGURE_NOTIFY, _)) | Some((xcb::EXPOSE, _)) => {
                                     // make sure to re-render frame on resize/expose events
-                                    let idx = cpu_memory.ppu.renderer.render_frame();
-                                    cpu_memory.ppu.renderer.present(idx);
+                                    let idx = cpu_memory.base.renderer.render_frame();
+                                    cpu_memory.base.renderer.present(idx);
                                 }
                                 _ => (),
                             }
                         }
                     } else {
-                        cpu_memory.controller.set_key(key_sym);
+                        cpu_memory.base.controller.set_key(key_sym);
                     }
                 }
                 xcb::KEY_RELEASE => {
@@ -135,7 +135,7 @@ fn main() {
                     }
 
                     let key_sym = key_syms.release_lookup_keysym(key_release, 0);
-                    cpu_memory.controller.unset_key(key_sym);
+                    cpu_memory.base.controller.unset_key(key_sym);
 
                     current_event = next_event;
                     continue;
@@ -148,25 +148,27 @@ fn main() {
 
         // run cpu and ppu side by side until frame is done
         // OPTIMIZE: no need to constantly catch the ppu up
-        while !cpu_memory.ppu.is_frame_done() {
+        while !cpu_memory.base.ppu.is_frame_done() {
             cpu.exec_instruction(&mut cpu_memory);
-            cpu_memory
-                .ppu
-                .catch_up(&mut cpu, &mut cpu_memory.ppu_memory);
+            cpu_memory.base.ppu.catch_up(
+                &mut cpu,
+                &cpu_memory.ppu_memory,
+                util::pixels_to_u32(&mut cpu_memory.base.renderer),
+            );
         }
 
         // reset counters
-        cpu_memory.ppu.cycle_count -= cpu.cycle_count as i32 * 3;
-        cpu_memory.ppu.set_frame_done(false);
+        cpu_memory.base.ppu.cycle_count -= cpu.cycle_count as i32 * 3;
+        cpu_memory.base.ppu.set_frame_done(false);
         cpu.cycle_count = 0;
 
-        let idx = cpu_memory.ppu.renderer.render_frame();
+        let idx = cpu_memory.base.renderer.render_frame();
         let elapsed = start_of_frame.elapsed();
         let frame_time_left = std::time::Duration::from_nanos(16_666_677)
             .checked_sub(elapsed)
             .unwrap_or_default();
 
         std::thread::sleep(frame_time_left);
-        cpu_memory.ppu.renderer.present(idx);
+        cpu_memory.base.renderer.present(idx);
     }
 }

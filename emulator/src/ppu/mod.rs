@@ -153,7 +153,7 @@ impl VramAddrRegister {
 }
 
 impl Ppu {
-    pub fn new(renderer: PixelRenderer, memory: &mut dyn PpuMemoryMap) -> Self {
+    pub fn new() -> Self {
         Self {
             bg_state: bg_state::BgDrawState::default(),
             sprite_state: sprite_state::SpriteDrawState::default(),
@@ -168,7 +168,6 @@ impl Ppu {
             temp_vram_addr: VramAddrRegister { inner: 0 },
             current_scanline: -1,
             current_scanline_dot: 0,
-            renderer,
             misc_bits: 0b000_010,
             cycle_count: 0,
         }
@@ -403,7 +402,12 @@ impl Ppu {
 
     // catches the ppu up to the cpu (approximately). stops if the end
     // of the frame is reached before the ppu is fully caught up
-    pub fn catch_up(&mut self, cpu: &mut cpu::Cpu, memory: &dyn PpuMemoryMap) {
+    pub fn catch_up(
+        &mut self,
+        cpu: &mut cpu::Cpu,
+        memory: &dyn PpuMemoryMap,
+        framebuffer: &mut [u32; 256 * 240],
+    ) {
         // NOTE: cpu.cycle_count could be negative here
         let target_cycles = cpu.cycle_count as i32 * 3;
         let cycles_to_catch_up = target_cycles - (self.cycle_count);
@@ -426,20 +430,25 @@ impl Ppu {
 
         // step normally
         while (self.cycle_count as i32) < target_cycles {
-            self.step(cpu, memory);
+            self.step(cpu, memory, framebuffer);
         }
     }
 
     // steps the ppu for one tile worth of cycles (1-8 cycles).
     // only used internally by the ppu, in 'Ppu.catch_up()'
-    fn step(&mut self, cpu: &mut cpu::Cpu, memory: &dyn PpuMemoryMap) {
+    fn step(
+        &mut self,
+        cpu: &mut cpu::Cpu,
+        memory: &dyn PpuMemoryMap,
+        framebuffer: &mut [u32; 256 * 240],
+    ) {
         // NOTE: this function is split into multiple subfunctions
         {
             match self.current_scanline {
                 // pre-render scanline
                 -1 => step_pre_render_line(self, memory),
                 // visible scanlines
-                0..=239 => step_visible_line(self, memory),
+                0..=239 => step_visible_line(self, memory, framebuffer),
                 // idle scanline
                 240 => step_idle_line(self),
                 // vblank 'scanlines'
@@ -518,7 +527,11 @@ impl Ppu {
             }
         }
 
-        fn step_visible_line(ppu: &mut Ppu, memory: &dyn PpuMemoryMap) {
+        fn step_visible_line(
+            ppu: &mut Ppu,
+            memory: &dyn PpuMemoryMap,
+            framebuffer: &mut [u32; 256 * 240],
+        ) {
             match ppu.current_scanline_dot {
                 0 => {
                     ppu.current_scanline_dot += 1;
@@ -563,7 +576,6 @@ impl Ppu {
                         }
                     }
 
-                    let framebuffer: *mut _ = util::pixels_to_u32(&mut ppu.renderer);
                     let sprite_zero_hit = ppu.draw_8_pixels(framebuffer, memory);
 
                     if sprite_zero_hit {
@@ -719,7 +731,12 @@ impl Ppu {
 
     // steps the ppu for a scanline worth of cycles. only
     // used internally by the ppu, in 'Ppu.catch_up()'
-    fn step_scanline(&mut self, cpu: &mut cpu::Cpu, memory: &dyn PpuMemoryMap) {
+    fn step_scanline(
+        &mut self,
+        cpu: &mut cpu::Cpu,
+        memory: &dyn PpuMemoryMap,
+        framebuffer: &mut [u32; 256 * 240],
+    ) {
         // NOTE: this function is split into multiple subfunctions
         {
             debug_assert_eq!(self.current_scanline_dot, 0);
@@ -728,7 +745,7 @@ impl Ppu {
                 // pre-render scanline
                 -1 => step_pre_render_line_full(self, memory),
                 // visible scanlines
-                0..=239 => step_visible_line_full(self, memory),
+                0..=239 => step_visible_line_full(self, memory, framebuffer),
                 // idle scanline
                 240 => step_idle_line_full(self),
                 // vblank 'scanlines'
@@ -759,7 +776,11 @@ impl Ppu {
             ppu.cycle_count += 341;
         }
 
-        fn step_visible_line_full(ppu: &mut Ppu, memory: &dyn PpuMemoryMap) {
+        fn step_visible_line_full(
+            ppu: &mut Ppu,
+            memory: &dyn PpuMemoryMap,
+            framebuffer: &mut [u32; 256 * 240],
+        ) {
             ppu.current_scanline_dot = 1;
             ppu.sprite_state.sprites_found = 0;
             ppu.sprite_state.eval_done = false;
@@ -789,7 +810,6 @@ impl Ppu {
             for _ in 0..32 {
                 // OPTIMIZE: make separate drawing
                 // algorithm for drawing entire scanlines
-                let framebuffer: *mut _ = util::pixels_to_u32(&mut ppu.renderer);
                 let sprite_zero_hit = ppu.draw_8_pixels(framebuffer, memory);
 
                 if sprite_zero_hit {
@@ -886,7 +906,7 @@ impl Ppu {
 
     // draws 8 pixels, without making any state changes to 'self', apart from
     // writing to 'framebuffer'. returns whether sprite zero was hit
-    fn draw_8_pixels(&self, framebuffer: *mut [u32; 256 * 240], memory: &dyn PpuMemoryMap) -> bool {
+    fn draw_8_pixels(&self, framebuffer: &mut [u32; 256 * 240], memory: &dyn PpuMemoryMap) -> bool {
         {
             if self.is_background_enable() || self.is_sprites_enable() {
                 return draw_8_pixels_bg_and_sprites(self, framebuffer, memory);
@@ -898,7 +918,7 @@ impl Ppu {
 
         fn draw_8_pixels_bg_and_sprites(
             ppu: &Ppu,
-            framebuffer: *mut [u32; 256 * 240],
+            framebuffer: &mut [u32; 256 * 240],
             memory: &dyn PpuMemoryMap,
         ) -> bool {
             let mut sprite_zero_hit = false;
@@ -973,8 +993,9 @@ impl Ppu {
 
                 let screen_x = (ppu.current_scanline_dot - 1) as usize + i as usize;
                 let screen_y = ppu.current_scanline as usize;
+
                 // TODO: OPTIMIZE: unchecked indexing
-                unsafe { (*framebuffer)[screen_y * 256 + screen_x] = pixel_color };
+                framebuffer[screen_y * 256 + screen_x] = pixel_color;
             }
 
             sprite_zero_hit
@@ -984,7 +1005,7 @@ impl Ppu {
         // >= 0x3f00, draws the color 'current_vram_addr' points to)
         fn draw_8_pixels_backdrop_color(
             ppu: &Ppu,
-            framebuffer: *mut [u32; 256 * 240],
+            framebuffer: &mut [u32; 256 * 240],
             memory: &dyn PpuMemoryMap,
         ) {
             for i in 0..8 {
@@ -1006,7 +1027,7 @@ impl Ppu {
 
                 let screen_x = (ppu.current_scanline_dot - 1 + i as u16) as usize;
                 let screen_y = ppu.current_scanline as usize;
-                unsafe { (*framebuffer)[screen_y * 256 + screen_x] = pixel_color };
+                framebuffer[screen_y * 256 + screen_x] = pixel_color;
             }
         }
 
