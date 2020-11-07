@@ -174,7 +174,7 @@ impl CpuMemoryMap for NromCpuMemory {
             self.base
                 .ppu
                 .catch_up(cpu, &mut self.ppu_memory, framebuffer);
-            self.write_oamdma(val, cpu);
+            super::write_oamdma(self, val, cpu);
             return;
         }
 

@@ -41,42 +41,43 @@ pub trait CpuMemoryMap {
     fn base(&mut self) -> (&mut CpuMemoryMapBase, &mut dyn PpuMemoryMap);
     fn read(&mut self, addr: u16, cpu: &mut cpu::Cpu) -> u8;
     fn write(&mut self, addr: u16, val: u8, cpu: &mut cpu::Cpu);
-    // provided method for writing to the 'oamdma' register on the
-    // ppu (0x4014). requires 'read()' to be implemented. intented
-    // to be used by 'write()' implementations.
-    fn write_oamdma(&mut self, val: u8, cpu: &mut cpu::Cpu) {
-        self.base().0.ppu.set_ppustatus_low_bits(val);
-
-        // if 'val' is $XX, start address should be $XX00
-        let start_addr = (val as u16) << 8;
-
-        for (i, addr) in ((start_addr)..=(start_addr + 0xff)).enumerate() {
-            let byte = self.read(addr, cpu);
-            self.base().0.ppu.write_to_oam_and_increment_addr(byte);
-
-            cpu.cycle_count += 2;
-
-            // catch the ppu up to the cpu on every 4th iteration
-            if i % 4 == 0 {
-                let (base, ppu_memory) = self.base();
-                base.ppu
-                    .catch_up(cpu, ppu_memory, util::pixels_to_u32(&mut base.renderer));
-            }
-        }
-
-        // set 'Cpu.nmi' = false in case a call to 'Ppu.catch_up()' set it to true
-        // TODO: less hacky solution (pass 'do_nmi' param to 'catch_up()' or something)
-        cpu.nmi = false;
-
-        // in total, dma should take 513 cpu cycles (or 514 if on an odd cpu cycle)
-        cpu.cycle_count += 1 + (cpu.cycle_count % 2);
-    }
 }
 
 pub trait PpuMemoryMap {
     fn read(&self, addr: u16) -> u8;
     fn write(&mut self, addr: u16, val: u8);
     fn get_pattern_tables<'a>(&'a self) -> &'a [u8; 0x2000];
+}
+
+// utility function for writing to the 'oamdma' register on the ppu
+// (0x4014). only requires 'CpuMemoryMap::read()' to be implemented.
+// intented to be used by 'CpuMemoryMap::write()' implementations.
+fn write_oamdma<M: CpuMemoryMap>(memory: &mut M, val: u8, cpu: &mut cpu::Cpu) {
+    memory.base().0.ppu.set_ppustatus_low_bits(val);
+
+    // if 'val' is $XX, start address should be $XX00
+    let start_addr = (val as u16) << 8;
+
+    for (i, addr) in ((start_addr)..=(start_addr + 0xff)).enumerate() {
+        let byte = memory.read(addr, cpu);
+        memory.base().0.ppu.write_to_oam_and_increment_addr(byte);
+
+        cpu.cycle_count += 2;
+
+        // catch the ppu up to the cpu on every 4th iteration
+        if i % 4 == 0 {
+            let (base, ppu_memory) = memory.base();
+            base.ppu
+                .catch_up(cpu, ppu_memory, util::pixels_to_u32(&mut base.renderer));
+        }
+    }
+
+    // set 'Cpu.nmi' = false in case a call to 'Ppu.catch_up()' set it to true
+    // TODO: less hacky solution (pass 'do_nmi' param to 'catch_up()' or something)
+    cpu.nmi = false;
+
+    // in total, dma should take 513 cpu cycles (or 514 if on an odd cpu cycle)
+    cpu.cycle_count += 1 + (cpu.cycle_count % 2);
 }
 
 // convenience functions for address calculation. to be
