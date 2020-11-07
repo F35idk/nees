@@ -1,6 +1,6 @@
 mod nrom;
 
-pub use nrom::{Nrom128CpuMemory, Nrom256CpuMemory, NromPpuMemory};
+pub use nrom::{NromCpuMemory, NromPpuMemory};
 
 use crate::{apu, controller as ctrl, cpu, ppu, util, PixelRenderer};
 

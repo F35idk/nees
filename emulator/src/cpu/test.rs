@@ -2,7 +2,7 @@ use super::super::{memory_map as mem, util};
 use super::Cpu;
 use mem::{CpuMemoryMap, PpuMemoryMap};
 
-fn test_adc(cpu: &mut Cpu, memory: &mut mem::Nrom128CpuMemory) {
+fn test_adc(cpu: &mut Cpu, memory: &mut mem::NromCpuMemory) {
     cpu.p = 0x6e;
     cpu.adc(0x69);
 
@@ -59,7 +59,7 @@ fn test_adc(cpu: &mut Cpu, memory: &mut mem::Nrom128CpuMemory) {
     assert_eq!(cpu.p, 0x24);
 }
 
-fn test_and(cpu: &mut Cpu, memory: &mut mem::Nrom128CpuMemory) {
+fn test_and(cpu: &mut Cpu, memory: &mut mem::NromCpuMemory) {
     cpu.a = 0x55;
     cpu.p = 0;
     let _ = cpu.and(0xaa);
@@ -81,7 +81,7 @@ fn test_and(cpu: &mut Cpu, memory: &mut mem::Nrom128CpuMemory) {
     assert_eq!(cpu.p, 2); // zero-flag should be set
 }
 
-fn test_asl(cpu: &mut Cpu, memory: &mut mem::Nrom128CpuMemory) {
+fn test_asl(cpu: &mut Cpu, memory: &mut mem::NromCpuMemory) {
     cpu.a = 0x80;
     cpu.p = 0xe5;
     // ASL A
@@ -112,7 +112,7 @@ fn test_asl(cpu: &mut Cpu, memory: &mut mem::Nrom128CpuMemory) {
     assert_eq!(cpu.p, 0xa4);
 }
 
-fn test_branch_instrs(cpu: &mut Cpu, memory: &mut mem::Nrom128CpuMemory) {
+fn test_branch_instrs(cpu: &mut Cpu, memory: &mut mem::NromCpuMemory) {
     cpu.p = 0;
     cpu.pc = 0x100;
     let cyc = cpu.debug_exec_opcode([0x90, 0x80, 00], memory);
@@ -142,7 +142,7 @@ fn test_branch_instrs(cpu: &mut Cpu, memory: &mut mem::Nrom128CpuMemory) {
     assert_eq!(cyc, 3);
 }
 
-fn test_bit(cpu: &mut Cpu, memory: &mut mem::Nrom128CpuMemory) {
+fn test_bit(cpu: &mut Cpu, memory: &mut mem::NromCpuMemory) {
     cpu.p = 0xa4;
     cpu.a = 0xff;
     cpu.pc = 0x40;
@@ -163,7 +163,7 @@ fn test_cmp(cpu: &mut Cpu) {
     assert_eq!(cpu.p, 0xa4);
 }
 
-fn test_dec_inc(cpu: &mut Cpu, memory: &mut mem::Nrom128CpuMemory) {
+fn test_dec_inc(cpu: &mut Cpu, memory: &mut mem::NromCpuMemory) {
     memory.write(0x78u16, 0x80, cpu);
     cpu.p = 0xa4;
     // DEC $78
@@ -174,7 +174,7 @@ fn test_dec_inc(cpu: &mut Cpu, memory: &mut mem::Nrom128CpuMemory) {
     assert_eq!(cpu.p, 0x24);
 }
 
-fn test_eor(cpu: &mut Cpu, memory: &mut mem::Nrom128CpuMemory) {
+fn test_eor(cpu: &mut Cpu, memory: &mut mem::NromCpuMemory) {
     cpu.p = 0x6c;
     cpu.a = 0x5f;
     // EOR #$AA
@@ -198,7 +198,7 @@ fn test_eor(cpu: &mut Cpu, memory: &mut mem::Nrom128CpuMemory) {
     assert_eq!(cpu.p, 0xe4);
 }
 
-fn test_jmp(cpu: &mut Cpu, memory: &mut mem::Nrom128CpuMemory) {
+fn test_jmp(cpu: &mut Cpu, memory: &mut mem::NromCpuMemory) {
     // JMP $c5f5
     cpu.debug_exec_opcode([0x4c, 0xf5, 0xc5], memory);
 
@@ -213,7 +213,7 @@ fn test_jmp(cpu: &mut Cpu, memory: &mut mem::Nrom128CpuMemory) {
     assert_eq!(cpu.pc, 0x300);
 }
 
-fn test_jsr(cpu: &mut Cpu, memory: &mut mem::Nrom128CpuMemory) {
+fn test_jsr(cpu: &mut Cpu, memory: &mut mem::NromCpuMemory) {
     cpu.pc = 0x300;
     cpu.sp = 0xff;
 
@@ -260,7 +260,7 @@ fn test_jsr(cpu: &mut Cpu, memory: &mut mem::Nrom128CpuMemory) {
     );
 }
 
-fn test_jsr_2(cpu: &mut Cpu, memory: &mut mem::Nrom128CpuMemory) {
+fn test_jsr_2(cpu: &mut Cpu, memory: &mut mem::NromCpuMemory) {
     cpu.pc = 0x1620;
     cpu.sp = 0xfb;
     cpu.x = 0x33;
@@ -280,7 +280,7 @@ fn test_jsr_2(cpu: &mut Cpu, memory: &mut mem::Nrom128CpuMemory) {
     );
 }
 
-fn test_ld(cpu: &mut Cpu, memory: &mut mem::Nrom128CpuMemory) {
+fn test_ld(cpu: &mut Cpu, memory: &mut mem::NromCpuMemory) {
     memory.write(0x89u16, 0x00, cpu);
     memory.write(0x8au16, 0x03, cpu);
     memory.write(0x300u16, 0x89, cpu);
@@ -312,7 +312,7 @@ fn test_ora() {
     // TODO: ..
 }
 
-fn test_push_pull(cpu: &mut Cpu, memory: &mut mem::Nrom128CpuMemory) {
+fn test_push_pull(cpu: &mut Cpu, memory: &mut mem::NromCpuMemory) {
     cpu.a = 0xff;
     cpu.sp = 0xfb;
     // PHA (push accumulator)
@@ -340,7 +340,7 @@ fn test_push_pull(cpu: &mut Cpu, memory: &mut mem::Nrom128CpuMemory) {
     assert_eq!(cpu.sp, 0xfb);
 }
 
-fn test_rol_ror(cpu: &mut Cpu, memory: &mut mem::Nrom128CpuMemory) {
+fn test_rol_ror(cpu: &mut Cpu, memory: &mut mem::NromCpuMemory) {
     cpu.a = 0x55;
     cpu.p = 0x24;
     let cyc = cpu.debug_exec_opcode([0x2a, 00, 00], memory);
@@ -374,7 +374,7 @@ fn test_rti() {
     // TODO: ..
 }
 
-fn test_rts(cpu: &mut Cpu, memory: &mut mem::Nrom128CpuMemory) {
+fn test_rts(cpu: &mut Cpu, memory: &mut mem::NromCpuMemory) {
     cpu.pc = 0x0401;
     cpu.sp = 0xf0;
     // JSR $182e

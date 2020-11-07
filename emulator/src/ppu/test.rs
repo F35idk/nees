@@ -66,7 +66,7 @@ fn test_registers(cpu: &mut cpu::Cpu, ppu: &mut super::Ppu, ppu_memory: &mut dyn
     assert_eq!(ppu.current_vram_addr.inner, 0x4fe8 % 0x4000);
 }
 
-fn test_write_2007(cpu: &mut cpu::Cpu, cpu_memory: &mut mem::Nrom128CpuMemory) {
+fn test_write_2007(cpu: &mut cpu::Cpu, cpu_memory: &mut mem::NromCpuMemory) {
     // LDA #ee
     cpu_memory.write(0u16, 0xa9, cpu);
     cpu_memory.write(1u16, 0xee, cpu);
@@ -109,7 +109,7 @@ fn test_write_2007(cpu: &mut cpu::Cpu, cpu_memory: &mut mem::Nrom128CpuMemory) {
     );
 }
 
-fn test_write_2000(cpu: &mut cpu::Cpu, cpu_memory: &mut mem::Nrom128CpuMemory) {
+fn test_write_2000(cpu: &mut cpu::Cpu, cpu_memory: &mut mem::NromCpuMemory) {
     // LDA #ff
     cpu_memory.write(0u16, 0xa9, cpu);
     cpu_memory.write(1u16, 0xff, cpu);
@@ -126,7 +126,7 @@ fn test_write_2000(cpu: &mut cpu::Cpu, cpu_memory: &mut mem::Nrom128CpuMemory) {
     assert_eq!(cpu_memory.base.ppu.temp_vram_addr.inner, 0b11_00000_00000)
 }
 
-fn test_read_2002(cpu: &mut cpu::Cpu, cpu_memory: &mut mem::Nrom128CpuMemory) {
+fn test_read_2002(cpu: &mut cpu::Cpu, cpu_memory: &mut mem::NromCpuMemory) {
     // LDA $2002
     cpu_memory.write(0u16, 0xad, cpu);
     cpu_memory.write(1u16, 02, cpu);
@@ -139,7 +139,7 @@ fn test_read_2002(cpu: &mut cpu::Cpu, cpu_memory: &mut mem::Nrom128CpuMemory) {
     assert_eq!(cpu_memory.base.ppu.get_low_bits_toggle(), false);
 }
 
-fn test_write_2005(cpu: &mut cpu::Cpu, cpu_memory: &mut mem::Nrom128CpuMemory) {
+fn test_write_2005(cpu: &mut cpu::Cpu, cpu_memory: &mut mem::NromCpuMemory) {
     // LDA #7d (0b01111_101)
     cpu_memory.write(0u16, 0xa9, cpu);
     cpu_memory.write(1u16, 0x7d, cpu);
@@ -177,7 +177,7 @@ fn test_write_2005(cpu: &mut cpu::Cpu, cpu_memory: &mut mem::Nrom128CpuMemory) {
     );
 }
 
-fn test_write_2006(cpu: &mut cpu::Cpu, cpu_memory: &mut mem::Nrom128CpuMemory) {
+fn test_write_2006(cpu: &mut cpu::Cpu, cpu_memory: &mut mem::NromCpuMemory) {
     // LDA #ed (0b11101101)
     cpu_memory.write(0u16, 0xa9, cpu);
     cpu_memory.write(1u16, 0xed, cpu);
@@ -225,7 +225,7 @@ fn test_write_2006(cpu: &mut cpu::Cpu, cpu_memory: &mut mem::Nrom128CpuMemory) {
     );
 }
 
-fn test_write_2003_read_2004(cpu: &mut cpu::Cpu, cpu_memory: &mut mem::Nrom128CpuMemory) {
+fn test_write_2003_read_2004(cpu: &mut cpu::Cpu, cpu_memory: &mut mem::NromCpuMemory) {
     // LDA #ff
     cpu_memory.write(0u16, 0xa9, cpu);
     cpu_memory.write(1u16, 0xff, cpu);

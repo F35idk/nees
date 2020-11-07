@@ -7,7 +7,7 @@ pub fn pixels_to_u32<'a>(pixel_renderer: &'a mut PixelRenderer) -> &'a mut [u32;
 }
 
 // used by test functions
-pub fn init_nes() -> (cpu::Cpu, mem::Nrom128CpuMemory) {
+pub fn init_nes() -> (cpu::Cpu, mem::NromCpuMemory) {
     let mut win = win::XcbWindowWrapper::new("test", 20, 20).unwrap();
     let renderer = PixelRenderer::new(&mut win.connection, win.win, 256, 240).unwrap();
 
@@ -16,12 +16,13 @@ pub fn init_nes() -> (cpu::Cpu, mem::Nrom128CpuMemory) {
     let apu = apu::Apu {};
     let cpu = cpu::Cpu::default();
     let controller = ctrl::Controller::default();
-    let cpu_memory = mem::Nrom128CpuMemory::new(ppu, ppu_memory, apu, controller, renderer);
+    let cpu_memory =
+        mem::NromCpuMemory::new_empty(0x4000, ppu, ppu_memory, apu, controller, renderer);
 
     (cpu, cpu_memory)
 }
 
-pub fn reset_nes_state(cpu: &mut cpu::Cpu, cpu_memory: &mut mem::Nrom128CpuMemory) {
+pub fn reset_nes_state(cpu: &mut cpu::Cpu, cpu_memory: &mut mem::NromCpuMemory) {
     cpu_memory.base.ppu.reset_state();
     cpu_memory.base.controller = ctrl::Controller::default();
     cpu_memory.base.apu = apu::Apu {};

@@ -50,10 +50,15 @@ fn main() {
     let ppu = ppu::Ppu::new();
     let apu = apu::Apu {};
     let controller = controller::Controller::default();
-    let mut cpu_memory = mem::Nrom256CpuMemory::new(ppu, ppu_memory, apu, controller, renderer);
+    let mut cpu_memory = mem::NromCpuMemory::new(
+        &rom[0x10..=prg_size + 0xf],
+        ppu,
+        ppu_memory,
+        apu,
+        controller,
+        renderer,
+    );
     let mut cpu = cpu::Cpu::default();
-
-    cpu_memory.load_prg_rom(&rom[0x10..=prg_size + 0xf]);
 
     // set pc = reset vector
     cpu.pc = u16::from_le_bytes([
