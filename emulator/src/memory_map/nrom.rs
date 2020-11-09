@@ -265,10 +265,6 @@ impl PpuMemoryMap for NromPpuMemory {
 
         unsafe { *self.chr_ram.get_unchecked_mut(addr as usize) = val };
     }
-
-    fn get_pattern_tables(&self) -> &[u8; 0x2000] {
-        &self.chr_ram
-    }
 }
 
 mod test {

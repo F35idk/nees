@@ -36,22 +36,20 @@ impl BgDrawState {
     pub fn fetch_current_tile_data(&mut self, ppu: *const Ppu, memory: &dyn PpuMemoryMap) {
         let ppu: &Ppu = unsafe { &*(ppu as *const _) };
 
-        let current_bg_tile = {
+        // get the high and low bitplanes for the current row of the current tile
+        let (bg_bitplane_lo, bg_bitplane_hi) = {
             // get tile index from nametable using lower 12 bits of 'current_vram_addr' + 0x2000
             let addr = (ppu.current_vram_addr.get_addr() & 0xfff) | 0x2000;
             let tile_index = memory.read(addr);
 
-            let background_table_addr = ppu.get_background_pattern_table_addr() as usize;
-            let pattern_table_ptr = memory.get_pattern_tables();
+            let background_table_addr = ppu.get_background_pattern_table_addr() as u16;
+            let tile_addr = background_table_addr + ((tile_index as u16) << 4);
+            let fine_y = ppu.current_vram_addr.get_fine_y();
 
-            unsafe {
-                // get tile from pattern table using the tile index
-                // SAFETY: 'current_tile_index' * 16 cannot be
-                // larger than 0x1000 (the size of a pattern table)
-                *((pattern_table_ptr
-                    .get_unchecked(background_table_addr + tile_index as usize * 16))
-                    as *const _ as *const [u8; 16])
-            }
+            (
+                memory.read(tile_addr + fine_y as u16),
+                memory.read(tile_addr + 8 + fine_y as u16),
+            )
         };
 
         let bg_palette_idx = {
@@ -71,11 +69,6 @@ impl BgDrawState {
 
             (attribute >> shift_amt) & 0b11
         };
-
-        // get the high and low bitplanes for the current row of the current tile
-        let fine_y = ppu.current_vram_addr.get_fine_y();
-        let bg_bitplane_lo = unsafe { *current_bg_tile.get_unchecked(0 + fine_y as usize) };
-        let bg_bitplane_hi = unsafe { *current_bg_tile.get_unchecked(8 + fine_y as usize) };
 
         // store the data
         {

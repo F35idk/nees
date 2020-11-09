@@ -46,7 +46,6 @@ pub trait CpuMemoryMap {
 pub trait PpuMemoryMap {
     fn read(&self, addr: u16) -> u8;
     fn write(&mut self, addr: u16, val: u8);
-    fn get_pattern_tables<'a>(&'a self) -> &'a [u8; 0x2000];
 }
 
 // utility function for writing to the 'oamdma' register on the ppu

@@ -161,52 +161,42 @@ impl SpriteDrawState {
             let is_vert_flipped = attributes & 0b10000000 != 0;
             let tile_index = sprite.tile_index;
 
-            let tile = {
-                let pattern_table_ptr = memory.get_pattern_tables();
-
-                match sprite_height {
-                    SpriteSize::S8x8 => unsafe {
-                        *((pattern_table_ptr
-                            .get_unchecked(pattern_table_addr as usize + tile_index as usize * 16))
-                            as *const _ as *const [u8; 16])
-                    },
+            let (tile_bitplane_lo, tile_bitplane_hi) = {
+                let tile_addr = match sprite_height {
+                    SpriteSize::S8x8 => pattern_table_addr + ((tile_index as u16) << 4),
                     SpriteSize::S8x16 => {
-                        let pattern_table_addr = (tile_index as u16 & 1) << 12;
-                        let mut tile_index = tile_index & !1;
+                        // address of pattern table is stored in the lowst tile index bit
+                        let pattern_table_addr_8x16 = (tile_index as u16 & 1) << 12;
+                        let mut tile_index_8x16 = tile_index & !1;
 
                         debug_assert!((current_scanline as u8).wrapping_sub(sprite.y) < 16);
 
                         if (current_scanline as u8).wrapping_sub(sprite.y) >= 8 {
-                            tile_index |= 1;
+                            tile_index_8x16 |= 1;
                         }
 
                         if is_vert_flipped {
-                            tile_index ^= 1;
+                            tile_index_8x16 ^= 1;
                         }
 
-                        unsafe {
-                            *((pattern_table_ptr.get_unchecked(
-                                pattern_table_addr as usize + tile_index as usize * 16,
-                            )) as *const _ as *const [u8; 16])
-                        }
+                        pattern_table_addr_8x16 + ((tile_index_8x16 as u16) << 4)
                     }
+                };
+
+                // NOTE: 'sprite.y' is 1 less than the screen y coordinate
+                let y_offset = (current_scanline as u16 - y as u16) % 8;
+                if is_vert_flipped {
+                    // use flipped tile bitplanes if sprite is vertically flipped
+                    (
+                        memory.read(tile_addr + 7 - y_offset),
+                        memory.read(tile_addr + 15 - y_offset),
+                    )
+                } else {
+                    (
+                        memory.read(tile_addr + y_offset),
+                        memory.read(tile_addr + 8 + y_offset),
+                    )
                 }
-            };
-
-            // NOTE: 'sprite.y' is 1 less than the screen y coordinate
-            let y_offset = (current_scanline as u8 - y) % 8;
-
-            let (tile_bitplane_lo, tile_bitplane_hi) = if is_vert_flipped {
-                // use flipped tile bitplanes if sprite is vertically flipped
-                (
-                    unsafe { *tile.get_unchecked(7 - (y_offset as usize)) },
-                    unsafe { *tile.get_unchecked(15 - (y_offset as usize)) },
-                )
-            } else {
-                (
-                    unsafe { *tile.get_unchecked(0 + (y_offset as usize)) },
-                    unsafe { *tile.get_unchecked(8 + (y_offset as usize)) },
-                )
             };
 
             // FIXME: indexing
