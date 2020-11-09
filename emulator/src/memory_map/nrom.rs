@@ -130,7 +130,6 @@ impl CpuMemoryMap for NromCpuMemory {
     }
 
     fn write(&mut self, addr: u16, val: u8, cpu: &mut cpu::Cpu) {
-        // NOTE: see 'calc_cpu_read_addr()' for comments explaining address calculation
         if super::is_0_to_1fff(addr) {
             unsafe {
                 *self
@@ -193,39 +192,21 @@ impl CpuMemoryMap for NromCpuMemory {
 
 impl PpuMemoryMap for NromPpuMemory {
     // NOTE: passing addresses higher than 0x3fff will read from palette ram
-    fn read(&self, mut addr: u16) -> u8 {
+    fn read(&self, addr: u16) -> u8 {
         if cfg!(not(test)) {
             debug_assert!(addr <= 0x3fff);
         }
 
         // if address points to palette indices
         if addr >= 0x3f00 {
-            // ignore all but lowest 5 bits (32 palettes)
-            addr &= 0b11111;
-
-            // ensure 0x10, 0x14, 0x18, 0x1c are mirrored down
-            if matches!(addr, 0x10 | 0x14 | 0x18 | 0x1c) {
-                addr &= 0xf;
-            }
-
+            let addr = super::calc_ppu_palette_addr(addr);
             return unsafe { *self.palettes.get_unchecked(addr as usize) };
         }
 
         // if address is in the range 0x2000-0x3eff
         if addr >= 0x2000 {
-            // mirror down to 0-0xfff
-            addr &= !0x3000;
-
-            // apply horizontal nametable mirroring
-            if self.hor_mirroring {
-                let high_bits = addr & 0b110000000000;
-                addr -= (high_bits.count_ones() as u16) << 10;
-            }
-
-            addr &= 0x7ff;
-
-            // TODO: unchecked
-            return unsafe { *self.nametables.get(addr as usize).unwrap() };
+            let addr = super::calc_ppu_nametable_addr_with_mirroring(addr, self.hor_mirroring);
+            return unsafe { *self.nametables.get_unchecked(addr as usize) };
         }
 
         // address is in the range 0-0x1fff (chr ram)
@@ -233,32 +214,19 @@ impl PpuMemoryMap for NromPpuMemory {
     }
 
     // NOTE: passing addresses higher than 0x3fff will write to palette ram
-    fn write(&mut self, mut addr: u16, val: u8) {
+    fn write(&mut self, addr: u16, val: u8) {
         if cfg!(not(test)) {
             debug_assert!(addr <= 0x3fff);
         }
 
         if addr >= 0x3f00 {
-            addr &= 0b11111;
-
-            if matches!(addr, 0x10 | 0x14 | 0x18 | 0x1c) {
-                addr &= 0xf;
-            }
-
+            let addr = super::calc_ppu_palette_addr(addr);
             unsafe { *self.palettes.get_unchecked_mut(addr as usize) = val };
             return;
         }
 
         if addr >= 0x2000 {
-            addr &= !0x3000;
-
-            if self.hor_mirroring {
-                let high_bits = addr & 0b110000000000;
-                addr -= (high_bits.count_ones() as u16) << 10;
-            }
-
-            addr &= 0x7ff;
-
+            let addr = super::calc_ppu_nametable_addr_with_mirroring(addr, self.hor_mirroring);
             unsafe { *self.nametables.get_mut(addr as usize).unwrap() = val };
             return;
         }

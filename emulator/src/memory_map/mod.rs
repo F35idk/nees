@@ -96,3 +96,54 @@ fn is_6000_to_7fff(addr: u16) -> bool {
     // address lines a13-a15 = 011 => (0x6000-0x7fff, prg ram/wram)
     (addr >> 13) == 3
 }
+
+fn is_8000_to_9fff(addr: u16) -> bool {
+    (addr >> 13) == 4
+}
+
+fn is_a000_to_bfff(addr: u16) -> bool {
+    (addr >> 13) == 5
+}
+
+fn is_c000_to_dfff(addr: u16) -> bool {
+    (addr >> 13) == 6
+}
+
+fn is_e000_to_ffff(addr: u16) -> bool {
+    (addr >> 13) == 7
+}
+
+// assumes 'addr' points to ppu palette memory and applies
+// proper mirroring to it. returns a 5-bit index
+fn calc_ppu_palette_addr(mut addr: u16) -> u8 {
+    debug_assert!(addr >= 0x3f00);
+
+    // ignore all but lowest 5 bits (32 palettes)
+    addr &= 0b11111;
+
+    // ensure 0x10, 0x14, 0x18, 0x1c are mirrored down
+    if matches!(addr, 0x10 | 0x14 | 0x18 | 0x1c) {
+        addr &= 0xf;
+    }
+
+    addr as u8
+}
+
+// assumes 'addr' points to a nametable in ppu memory
+// (0x2000-0x3eff) and applies proper mirroring to it.
+// returns a value in the range 0-0x7ff.
+// NOTE: this assumes either horizontal or vertical
+// mirroring, not neither
+fn calc_ppu_nametable_addr_with_mirroring(mut addr: u16, hor_mirroring: bool) -> u16 {
+    debug_assert!(matches!(addr, 0x2000..=0x3eff));
+
+    addr &= !0x3000;
+
+    // apply horizontal nametable mirroring
+    if hor_mirroring {
+        let high_bits = addr & 0b110000000000;
+        addr -= (high_bits.count_ones() as u16) << 10;
+    }
+
+    addr & 0x7ff
+}
