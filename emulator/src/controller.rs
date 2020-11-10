@@ -1,29 +1,20 @@
 use super::win;
+#[macro_use]
+use super::util;
 
 #[derive(Default)]
 pub struct Controller {
     key_state_bitmap: u8,
     key_state_shift_reg: u8,
-    strobe_bits: u8,
+    strobe_bits: StrobeBits::BitField,
 }
 
+bitfield!(StrobeBits<u8>(
+    strobe_enable: 0..0,
+    shift_enable: 1..1,
+));
+
 impl Controller {
-    pub fn is_strobe_enable(&self) -> bool {
-        self.strobe_bits & 1 != 0
-    }
-
-    fn set_strobe(&mut self, strobe: bool) {
-        self.strobe_bits = (self.strobe_bits & !1) | (strobe as u8);
-    }
-
-    fn is_shift_enable(&self) -> bool {
-        self.strobe_bits & 2 != 0
-    }
-
-    fn set_shift(&mut self, mode: bool) {
-        self.strobe_bits = (self.strobe_bits & !2) | ((mode as u8) << 1);
-    }
-
     pub fn set_key(&mut self, key: u32) {
         match key {
             win::Keys::SPACE => self.key_state_bitmap |= 0b1,
@@ -55,22 +46,24 @@ impl Controller {
     pub fn write(&mut self, val: u8) {
         match val & 1 {
             0 => {
-                if self.is_strobe_enable() {
-                    self.set_strobe(false);
-                    self.set_shift(true);
+                if self.strobe_bits.strobe_enable.is_true() {
+                    self.strobe_bits.strobe_enable.set(0);
+                    self.strobe_bits.shift_enable.set(1);
                     self.key_state_shift_reg = self.key_state_bitmap;
                 }
             }
             1 => {
-                self.set_strobe(true);
-                self.set_shift(false);
+                self.strobe_bits.strobe_enable.set(1);
+                self.strobe_bits.shift_enable.set(0);
             }
             _ => (),
         }
     }
 
     pub fn read(&mut self) -> u8 {
-        if self.is_shift_enable() {
+        // TODO: upper bits open bus behavior
+
+        if self.strobe_bits.shift_enable.is_true() {
             let val = (self.key_state_shift_reg & 1) | 0b1000000;
 
             self.key_state_shift_reg >>= 1;

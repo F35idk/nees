@@ -41,7 +41,7 @@ fn test_registers(cpu: &mut cpu::Cpu, ppu: &mut super::Ppu, ppu_memory: &mut dyn
     ppu.write_register_by_index(0, ppuctrl, cpu, ppu_memory);
 
     assert_eq!(ppu.temp_vram_addr.inner, 0b101_11_10001_00110);
-    assert_eq!(ppu.get_fine_x_scroll(), x_coord & 0b111);
+    assert_eq!(ppu.bits.fine_x_scroll.get(), x_coord & 0b111);
     // bits 12-14 of 'temp_vram_addr' should be set to temporary fine y scroll
     assert_eq!((ppu.temp_vram_addr.inner >> 12) as u8, y_coord & 0b111);
 
@@ -132,11 +132,11 @@ fn test_read_2002(cpu: &mut cpu::Cpu, cpu_memory: &mut mem::NromCpuMemory) {
     cpu_memory.write(1u16, 02, cpu);
     cpu_memory.write(2u16, 0x20, cpu);
 
-    cpu_memory.base.ppu.set_low_bits_toggle(true);
+    cpu_memory.base.ppu.bits.low_bits_toggle.set(1);
     cpu.pc = 0;
     cpu.exec_instruction(cpu_memory);
 
-    assert_eq!(cpu_memory.base.ppu.get_low_bits_toggle(), false);
+    assert_eq!(cpu_memory.base.ppu.bits.low_bits_toggle.is_true(), false);
 }
 
 fn test_write_2005(cpu: &mut cpu::Cpu, cpu_memory: &mut mem::NromCpuMemory) {
@@ -153,8 +153,8 @@ fn test_write_2005(cpu: &mut cpu::Cpu, cpu_memory: &mut mem::NromCpuMemory) {
         cpu.exec_instruction(cpu_memory);
     }
 
-    assert_eq!(cpu_memory.base.ppu.get_fine_x_scroll(), 0b101);
-    assert_eq!(cpu_memory.base.ppu.get_low_bits_toggle(), true);
+    assert_eq!(cpu_memory.base.ppu.bits.fine_x_scroll.get(), 0b101);
+    assert_eq!(cpu_memory.base.ppu.bits.low_bits_toggle.is_true(), true);
     assert_eq!(cpu_memory.base.ppu.temp_vram_addr.inner, 0b00_00000_01111);
 
     // LDA #5e (0b01011_110)
@@ -170,7 +170,7 @@ fn test_write_2005(cpu: &mut cpu::Cpu, cpu_memory: &mut mem::NromCpuMemory) {
     }
 
     assert_eq!(cpu_memory.base.ppu.temp_vram_addr.inner >> 12, 0b110);
-    assert_eq!(cpu_memory.base.ppu.get_low_bits_toggle(), false);
+    assert_eq!(cpu_memory.base.ppu.bits.low_bits_toggle.is_true(), false);
     assert_eq!(
         cpu_memory.base.ppu.temp_vram_addr.inner,
         0b110_00_01011_01111
@@ -192,7 +192,7 @@ fn test_write_2006(cpu: &mut cpu::Cpu, cpu_memory: &mut mem::NromCpuMemory) {
         cpu.exec_instruction(cpu_memory);
     }
 
-    assert_eq!(cpu_memory.base.ppu.get_low_bits_toggle(), true);
+    assert_eq!(cpu_memory.base.ppu.bits.low_bits_toggle.is_true(), true);
     // bit 14 should be cleared and bits 8-13 should be
     // equal to bits 0-6 of the value written to 0x2006
     assert_eq!(
@@ -212,7 +212,7 @@ fn test_write_2006(cpu: &mut cpu::Cpu, cpu_memory: &mut mem::NromCpuMemory) {
         cpu.exec_instruction(cpu_memory);
     }
 
-    assert_eq!(cpu_memory.base.ppu.get_low_bits_toggle(), false);
+    assert_eq!(cpu_memory.base.ppu.bits.low_bits_toggle.is_true(), false);
     // low 8 bits should all be set equal to the value written
     assert_eq!(
         cpu_memory.base.ppu.temp_vram_addr.inner,
@@ -311,44 +311,6 @@ fn test_increment_vram_addr_xy(ppu: &mut super::Ppu) {
     assert_eq!(ppu.current_vram_addr.inner, 0b111_10_11111_01010);
 }
 
-// NOTE: this tests the 'misc_bits' bitfield, which is subject
-// to change and may cause this to break eventually
-fn test_misc_bits(ppu: &mut super::Ppu) {
-    // // 'even_frame' bit should be se to true by default
-    // assert_eq!(ppu.misc_bits, 0b000_010_00000000000000000);
-
-    // ppu.set_cycle_count(0b10101110011111111);
-    // assert_eq!(ppu.cycle_count, 0b10101110011111111);
-    // assert_eq!(ppu.misc_bits, 0b000_010_10101110011111111);
-
-    // ppu.set_fine_x_scroll(0b101);
-    // assert_eq!(ppu.get_fine_x_scroll(), 0b101);
-    // assert_eq!(ppu.misc_bits, 0b101_010_10101110011111111);
-
-    // ppu.set_low_bits_toggle(true);
-    // assert_eq!(ppu.get_low_bits_toggle(), true);
-    // assert_eq!(ppu.misc_bits, 0b101_110_10101110011111111);
-
-    // ppu.toggle_even_frame();
-    // assert_eq!(ppu.is_even_frame(), false);
-    // assert_eq!(ppu.misc_bits, 0b101_100_10101110011111111);
-
-    // 'even_frame' bit should be se to true by default
-    assert_eq!(ppu.misc_bits, 0b000_010);
-
-    ppu.set_fine_x_scroll(0b101);
-    assert_eq!(ppu.get_fine_x_scroll(), 0b101);
-    assert_eq!(ppu.misc_bits, 0b101_010);
-
-    ppu.set_low_bits_toggle(true);
-    assert_eq!(ppu.get_low_bits_toggle(), true);
-    assert_eq!(ppu.misc_bits, 0b101_110);
-
-    ppu.toggle_even_frame();
-    assert_eq!(ppu.is_even_frame(), false);
-    assert_eq!(ppu.misc_bits, 0b101_100);
-}
-
 fn test_temp_to_current_vram_transfer(ppu: &mut super::Ppu) {
     ppu.temp_vram_addr.inner = 0b01_00000_10101;
     ppu.current_vram_addr.inner = 0b10_10000_00000;
@@ -392,9 +354,6 @@ fn test_all() {
     util::reset_nes_state(cpu, cpu_memory);
 
     test_increment_vram_addr_xy(&mut cpu_memory.base.ppu);
-    util::reset_nes_state(cpu, cpu_memory);
-
-    test_misc_bits(&mut cpu_memory.base.ppu);
     util::reset_nes_state(cpu, cpu_memory);
 
     test_temp_to_current_vram_transfer(&mut cpu_memory.base.ppu);

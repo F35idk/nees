@@ -28,12 +28,7 @@ pub struct Ppu {
     oamaddr: u8,
     ppudata_read_buffer: u8,
 
-    // bit-field containing 'frame_done' boolean (first bit), 'even_frame'
-    // boolean (second bit), 'low_bits_toggle' boolean (third bit), fine
-    // x scroll value (fourth to sixth bit) and 'suppress_vblank_flag'
-    // boolean (seventh bit). getter and setter functions are used for
-    // each of these fields (see the second 'Ppu' impl block)
-    misc_bits: u8,
+    bits: PpuBits::BitField,
 
     // address of the current tile to be fetched and drawn. points
     // to a byte in one of the nametables in vram. referred to
@@ -46,6 +41,14 @@ pub struct Ppu {
     // nesdev.com 'ppu scrolling' article
     temp_vram_addr: VramAddrRegister,
 }
+
+bitfield!(PpuBits<u8>(
+    frame_done: 0..0,
+    even_frame: 1..1,
+    low_bits_toggle: 2..2,
+    suppress_vblank_flag: 3..3,
+    fine_x_scroll: 4..6,
+));
 
 #[derive(Copy, Clone)]
 enum SpriteSize {
@@ -168,7 +171,7 @@ impl Ppu {
             temp_vram_addr: VramAddrRegister { inner: 0 },
             current_scanline: -1,
             current_scanline_dot: 0,
-            misc_bits: 0b000_010,
+            bits: PpuBits::BitField::new(0, 1, 0, 0, 0),
             cycle_count: 0,
         }
     }
@@ -183,9 +186,9 @@ impl Ppu {
         self.ppudata_read_buffer = 0;
         self.current_vram_addr = VramAddrRegister { inner: 0 };
         self.temp_vram_addr = VramAddrRegister { inner: 0 };
-        self.current_scanline = -1;
+        self.current_scanline = 240;
         self.current_scanline_dot = 0;
-        self.misc_bits = 0b000_010;
+        self.bits = PpuBits::BitField::new(0, 1, 0, 0, 0);
         self.cycle_count = 0;
     }
 
@@ -218,7 +221,7 @@ impl Ppu {
 
         fn read_ppustatus(ppu: &mut Ppu) -> u8 {
             // clear low bits toggle
-            ppu.set_low_bits_toggle(false);
+            ppu.bits.low_bits_toggle.set(0);
             let status = ppu.ppustatus;
             // clear vblank flag
             ppu.set_vblank(false);
@@ -227,7 +230,7 @@ impl Ppu {
                 // if there is one cycle left before the vblank flag will be set
                 // (when scanline = 241 and dot = 1, the flag will be set on the
                 // next call to 'step()'), prevent the vblank flag from being set
-                ppu.set_suppress_vblank_flag(true);
+                ppu.bits.suppress_vblank_flag.set(1);
             }
 
             status
@@ -337,9 +340,9 @@ impl Ppu {
 
         fn write_ppuscroll(ppu: &mut Ppu, val: u8) {
             // low bits toggle = 0 => x coordinate is being written
-            if !ppu.get_low_bits_toggle() {
+            if !ppu.bits.low_bits_toggle.is_true() {
                 // write low 3 bits (fine x) to 'ppu.fine_x_scroll'
-                ppu.set_fine_x_scroll(val & 0b111);
+                ppu.bits.fine_x_scroll.set(val & 0b111);
                 // write high 5 bits (coarse x) to low 5 bits
                 // of temporary vram address register
                 ppu.temp_vram_addr.set_coarse_x(val >> 3);
@@ -355,13 +358,13 @@ impl Ppu {
             }
 
             ppu.set_ppustatus_low_bits(val);
-            ppu.set_low_bits_toggle(!ppu.get_low_bits_toggle());
+            ppu.toggle_low_bits_toggle();
         }
 
         fn write_ppuaddr(ppu: &mut Ppu, val: u8) {
             let mut temp_vram_addr_bytes = ppu.temp_vram_addr.inner.to_le_bytes();
 
-            if !ppu.get_low_bits_toggle() {
+            if !ppu.bits.low_bits_toggle.is_true() {
                 // write low 6 bits into bits 8-13 of temporary
                 // vram address register while clearing bit 14
                 temp_vram_addr_bytes[1] = val & 0b0111111;
@@ -377,7 +380,7 @@ impl Ppu {
             }
 
             ppu.set_ppustatus_low_bits(val);
-            ppu.set_low_bits_toggle(!ppu.get_low_bits_toggle());
+            ppu.toggle_low_bits_toggle();
         }
 
         fn write_ppudata(ppu: &mut Ppu, val: u8, memory: &mut dyn PpuMemoryMap) {
@@ -542,7 +545,7 @@ impl Ppu {
                     if ppu.current_scanline == 0
                         && (ppu.is_background_enable() || ppu.is_sprites_enable())
                     {
-                        ppu.cycle_count += ppu.is_even_frame() as i32;
+                        ppu.cycle_count += ppu.bits.even_frame.get() as i32;
                     } else {
                         ppu.cycle_count += 1;
                     }
@@ -668,7 +671,7 @@ impl Ppu {
                     }
 
                     if ppu.current_scanline == 240 {
-                        ppu.set_frame_done(true);
+                        ppu.bits.frame_done.set(1);
                     }
                 }
                 _ => (),
@@ -696,7 +699,7 @@ impl Ppu {
                     ppu.current_scanline_dot += 1;
                 }
                 1 => {
-                    if (ppu.current_scanline == 241) && !ppu.is_suppress_vblank_flag() {
+                    if (ppu.current_scanline == 241) && !ppu.bits.suppress_vblank_flag.is_true() {
                         ppu.set_vblank(true);
 
                         if ppu.is_vblank_nmi_enabled() {
@@ -716,7 +719,7 @@ impl Ppu {
                         // reset scanline count
                         ppu.current_scanline = -1;
                         // ensure next frame's vblank flag will not be suppressed
-                        ppu.set_suppress_vblank_flag(false);
+                        ppu.bits.suppress_vblank_flag.set(0);
                     } else {
                         ppu.current_scanline += 1;
                     }
@@ -861,13 +864,13 @@ impl Ppu {
 
             if ppu.current_scanline == 0
                 && (ppu.is_background_enable() || ppu.is_sprites_enable())
-                && !ppu.is_even_frame()
+                && !ppu.bits.even_frame.is_true()
             {
                 ppu.cycle_count -= 1;
             }
 
             if ppu.current_scanline == 239 {
-                ppu.set_frame_done(true);
+                ppu.bits.frame_done.set(1);
             }
 
             ppu.current_scanline += 1;
@@ -924,7 +927,7 @@ impl Ppu {
             let mut sprite_zero_hit = false;
 
             for i in 0..8 {
-                let tile_offset = i + ppu.get_fine_x_scroll();
+                let tile_offset = i + ppu.bits.fine_x_scroll.get();
 
                 let bg_color_idx = match (
                     ppu.is_background_enable(),
@@ -1137,44 +1140,21 @@ impl<'a> Ppu<'a> {
     }
 
     pub fn is_frame_done(&self) -> bool {
-        (self.misc_bits & 1) != 0
+        self.bits.frame_done.is_true()
     }
 
     pub fn set_frame_done(&mut self, done: bool) {
-        self.misc_bits = (self.misc_bits & !1) | (done as u8);
-    }
-
-    fn is_even_frame(&self) -> bool {
-        (self.misc_bits & 2) != 0
+        self.bits.frame_done.set(done as u8);
     }
 
     fn toggle_even_frame(&mut self) {
-        self.misc_bits ^= 2;
+        let prev = self.bits.even_frame.is_true();
+        self.bits.even_frame.set(!prev as u8);
     }
 
-    fn get_low_bits_toggle(&self) -> bool {
-        (self.misc_bits & 0b100) != 0
-    }
-
-    fn set_low_bits_toggle(&mut self, toggle: bool) {
-        self.misc_bits = (self.misc_bits & !0b100) | ((toggle as u8) << 2);
-    }
-
-    fn get_fine_x_scroll(&self) -> u8 {
-        (self.misc_bits >> 3) as u8
-    }
-
-    // NOTE: this expects the upper 5 bits of 'scroll' to be cleared
-    fn set_fine_x_scroll(&mut self, scroll: u8) {
-        self.misc_bits = (self.misc_bits & !0b111_000) | ((scroll as u8) << 3);
-    }
-
-    fn is_suppress_vblank_flag(&self) -> bool {
-        (self.misc_bits & 0b1_000_000) != 0
-    }
-
-    fn set_suppress_vblank_flag(&mut self, suppress: bool) {
-        self.misc_bits = (self.misc_bits & !0b1_000_000) | ((suppress as u8) << 6);
+    fn toggle_low_bits_toggle(&mut self) {
+        let prev = self.bits.low_bits_toggle.is_true();
+        self.bits.low_bits_toggle.set(!prev as u8);
     }
 
     fn get_base_nametable_addr(&self) -> u16 {
