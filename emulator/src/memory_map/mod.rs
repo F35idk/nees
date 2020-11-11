@@ -1,5 +1,7 @@
+mod mmc3;
 mod nrom;
 
+pub use mmc3::{Mmc3CpuMemory, Mmc3PpuMemory};
 pub use nrom::{NromCpuMemory, NromPpuMemory};
 
 use crate::{apu, controller as ctrl, cpu, ppu, util, PixelRenderer};
