@@ -1040,13 +1040,13 @@ impl Ppu {
             color_index: u8,
             memory: &dyn PpuMemoryMap,
         ) -> u32 {
-            let addr = if color_index == 0 {
-                0x3f00
+            let final_index = if color_index == 0 {
+                0
             } else {
-                (0x3f00 | ((palette_index << 2) as u16)) | (color_index as u16)
+                ((palette_index << 2) as u16) | (color_index as u16)
             };
 
-            let color_byte = memory.read(addr);
+            let color_byte = memory.get_palettes()[final_index as usize];
             palette::COLOR_LUT.get(color_byte, ppu.is_greyscale_enabled(), ppu.ppumask >> 5)
         }
     }
