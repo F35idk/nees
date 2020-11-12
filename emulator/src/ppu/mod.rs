@@ -255,16 +255,19 @@ impl Ppu {
             let val = if (ppu.current_vram_addr.inner >> 8) == 0b111111 {
                 // read directly from vram if address is in range
                 // 0x3f00-0x3fff (palette ram)
-                let val = memory.read(ppu.current_vram_addr.get_addr());
+                let val = memory.read(ppu.current_vram_addr.get_addr(), ppu.cycle_count);
                 // store value at mirrored address (down to 0x2f00-0x2fff)
                 // in read buffer
-                ppu.ppudata_read_buffer =
-                    memory.read(ppu.current_vram_addr.get_addr() & !0b01000000000000);
+                ppu.ppudata_read_buffer = memory.read(
+                    ppu.current_vram_addr.get_addr() & !0b01000000000000,
+                    ppu.cycle_count,
+                );
                 val
             } else {
                 // read from read buffer if address is in range 0-0x3eff
                 let val = ppu.ppudata_read_buffer;
-                ppu.ppudata_read_buffer = memory.read(ppu.current_vram_addr.get_addr());
+                ppu.ppudata_read_buffer =
+                    memory.read(ppu.current_vram_addr.get_addr(), ppu.cycle_count);
                 val
             };
 
@@ -384,7 +387,7 @@ impl Ppu {
         }
 
         fn write_ppudata(ppu: &mut Ppu, val: u8, memory: &mut dyn PpuMemoryMap) {
-            memory.write(ppu.current_vram_addr.get_addr(), val);
+            memory.write(ppu.current_vram_addr.get_addr(), val, ppu.cycle_count);
             ppu.set_ppustatus_low_bits(val);
 
             // increment 'current_vram_addr' (same as when reading ppudata)
@@ -616,6 +619,7 @@ impl Ppu {
                             ppu.current_scanline,
                             ppu.current_scanline_dot,
                             ppu.get_8x8_sprite_pattern_table_addr(),
+                            ppu.cycle_count,
                             memory,
                         );
                     }
@@ -638,6 +642,7 @@ impl Ppu {
                             ppu.current_scanline,
                             ppu.current_scanline_dot,
                             ppu.get_8x8_sprite_pattern_table_addr(),
+                            ppu.cycle_count,
                             memory,
                         );
                     }
@@ -855,6 +860,7 @@ impl Ppu {
                         ppu.current_scanline,
                         ppu.current_scanline_dot,
                         ppu.get_8x8_sprite_pattern_table_addr(),
+                        ppu.cycle_count,
                         memory,
                     );
                 }

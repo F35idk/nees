@@ -144,6 +144,7 @@ impl SpriteDrawState {
         current_scanline: i16,
         current_scanline_dot: u16,
         pattern_table_addr: u16,
+        cycle_count: i32,
         memory: &dyn PpuMemoryMap,
     ) {
         debug_assert!(matches!(current_scanline, 0..=239));
@@ -188,13 +189,13 @@ impl SpriteDrawState {
                 if is_vert_flipped {
                     // use flipped tile bitplanes if sprite is vertically flipped
                     (
-                        memory.read(tile_addr + 7 - y_offset),
-                        memory.read(tile_addr + 15 - y_offset),
+                        memory.read(tile_addr + 7 - y_offset, cycle_count),
+                        memory.read(tile_addr + 15 - y_offset, cycle_count),
                     )
                 } else {
                     (
-                        memory.read(tile_addr + y_offset),
-                        memory.read(tile_addr + 8 + y_offset),
+                        memory.read(tile_addr + y_offset, cycle_count),
+                        memory.read(tile_addr + 8 + y_offset, cycle_count),
                     )
                 }
             };

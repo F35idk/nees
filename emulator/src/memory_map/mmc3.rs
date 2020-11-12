@@ -59,7 +59,7 @@ bitfield!(Mmc3PpuBits<u8>(
 
 impl PpuMemoryMap for Mmc3PpuMemory {
     // TODO:FIXME: take in cycle count as well??
-    fn read(&self, mut addr: u16) -> u8 {
+    fn read(&self, mut addr: u16, cycle_count: i32) -> u8 {
         assert!(addr <= 0x3fff);
 
         // TODO: figure out how to filter nametable reads??
@@ -138,7 +138,7 @@ impl PpuMemoryMap for Mmc3PpuMemory {
         }
     }
 
-    fn write(&mut self, mut addr: u16, val: u8) {
+    fn write(&mut self, mut addr: u16, val: u8, cycle_count: i32) {
         if addr >= 0x3f00 {
             let addr = super::calc_ppu_palette_addr(addr);
             unsafe { *self.palettes.get_unchecked_mut(addr as usize) = val };

@@ -192,7 +192,7 @@ impl CpuMemoryMap for NromCpuMemory {
 
 impl PpuMemoryMap for NromPpuMemory {
     // NOTE: passing addresses higher than 0x3fff will read from palette ram
-    fn read(&self, addr: u16) -> u8 {
+    fn read(&self, addr: u16, _: i32) -> u8 {
         if cfg!(not(test)) {
             debug_assert!(addr <= 0x3fff);
         }
@@ -214,7 +214,7 @@ impl PpuMemoryMap for NromPpuMemory {
     }
 
     // NOTE: passing addresses higher than 0x3fff will write to palette ram
-    fn write(&mut self, addr: u16, val: u8) {
+    fn write(&mut self, addr: u16, val: u8, _: i32) {
         if cfg!(not(test)) {
             debug_assert!(addr <= 0x3fff);
         }

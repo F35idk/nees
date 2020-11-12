@@ -40,15 +40,15 @@ impl BgDrawState {
         let (bg_bitplane_lo, bg_bitplane_hi) = {
             // get tile index from nametable using lower 12 bits of 'current_vram_addr' + 0x2000
             let addr = (ppu.current_vram_addr.get_addr() & 0xfff) | 0x2000;
-            let tile_index = memory.read(addr);
+            let tile_index = memory.read(addr, ppu.cycle_count);
 
             let background_table_addr = ppu.get_background_pattern_table_addr() as u16;
             let tile_addr = background_table_addr + ((tile_index as u16) << 4);
             let fine_y = ppu.current_vram_addr.get_fine_y();
 
             (
-                memory.read(tile_addr + fine_y as u16),
-                memory.read(tile_addr + 8 + fine_y as u16),
+                memory.read(tile_addr + fine_y as u16, ppu.cycle_count),
+                memory.read(tile_addr + 8 + fine_y as u16, ppu.cycle_count),
             )
         };
 
@@ -63,7 +63,7 @@ impl BgDrawState {
                 | (coarse_x >> 2) as u16;
 
             // get the 'attribute' byte from the attribute table
-            let attribute = memory.read(attribute_addr);
+            let attribute = memory.read(attribute_addr, ppu.cycle_count);
             // calculate how much to shift 'attribute' by to get the current tile's palette index
             let shift_amt = ((coarse_y << 1) & 0b100) | (coarse_x & 0b10);
 
