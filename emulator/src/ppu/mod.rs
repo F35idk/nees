@@ -1013,14 +1013,15 @@ impl Ppu {
         ) {
             for i in 0..8 {
                 let pixel_color = {
-                    let bg_color_addr = if ppu.current_vram_addr.get_addr() >= 0x3f00 {
+                    let bg_color_index = if ppu.current_vram_addr.get_addr() >= 0x3f00 {
                         logln!("background palette hack triggered");
-                        ppu.current_vram_addr.get_addr()
+                        ppu.current_vram_addr.get_addr() & 0b11111
                     } else {
-                        0x3f00
+                        0
                     };
 
-                    let bg_color_byte = memory.read(bg_color_addr);
+                    let bg_color_byte = memory.get_palettes()[bg_color_index as usize];
+
                     palette::COLOR_LUT.get(
                         bg_color_byte,
                         ppu.is_greyscale_enabled(),
