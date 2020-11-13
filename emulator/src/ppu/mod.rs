@@ -1019,14 +1019,14 @@ impl Ppu {
         ) {
             for i in 0..8 {
                 let pixel_color = {
-                    let bg_color_index = if ppu.current_vram_addr.get_addr() >= 0x3f00 {
+                    let bg_color_idx = if ppu.current_vram_addr.get_addr() >= 0x3f00 {
                         logln!("background palette hack triggered");
-                        ppu.current_vram_addr.get_addr() & 0b11111
+                        (ppu.current_vram_addr.get_addr() & 0b11111) as u8
                     } else {
                         0
                     };
 
-                    let bg_color_byte = memory.get_palettes()[bg_color_index as usize];
+                    let bg_color_byte = memory.read_palette_memory(bg_color_idx);
 
                     palette::COLOR_LUT.get(
                         bg_color_byte,
@@ -1043,17 +1043,17 @@ impl Ppu {
 
         fn calc_pixel_color(
             ppu: &Ppu,
-            palette_index: u8,
-            color_index: u8,
+            palette_idx: u8,
+            color_idx: u8,
             memory: &dyn PpuMemoryMap,
         ) -> u32 {
-            let final_index = if color_index == 0 {
+            let final_idx = if color_idx == 0 {
                 0
             } else {
-                ((palette_index << 2) as u16) | (color_index as u16)
+                (((palette_idx << 2) as u16) | (color_idx as u16)) as u8
             };
 
-            let color_byte = memory.get_palettes()[final_index as usize];
+            let color_byte = memory.read_palette_memory(final_idx);
             palette::COLOR_LUT.get(color_byte, ppu.is_greyscale_enabled(), ppu.ppumask >> 5)
         }
     }

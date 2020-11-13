@@ -157,8 +157,8 @@ impl PpuMemoryMap for Mmc3PpuMemory {
         }
     }
 
-    fn get_palettes(&self) -> &[u8; 32] {
-        &self.palettes
+    fn read_palette_memory(&self, color_idx: u8) -> u8 {
+        self.palettes[super::calc_ppu_palette_addr(color_idx as u16) as usize]
     }
 }
 
