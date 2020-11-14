@@ -2,7 +2,7 @@ use super::super::memory_map::PpuMemoryMap;
 use super::Ppu;
 
 #[derive(Default)]
-pub struct BgDrawState {
+pub(super) struct BgDrawState {
     // equivalent to the two 16-bit pattern table data shift registers
     // on the (irl) ppu
     pub tile_bitplanes_hi: TileBitPlanes,
@@ -13,27 +13,27 @@ pub struct BgDrawState {
 
 #[repr(align(2))]
 #[derive(Copy, Clone, Default)]
-pub struct TileBitPlanes([u8; 2]);
+pub(super) struct TileBitPlanes([u8; 2]);
 
 impl TileBitPlanes {
-    pub fn to_u16(self) -> u16 {
+    pub(super) fn to_u16(self) -> u16 {
         unsafe { std::mem::transmute(self) }
     }
 
-    pub fn as_u16(&mut self) -> &mut u16 {
+    fn as_u16(&mut self) -> &mut u16 {
         unsafe { std::mem::transmute(self) }
     }
 }
 
 impl BgDrawState {
-    pub fn shift_tile_data_by_8(&mut self) {
+    pub(super) fn shift_tile_data_by_8(&mut self) {
         *(self.tile_bitplanes_hi.as_u16()) <<= 8;
         *(self.tile_bitplanes_lo.as_u16()) <<= 8;
         self.tile_palette_indices &= 0b11;
         self.tile_palette_indices <<= 2;
     }
 
-    pub fn fetch_current_tile_data(
+    pub(super) fn fetch_current_tile_data(
         &mut self,
         cycle_count: i32,
         background_pattern_table_addr: u16,

@@ -2,7 +2,7 @@ use super::PpuMemoryMap;
 use super::{PrimaryOam, SecondaryOam, SpriteSize};
 
 #[derive(Default)]
-pub struct SpriteDrawState {
+pub(super) struct SpriteDrawState {
     // contains data for the 8 sprites to be drawn on the current or
     // next scanline (should be filled with sprite data for the next
     // scanline on cycles 257-320)
@@ -30,7 +30,7 @@ struct SpriteRenderData {
 
 // convenience info struct returned by 'SpriteDrawState::get_sprite_at_dot_info()'.
 // isn't stored persistently anywhere.
-pub struct SpritePixelInfo {
+pub(super) struct SpritePixelInfo {
     pub color_index: u8,
     pub palette_index: u8,
     pub is_in_front: bool,
@@ -38,7 +38,7 @@ pub struct SpritePixelInfo {
 }
 
 impl SpriteDrawState {
-    pub fn eval_next_scanline_sprite(
+    pub(super) fn eval_next_scanline_sprite(
         &mut self,
         mut sprite_overflow: bool,
         sprite_height: SpriteSize,
@@ -137,7 +137,7 @@ impl SpriteDrawState {
         sprite_overflow
     }
 
-    pub fn fetch_next_scanline_sprite_data(
+    pub(super) fn fetch_next_scanline_sprite_data(
         &mut self,
         secondary_oam: &SecondaryOam,
         sprite_height: SpriteSize,
@@ -235,7 +235,10 @@ impl SpriteDrawState {
 
     // returns a 'SpritePixelInfo' struct describing the first (highest priority) non-transparent
     // sprite pixel at the current dot, or None if no such sprite pixel was found
-    pub fn get_sprite_at_dot_info(&self, current_scanline_dot: u16) -> Option<SpritePixelInfo> {
+    pub(super) fn get_sprite_at_dot_info(
+        &self,
+        current_scanline_dot: u16,
+    ) -> Option<SpritePixelInfo> {
         self.current_sprites_data
             .iter()
             // bit 2 of 'attributes' being set indicates end of array
