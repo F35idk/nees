@@ -627,7 +627,7 @@ impl Ppu {
                     debug_assert!(ppu.sprite_state.sprites_found <= 8);
 
                     // fetch sprite data for the sprites found previously (during dots 65-256)
-                    if ppu.is_sprites_enable() {
+                    if ppu.is_sprites_enable() || ppu.is_background_enable() {
                         ppu.sprite_state.fetch_next_scanline_sprite_data(
                             &ppu.secondary_oam,
                             ppu.get_sprite_size(),
@@ -650,7 +650,7 @@ impl Ppu {
                     ppu.oamaddr = 0;
 
                     // continue fetching sprite data
-                    if ppu.is_sprites_enable() {
+                    if ppu.is_sprites_enable() || ppu.is_background_enable() {
                         ppu.sprite_state.fetch_next_scanline_sprite_data(
                             &ppu.secondary_oam,
                             ppu.get_sprite_size(),
@@ -892,7 +892,7 @@ impl Ppu {
             ppu.sprite_state.current_sprite_idx = 0;
             ppu.oamaddr = 0;
 
-            if ppu.is_sprites_enable() {
+            if ppu.is_sprites_enable() || ppu.is_background_enable() {
                 for _ in 0..8 {
                     ppu.sprite_state.fetch_next_scanline_sprite_data(
                         &ppu.secondary_oam,
