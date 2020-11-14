@@ -514,7 +514,12 @@ impl Ppu {
 
                     if ppu.is_background_enable() || ppu.is_sprites_enable() {
                         ppu.bg_state.shift_tile_data_by_8();
-                        ppu.bg_state.fetch_current_tile_data(ppu, memory);
+                        ppu.bg_state.fetch_current_tile_data(
+                            ppu.cycle_count,
+                            ppu.get_background_pattern_table_addr(),
+                            ppu.current_vram_addr,
+                            memory,
+                        );
                         ppu.increment_vram_addr_coarse_x();
                     }
                 }
@@ -525,7 +530,12 @@ impl Ppu {
 
                     if ppu.is_background_enable() || ppu.is_sprites_enable() {
                         ppu.bg_state.shift_tile_data_by_8();
-                        ppu.bg_state.fetch_current_tile_data(ppu, memory);
+                        ppu.bg_state.fetch_current_tile_data(
+                            ppu.cycle_count,
+                            ppu.get_background_pattern_table_addr(),
+                            ppu.current_vram_addr,
+                            memory,
+                        );
                         ppu.increment_vram_addr_coarse_x();
                     }
                 }
@@ -599,7 +609,12 @@ impl Ppu {
                             ppu.increment_vram_addr_y();
                         } else {
                             ppu.bg_state.shift_tile_data_by_8();
-                            ppu.bg_state.fetch_current_tile_data(ppu, memory);
+                            ppu.bg_state.fetch_current_tile_data(
+                                ppu.cycle_count,
+                                ppu.get_background_pattern_table_addr(),
+                                ppu.current_vram_addr,
+                                memory,
+                            );
                             ppu.increment_vram_addr_coarse_x();
                         }
                     }
@@ -660,7 +675,12 @@ impl Ppu {
 
                     if ppu.is_background_enable() || ppu.is_sprites_enable() {
                         ppu.bg_state.shift_tile_data_by_8();
-                        ppu.bg_state.fetch_current_tile_data(ppu, memory);
+                        ppu.bg_state.fetch_current_tile_data(
+                            ppu.cycle_count,
+                            ppu.get_background_pattern_table_addr(),
+                            ppu.current_vram_addr,
+                            memory,
+                        );
                         ppu.increment_vram_addr_coarse_x();
                     }
                 }
@@ -671,7 +691,12 @@ impl Ppu {
 
                     if ppu.is_background_enable() || ppu.is_sprites_enable() {
                         ppu.bg_state.shift_tile_data_by_8();
-                        ppu.bg_state.fetch_current_tile_data(ppu, memory);
+                        ppu.bg_state.fetch_current_tile_data(
+                            ppu.cycle_count,
+                            ppu.get_background_pattern_table_addr(),
+                            ppu.current_vram_addr,
+                            memory,
+                        );
                         ppu.increment_vram_addr_coarse_x();
                     }
 
@@ -775,7 +800,12 @@ impl Ppu {
 
                 for _ in 0..2 {
                     ppu.bg_state.shift_tile_data_by_8();
-                    ppu.bg_state.fetch_current_tile_data(ppu, memory);
+                    ppu.bg_state.fetch_current_tile_data(
+                        ppu.cycle_count,
+                        ppu.get_background_pattern_table_addr(),
+                        ppu.current_vram_addr,
+                        memory,
+                    );
                     ppu.increment_vram_addr_coarse_x();
                 }
             }
@@ -828,7 +858,12 @@ impl Ppu {
 
                 if ppu.is_background_enable() || ppu.is_sprites_enable() {
                     ppu.bg_state.shift_tile_data_by_8();
-                    ppu.bg_state.fetch_current_tile_data(ppu, memory);
+                    ppu.bg_state.fetch_current_tile_data(
+                        ppu.cycle_count,
+                        ppu.get_background_pattern_table_addr(),
+                        ppu.current_vram_addr,
+                        memory,
+                    );
                     ppu.increment_vram_addr_coarse_x();
                 }
             }
@@ -844,7 +879,12 @@ impl Ppu {
 
                 for _ in 0..2 {
                     ppu.bg_state.shift_tile_data_by_8();
-                    ppu.bg_state.fetch_current_tile_data(ppu, memory);
+                    ppu.bg_state.fetch_current_tile_data(
+                        ppu.cycle_count,
+                        ppu.get_background_pattern_table_addr(),
+                        ppu.current_vram_addr,
+                        memory,
+                    );
                     ppu.increment_vram_addr_coarse_x();
                 }
             }

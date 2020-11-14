@@ -33,37 +33,40 @@ impl BgDrawState {
         self.tile_palette_indices <<= 2;
     }
 
-    pub fn fetch_current_tile_data(&mut self, ppu: *const Ppu, memory: &dyn PpuMemoryMap) {
-        let ppu: &Ppu = unsafe { &*(ppu as *const _) };
-
+    pub fn fetch_current_tile_data(
+        &mut self,
+        cycle_count: i32,
+        background_pattern_table_addr: u16,
+        current_vram_addr: super::VramAddrRegister,
+        memory: &dyn PpuMemoryMap,
+    ) {
         // get the high and low bitplanes for the current row of the current tile
         let (bg_bitplane_lo, bg_bitplane_hi) = {
             // get tile index from nametable using lower 12 bits of 'current_vram_addr' + 0x2000
-            let addr = (ppu.current_vram_addr.get_addr() & 0xfff) | 0x2000;
-            let tile_index = memory.read(addr, ppu.cycle_count);
+            let addr = (current_vram_addr.get_addr() & 0xfff) | 0x2000;
+            let tile_index = memory.read(addr, cycle_count);
 
-            let background_table_addr = ppu.get_background_pattern_table_addr() as u16;
-            let tile_addr = background_table_addr + ((tile_index as u16) << 4);
-            let fine_y = ppu.current_vram_addr.get_fine_y();
+            let tile_addr = background_pattern_table_addr + ((tile_index as u16) << 4);
+            let fine_y = current_vram_addr.get_fine_y();
 
             (
-                memory.read(tile_addr + fine_y as u16, ppu.cycle_count),
-                memory.read(tile_addr + 8 + fine_y as u16, ppu.cycle_count),
+                memory.read(tile_addr + fine_y as u16, cycle_count),
+                memory.read(tile_addr + 8 + fine_y as u16, cycle_count),
             )
         };
 
         let bg_palette_idx = {
-            let coarse_y = ppu.current_vram_addr.get_coarse_y();
-            let coarse_x = ppu.current_vram_addr.get_coarse_x();
+            let coarse_y = current_vram_addr.get_coarse_y();
+            let coarse_x = current_vram_addr.get_coarse_x();
 
             // calculate the address of the current tile's 'attribute' in the attribute table
             let attribute_addr = 0x23c0
-                | (ppu.current_vram_addr.get_nametable_select() as u16) << 10
+                | (current_vram_addr.get_nametable_select() as u16) << 10
                 | (coarse_y << 1) as u16 & 0b111000
                 | (coarse_x >> 2) as u16;
 
             // get the 'attribute' byte from the attribute table
-            let attribute = memory.read(attribute_addr, ppu.cycle_count);
+            let attribute = memory.read(attribute_addr, cycle_count);
             // calculate how much to shift 'attribute' by to get the current tile's palette index
             let shift_amt = ((coarse_y << 1) & 0b100) | (coarse_x & 0b10);
 
