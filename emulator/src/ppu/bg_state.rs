@@ -50,8 +50,8 @@ impl BgDrawState {
             let fine_y = current_vram_addr.get_fine_y();
 
             (
-                memory.read(tile_addr + fine_y as u16, cycle_count),
-                memory.read(tile_addr + 8 + fine_y as u16, cycle_count),
+                memory.read(tile_addr + fine_y as u16, cycle_count + 2),
+                memory.read(tile_addr + 8 + fine_y as u16, cycle_count + 4),
             )
         };
 
@@ -66,7 +66,7 @@ impl BgDrawState {
                 | (coarse_x >> 2) as u16;
 
             // get the 'attribute' byte from the attribute table
-            let attribute = memory.read(attribute_addr, cycle_count);
+            let attribute = memory.read(attribute_addr, cycle_count + 6);
             // calculate how much to shift 'attribute' by to get the current tile's palette index
             let shift_amt = ((coarse_y << 1) & 0b100) | (coarse_x & 0b10);
 

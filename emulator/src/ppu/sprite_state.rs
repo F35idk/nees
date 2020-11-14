@@ -143,13 +143,18 @@ impl SpriteDrawState {
         sprite_height: SpriteSize,
         current_scanline: i16,
         current_scanline_dot: u16,
-        pattern_table_addr: u16,
+        sprite_pattern_table_addr: u16,
         cycle_count: i32,
         memory: &dyn PpuMemoryMap,
     ) {
         debug_assert!(matches!(current_scanline, 0..=239));
         debug_assert!(matches!(current_scanline_dot, 257..=320));
         debug_assert!(self.sprites_found <= 8);
+        debug_assert!((self.current_sprite_idx >> 2) < 8);
+
+        // make garbage nametable fetches
+        let _ = memory.read(0x2000, cycle_count);
+        let _ = memory.read(0x2000, cycle_count + 2);
 
         if (self.current_sprite_idx >> 2) < self.sprites_found {
             // fill a slot in 'current_sprites_data' with data for the current sprite
@@ -164,10 +169,10 @@ impl SpriteDrawState {
 
             let (tile_bitplane_lo, tile_bitplane_hi) = {
                 let tile_addr = match sprite_height {
-                    SpriteSize::S8x8 => pattern_table_addr + ((tile_index as u16) << 4),
+                    SpriteSize::S8x8 => sprite_pattern_table_addr | ((tile_index as u16) << 4),
                     SpriteSize::S8x16 => {
-                        // address of pattern table is stored in the lowst tile index bit
-                        let pattern_table_addr_8x16 = (tile_index as u16 & 1) << 12;
+                        // address of pattern table is stored in the lowest tile index bit
+                        let sprite_pattern_table_addr_8x16 = (tile_index as u16 & 1) << 12;
                         let mut tile_index_8x16 = tile_index & !1;
 
                         debug_assert!((current_scanline as u8).wrapping_sub(sprite.y) < 16);
@@ -180,7 +185,7 @@ impl SpriteDrawState {
                             tile_index_8x16 ^= 1;
                         }
 
-                        pattern_table_addr_8x16 + ((tile_index_8x16 as u16) << 4)
+                        sprite_pattern_table_addr_8x16 | ((tile_index_8x16 as u16) << 4)
                     }
                 };
 
@@ -189,18 +194,17 @@ impl SpriteDrawState {
                 if is_vert_flipped {
                     // use flipped tile bitplanes if sprite is vertically flipped
                     (
-                        memory.read(tile_addr + 7 - y_offset, cycle_count),
-                        memory.read(tile_addr + 15 - y_offset, cycle_count),
+                        memory.read(tile_addr + 7 - y_offset, cycle_count + 4),
+                        memory.read(tile_addr + 15 - y_offset, cycle_count + 6),
                     )
                 } else {
                     (
-                        memory.read(tile_addr + y_offset, cycle_count),
-                        memory.read(tile_addr + 8 + y_offset, cycle_count),
+                        memory.read(tile_addr + y_offset, cycle_count + 4),
+                        memory.read(tile_addr + 8 + y_offset, cycle_count + 6),
                     )
                 }
             };
 
-            // FIXME: indexing
             self.current_sprites_data[(self.current_sprite_idx >> 2) as usize] = SpriteRenderData {
                 tile_bitplane_lo,
                 tile_bitplane_hi,
@@ -210,6 +214,14 @@ impl SpriteDrawState {
 
             self.current_sprite_idx = self.current_sprite_idx.wrapping_add(4);
         } else {
+            // make dummy pattern table fetches to tile 0xff
+            let tile_addr = match sprite_height {
+                SpriteSize::S8x8 => sprite_pattern_table_addr | (0xff << 4),
+                SpriteSize::S8x16 => 0x1000 | (0xff << 4),
+            };
+            let _ = memory.read(tile_addr, cycle_count + 4);
+            let _ = memory.read(tile_addr, cycle_count + 6);
+
             // fill a slot in 'current_sprites_data' with sentinel value
             // (bit 2 of 'attributes' being set indicates end of array)
             self.current_sprites_data[(self.current_sprite_idx >> 2) as usize] = SpriteRenderData {
