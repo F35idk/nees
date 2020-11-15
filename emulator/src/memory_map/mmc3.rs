@@ -59,7 +59,7 @@ bitfield!(Mmc3PpuBits<u8>(
 
 impl PpuMemoryMap for Mmc3PpuMemory {
     // TODO:FIXME: take in cycle count as well??
-    fn read(&self, mut addr: u16, cycle_count: i32) -> u8 {
+    fn read(&mut self, mut addr: u16, cycle_count: i32, cpu: &mut cpu::Cpu) -> u8 {
         assert!(addr <= 0x3fff);
 
         // TODO: figure out how to filter nametable reads??
@@ -138,7 +138,7 @@ impl PpuMemoryMap for Mmc3PpuMemory {
         }
     }
 
-    fn write(&mut self, mut addr: u16, val: u8, cycle_count: i32) {
+    fn write(&mut self, mut addr: u16, val: u8, cycle_count: i32, cpu: &mut cpu::Cpu) {
         if addr >= 0x3f00 {
             let addr = super::calc_ppu_palette_addr(addr);
             unsafe { *self.palettes.get_unchecked_mut(addr as usize) = val };
@@ -248,7 +248,7 @@ impl CpuMemoryMap for Mmc3CpuMemory {
         if super::is_2000_to_3fff(addr) {
             self.base.ppu.catch_up(
                 cpu,
-                &self.ppu_memory,
+                &mut self.ppu_memory,
                 util::pixels_to_u32(&mut self.base.renderer),
             );
 
@@ -256,7 +256,7 @@ impl CpuMemoryMap for Mmc3CpuMemory {
             return self
                 .base
                 .ppu
-                .read_register_by_index(addr as u8, &self.ppu_memory);
+                .read_register_by_index(addr as u8, &mut self.ppu_memory, cpu);
         }
 
         // prg ram
@@ -473,20 +473,20 @@ mod test {
             cpu_memory.write(0x8001, 21, &mut cpu);
 
             // ppu_memory[0x7ff] = 0xaa
-            assert_eq!(cpu_memory.ppu_memory.read(0x7ff), 0xaa);
+            assert_eq!(cpu_memory.ppu_memory.read(0x7ff, 0, &mut cpu), 0xaa);
             // ppu_memory[0x3ff] != 0xaa
-            assert_ne!(cpu_memory.ppu_memory.read(0x3ff), 0xaa);
+            assert_ne!(cpu_memory.ppu_memory.read(0x3ff, 0, &mut cpu), 0xaa);
 
             // invert a12
             cpu_memory.write(0x8000, 0x80, &mut cpu);
             assert!(cpu_memory.ppu_memory.bits.a12_invert.is_true());
 
             // ppu_memory[0x17ff] = 0xaa
-            assert_eq!(cpu_memory.ppu_memory.read(0x17ff), 0xaa);
+            assert_eq!(cpu_memory.ppu_memory.read(0x17ff, 0, &mut cpu), 0xaa);
             // ppu_memory[0x13ff] != 0xaa
-            assert_ne!(cpu_memory.ppu_memory.read(0x13ff), 0xaa);
+            assert_ne!(cpu_memory.ppu_memory.read(0x13ff, 0, &mut cpu), 0xaa);
             // ppu_memory[0x7ff] != 0xaa
-            assert_ne!(cpu_memory.ppu_memory.read(0x7ff), 0xaa);
+            assert_ne!(cpu_memory.ppu_memory.read(0x7ff, 0, &mut cpu), 0xaa);
         }
 
         // r2 reads
@@ -499,14 +499,14 @@ mod test {
             cpu_memory.write(0x8001, 0xff, &mut cpu);
 
             // ppu_memory[0x10ff] = 0xbb
-            assert_eq!(cpu_memory.ppu_memory.read(0x10ff), 0xbb);
-            assert_ne!(cpu_memory.ppu_memory.read(0x0ff), 0xbb);
+            assert_eq!(cpu_memory.ppu_memory.read(0x10ff, 0, &mut cpu), 0xbb);
+            assert_ne!(cpu_memory.ppu_memory.read(0x0ff, 0, &mut cpu), 0xbb);
 
             // invert a12
             cpu_memory.write(0x8000, 0x80, &mut cpu);
 
             // ppu_memory[0x0ff] = 0xbb
-            assert_eq!(cpu_memory.ppu_memory.read(0x0ff), 0xbb);
+            assert_eq!(cpu_memory.ppu_memory.read(0x0ff, 0, &mut cpu), 0xbb);
         }
 
         // fixed prg bank (last bank) reads/writes
@@ -573,13 +573,13 @@ mod test {
             cpu_memory.write(0x8001, 12, &mut cpu);
 
             // ppu_memory[0x1400] = 0xff
-            assert_eq!(cpu_memory.ppu_memory.read(0x1400), 0xff);
+            assert_eq!(cpu_memory.ppu_memory.read(0x1400, 0, &mut cpu), 0xff);
 
             // invert a12
             cpu_memory.write(0x8000, 0x80, &mut cpu);
 
             // ppu_memory[0x0ff] = 0xbb
-            assert_eq!(cpu_memory.ppu_memory.read(0x400), 0xff);
+            assert_eq!(cpu_memory.ppu_memory.read(0x400, 0, &mut cpu), 0xff);
         }
 
         // r1 reads
@@ -592,19 +592,19 @@ mod test {
             cpu_memory.write(0x8001, 33, &mut cpu);
 
             // ppu_memory[0xfff] = 0x99
-            assert_eq!(cpu_memory.ppu_memory.read(0xfff), 0x99);
+            assert_eq!(cpu_memory.ppu_memory.read(0xfff, 0, &mut cpu), 0x99);
             // ppu_memory[0xbff] != 0x99
-            assert_ne!(cpu_memory.ppu_memory.read(0xbff), 0x99);
+            assert_ne!(cpu_memory.ppu_memory.read(0xbff, 0, &mut cpu), 0x99);
 
             // invert a12
             cpu_memory.write(0x8000, 0x80, &mut cpu);
 
             // ppu_memory[0x1fff] = 0x99
-            assert_eq!(cpu_memory.ppu_memory.read(0x1fff), 0x99);
+            assert_eq!(cpu_memory.ppu_memory.read(0x1fff, 0, &mut cpu), 0x99);
             // ppu_memory[0x1bff] != 0x99
-            assert_ne!(cpu_memory.ppu_memory.read(0x1bff), 0x99);
+            assert_ne!(cpu_memory.ppu_memory.read(0x1bff, 0, &mut cpu), 0x99);
             // ppu_memory[0xbff] != 0x99
-            assert_ne!(cpu_memory.ppu_memory.read(0xfff), 0x99);
+            assert_ne!(cpu_memory.ppu_memory.read(0xfff, 0, &mut cpu), 0x99);
         }
     }
 

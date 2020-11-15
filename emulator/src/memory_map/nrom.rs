@@ -98,7 +98,7 @@ impl CpuMemoryMap for NromCpuMemory {
             return self
                 .base
                 .ppu
-                .read_register_by_index(addr as u8, &self.ppu_memory);
+                .read_register_by_index(addr as u8, &mut self.ppu_memory, cpu);
         }
 
         // prg ram
@@ -192,7 +192,7 @@ impl CpuMemoryMap for NromCpuMemory {
 
 impl PpuMemoryMap for NromPpuMemory {
     // NOTE: passing addresses higher than 0x3fff will read from palette ram
-    fn read(&self, addr: u16, _: i32) -> u8 {
+    fn read(&mut self, addr: u16, _: i32, _: &mut cpu::Cpu) -> u8 {
         if cfg!(not(test)) {
             debug_assert!(addr <= 0x3fff);
         }
@@ -214,7 +214,7 @@ impl PpuMemoryMap for NromPpuMemory {
     }
 
     // NOTE: passing addresses higher than 0x3fff will write to palette ram
-    fn write(&mut self, addr: u16, val: u8, _: i32) {
+    fn write(&mut self, addr: u16, val: u8, _: i32, _: &mut cpu::Cpu) {
         if cfg!(not(test)) {
             debug_assert!(addr <= 0x3fff);
         }
@@ -321,15 +321,16 @@ mod test {
     #[test]
     fn test_ppu_read_write() {
         let mut memory = NromPpuMemory::new(false);
+        let mut cpu = cpu::Cpu::default();
 
         // test nametable writes (with mirroring = horizontal)
-        memory.write(0x2fff, 0xee);
+        memory.write(0x2fff, 0xee, 0, &mut cpu);
         assert_eq!(memory.nametables[0x7ff], 0xee);
-        memory.write(0x2bff, 0xcc);
+        memory.write(0x2bff, 0xcc, 0, &mut cpu);
         assert_eq!(memory.nametables[0x3ff], 0xcc);
-        memory.write(0x2800, 0x66);
+        memory.write(0x2800, 0x66, 0, &mut cpu);
         assert_eq!(memory.nametables[0], 0x66);
-        memory.write(0x28ff, 0x99);
+        memory.write(0x28ff, 0x99, 0, &mut cpu);
         assert_eq!(memory.nametables[0x0ff], 0x99);
 
         for i in memory.nametables.iter_mut() {
@@ -339,71 +340,71 @@ mod test {
         // set mirroring = horizontal
         memory.hor_mirroring = true;
         // test nametable writes
-        memory.write(0x2fff, 0xee);
+        memory.write(0x2fff, 0xee, 0, &mut cpu);
         assert_eq!(memory.nametables[0x7ff], 0xee);
-        assert_eq!(memory.read(0x2bff), 0xee);
-        memory.write(0x2bff, 0xdd);
+        assert_eq!(memory.read(0x2bff, 0, &mut cpu), 0xee);
+        memory.write(0x2bff, 0xdd, 0, &mut cpu);
         assert_eq!(memory.nametables[0x7ff], 0xdd);
-        assert_eq!(memory.read(0x2fff), 0xdd);
+        assert_eq!(memory.read(0x2fff, 0, &mut cpu), 0xdd);
 
-        memory.write(0x2cf0, 0xaa);
+        memory.write(0x2cf0, 0xaa, 0, &mut cpu);
         assert_eq!(memory.nametables[0x4f0], 0xaa);
-        assert_eq!(memory.read(0x28f0), 0xaa);
-        memory.write(0x28f0, 0x88);
+        assert_eq!(memory.read(0x28f0, 0, &mut cpu), 0xaa);
+        memory.write(0x28f0, 0x88, 0, &mut cpu);
         assert_eq!(memory.nametables[0x4f0], 0x88);
-        assert_eq!(memory.read(0x2cf0), 0x88);
+        assert_eq!(memory.read(0x2cf0, 0, &mut cpu), 0x88);
 
         for addr in 0x2800..=0x2bff {
-            memory.write(addr as u16, 0xaa);
+            memory.write(addr as u16, 0xaa, 0, &mut cpu);
             assert_eq!(memory.nametables[addr - 0x2400], 0xaa);
-            assert_eq!(memory.read(addr as u16), 0xaa);
-            assert_eq!(memory.read(addr as u16 + 0x400), 0xaa);
-            memory.write(addr as u16, 0);
+            assert_eq!(memory.read(addr as u16, 0, &mut cpu), 0xaa);
+            assert_eq!(memory.read(addr as u16 + 0x400, 0, &mut cpu), 0xaa);
+            memory.write(addr as u16, 0, 0, &mut cpu);
         }
 
         for addr in 0x2c00..=0x2fff {
-            memory.write(addr as u16, 0xaa);
+            memory.write(addr as u16, 0xaa, 0, &mut cpu);
             assert_eq!(memory.nametables[addr - 0x2800], 0xaa);
-            assert_eq!(memory.read(addr as u16), 0xaa);
-            assert_eq!(memory.read(addr as u16 - 0x400), 0xaa);
-            memory.write(addr as u16, 0);
+            assert_eq!(memory.read(addr as u16, 0, &mut cpu), 0xaa);
+            assert_eq!(memory.read(addr as u16 - 0x400, 0, &mut cpu), 0xaa);
+            memory.write(addr as u16, 0, 0, &mut cpu);
         }
 
         for addr in 0x2000..=0x23ff {
-            memory.write(addr as u16, 0xaa);
+            memory.write(addr as u16, 0xaa, 0, &mut cpu);
             assert_eq!(memory.nametables[addr - 0x2000], 0xaa);
-            assert_eq!(memory.read(addr as u16), 0xaa);
-            assert_eq!(memory.read(addr as u16 + 0x400), 0xaa);
-            memory.write(addr as u16, 0);
+            assert_eq!(memory.read(addr as u16, 0, &mut cpu), 0xaa);
+            assert_eq!(memory.read(addr as u16 + 0x400, 0, &mut cpu), 0xaa);
+            memory.write(addr as u16, 0, 0, &mut cpu);
         }
 
         for addr in 0x2400..=0x27ff {
-            memory.write(addr as u16, 0xaa);
+            memory.write(addr as u16, 0xaa, 0, &mut cpu);
             assert_eq!(memory.nametables[addr - 0x2400], 0xaa);
-            assert_eq!(memory.read(addr as u16), 0xaa);
-            assert_eq!(memory.read(addr as u16 - 0x400), 0xaa);
-            memory.write(addr as u16, 0);
+            assert_eq!(memory.read(addr as u16, 0, &mut cpu), 0xaa);
+            assert_eq!(memory.read(addr as u16 - 0x400, 0, &mut cpu), 0xaa);
+            memory.write(addr as u16, 0, 0, &mut cpu);
         }
 
-        memory.write(0x2400, 0xcc);
+        memory.write(0x2400, 0xcc, 0, &mut cpu);
         assert_eq!(memory.nametables[0], 0xcc);
-        assert_eq!(memory.read(0x2000), 0xcc);
-        memory.write(0x2000, 0x44);
+        assert_eq!(memory.read(0x2000, 0, &mut cpu), 0xcc);
+        memory.write(0x2000, 0x44, 0, &mut cpu);
         assert_eq!(memory.nametables[0], 0x44);
-        assert_eq!(memory.read(0x2400), 0x44);
+        assert_eq!(memory.read(0x2400, 0, &mut cpu), 0x44);
 
-        memory.write(0x27ff, 0x11);
+        memory.write(0x27ff, 0x11, 0, &mut cpu);
         assert_eq!(memory.nametables[0x3ff], 0x11);
-        assert_eq!(memory.read(0x23ff), 0x11);
-        memory.write(0x23ff, 0xff);
+        assert_eq!(memory.read(0x23ff, 0, &mut cpu), 0x11);
+        memory.write(0x23ff, 0xff, 0, &mut cpu);
         assert_eq!(memory.nametables[0x3ff], 0xff);
-        assert_eq!(memory.read(0x27ff), 0xff);
+        assert_eq!(memory.read(0x27ff, 0, &mut cpu), 0xff);
 
         // palette ram reads/writes
-        memory.write(0x3f20, 0x30);
+        memory.write(0x3f20, 0x30, 0, &mut cpu);
         assert_eq!(memory.palettes[0], 0x30);
         // write out of bounds
-        memory.write(0xffff, 0x20);
+        memory.write(0xffff, 0x20, 0, &mut cpu);
         // should end up in palette ram
         assert_eq!(memory.palettes[31], 0x20);
     }

@@ -96,7 +96,7 @@ fn test_write_2007(cpu: &mut cpu::Cpu, cpu_memory: &mut mem::NromCpuMemory) {
         cpu_memory
             .base
             .ppu
-            .read_register_by_index(7, &cpu_memory.ppu_memory),
+            .read_register_by_index(7, &mut cpu_memory.ppu_memory, cpu),
         0
     );
     // second read should get contents at addr
@@ -104,7 +104,7 @@ fn test_write_2007(cpu: &mut cpu::Cpu, cpu_memory: &mut mem::NromCpuMemory) {
         cpu_memory
             .base
             .ppu
-            .read_register_by_index(7, &cpu_memory.ppu_memory),
+            .read_register_by_index(7, &mut cpu_memory.ppu_memory, cpu),
         0xee
     );
 }

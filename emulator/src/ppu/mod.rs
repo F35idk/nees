@@ -193,7 +193,12 @@ impl Ppu {
     }
 
     // used for reading the registers located in the cpu memory map at 0x2000-0x2007
-    pub fn read_register_by_index(&mut self, index: u8, memory: &dyn PpuMemoryMap) -> u8 {
+    pub fn read_register_by_index(
+        &mut self,
+        index: u8,
+        memory: &mut dyn PpuMemoryMap,
+        cpu: &mut cpu::Cpu,
+    ) -> u8 {
         // NOTE: to help readability, this function and a few others on 'Ppu' are
         // split into smaller subfunctions. instead of factoring these subfunctions
         // out into the outer 'Ppu' impl block, i decided to keep them nested, so as
@@ -214,7 +219,7 @@ impl Ppu {
                 // ppuscroll | ppuaddr
                 5 | 6 => 0, // FIXME: should these reset the low bits toggle as well??
                 // ppudata
-                7 => read_ppudata(self, memory),
+                7 => read_ppudata(self, memory, cpu),
                 _ => 0,
             };
         }
@@ -251,23 +256,24 @@ impl Ppu {
             byte
         }
 
-        fn read_ppudata(ppu: &mut Ppu, memory: &dyn PpuMemoryMap) -> u8 {
+        fn read_ppudata(ppu: &mut Ppu, memory: &mut dyn PpuMemoryMap, cpu: &mut cpu::Cpu) -> u8 {
             let val = if (ppu.current_vram_addr.inner >> 8) == 0b111111 {
                 // read directly from vram if address is in range
                 // 0x3f00-0x3fff (palette ram)
-                let val = memory.read(ppu.current_vram_addr.get_addr(), ppu.cycle_count);
+                let val = memory.read(ppu.current_vram_addr.get_addr(), ppu.cycle_count, cpu);
                 // store value at mirrored address (down to 0x2f00-0x2fff)
                 // in read buffer
                 ppu.ppudata_read_buffer = memory.read(
                     ppu.current_vram_addr.get_addr() & !0b01000000000000,
                     ppu.cycle_count,
+                    cpu,
                 );
                 val
             } else {
                 // read from read buffer if address is in range 0-0x3eff
                 let val = ppu.ppudata_read_buffer;
                 ppu.ppudata_read_buffer =
-                    memory.read(ppu.current_vram_addr.get_addr(), ppu.cycle_count);
+                    memory.read(ppu.current_vram_addr.get_addr(), ppu.cycle_count, cpu);
                 val
             };
 
@@ -311,7 +317,7 @@ impl Ppu {
                 // ppuaddr
                 6 => write_ppuaddr(self, val),
                 // ppudata
-                7 => write_ppudata(self, val, memory),
+                7 => write_ppudata(self, val, memory, cpu),
                 _ => (),
             }
         }
@@ -386,8 +392,13 @@ impl Ppu {
             ppu.toggle_low_bits_toggle();
         }
 
-        fn write_ppudata(ppu: &mut Ppu, val: u8, memory: &mut dyn PpuMemoryMap) {
-            memory.write(ppu.current_vram_addr.get_addr(), val, ppu.cycle_count);
+        fn write_ppudata(
+            ppu: &mut Ppu,
+            val: u8,
+            memory: &mut dyn PpuMemoryMap,
+            cpu: &mut cpu::Cpu,
+        ) {
+            memory.write(ppu.current_vram_addr.get_addr(), val, ppu.cycle_count, cpu);
             ppu.set_ppustatus_low_bits(val);
 
             // increment 'current_vram_addr' (same as when reading ppudata)
@@ -411,7 +422,7 @@ impl Ppu {
     pub fn catch_up(
         &mut self,
         cpu: &mut cpu::Cpu,
-        memory: &dyn PpuMemoryMap,
+        memory: &mut dyn PpuMemoryMap,
         framebuffer: &mut [u32; 256 * 240],
     ) {
         // NOTE: cpu.cycle_count could be negative here
@@ -445,16 +456,16 @@ impl Ppu {
     fn step(
         &mut self,
         cpu: &mut cpu::Cpu,
-        memory: &dyn PpuMemoryMap,
+        memory: &mut dyn PpuMemoryMap,
         framebuffer: &mut [u32; 256 * 240],
     ) {
         // NOTE: this function is split into multiple subfunctions
         {
             match self.current_scanline {
                 // pre-render scanline
-                -1 => step_pre_render_line(self, memory),
+                -1 => step_pre_render_line(self, memory, cpu),
                 // visible scanlines
-                0..=239 => step_visible_line(self, memory, framebuffer),
+                0..=239 => step_visible_line(self, memory, framebuffer, cpu),
                 // idle scanline
                 240 => step_idle_line(self),
                 // vblank 'scanlines'
@@ -464,7 +475,7 @@ impl Ppu {
         }
 
         // TODO: dummy ram accesses during the entire line
-        fn step_pre_render_line(ppu: &mut Ppu, memory: &dyn PpuMemoryMap) {
+        fn step_pre_render_line(ppu: &mut Ppu, memory: &mut dyn PpuMemoryMap, cpu: &mut cpu::Cpu) {
             match ppu.current_scanline_dot {
                 // idle cycle
                 0 => {
@@ -519,6 +530,7 @@ impl Ppu {
                             ppu.get_background_pattern_table_addr(),
                             ppu.current_vram_addr,
                             memory,
+                            cpu,
                         );
                         ppu.increment_vram_addr_coarse_x();
                     }
@@ -535,6 +547,7 @@ impl Ppu {
                             ppu.get_background_pattern_table_addr(),
                             ppu.current_vram_addr,
                             memory,
+                            cpu,
                         );
                         ppu.increment_vram_addr_coarse_x();
                     }
@@ -545,8 +558,9 @@ impl Ppu {
 
         fn step_visible_line(
             ppu: &mut Ppu,
-            memory: &dyn PpuMemoryMap,
+            memory: &mut dyn PpuMemoryMap,
             framebuffer: &mut [u32; 256 * 240],
+            cpu: &mut cpu::Cpu,
         ) {
             match ppu.current_scanline_dot {
                 0 => {
@@ -614,6 +628,7 @@ impl Ppu {
                                 ppu.get_background_pattern_table_addr(),
                                 ppu.current_vram_addr,
                                 memory,
+                                cpu,
                             );
                             ppu.increment_vram_addr_coarse_x();
                         }
@@ -636,6 +651,7 @@ impl Ppu {
                             ppu.get_8x8_sprite_pattern_table_addr(),
                             ppu.cycle_count,
                             memory,
+                            cpu,
                         );
                     }
 
@@ -659,6 +675,7 @@ impl Ppu {
                             ppu.get_8x8_sprite_pattern_table_addr(),
                             ppu.cycle_count,
                             memory,
+                            cpu,
                         );
                     }
 
@@ -680,6 +697,7 @@ impl Ppu {
                             ppu.get_background_pattern_table_addr(),
                             ppu.current_vram_addr,
                             memory,
+                            cpu,
                         );
                         ppu.increment_vram_addr_coarse_x();
                     }
@@ -696,6 +714,7 @@ impl Ppu {
                             ppu.get_background_pattern_table_addr(),
                             ppu.current_vram_addr,
                             memory,
+                            cpu,
                         );
                         ppu.increment_vram_addr_coarse_x();
                     }
@@ -767,7 +786,7 @@ impl Ppu {
     fn step_scanline(
         &mut self,
         cpu: &mut cpu::Cpu,
-        memory: &dyn PpuMemoryMap,
+        memory: &mut dyn PpuMemoryMap,
         framebuffer: &mut [u32; 256 * 240],
     ) {
         // NOTE: this function is split into multiple subfunctions
@@ -789,7 +808,7 @@ impl Ppu {
             };
         }
 
-        fn step_pre_render_line_full(ppu: &mut Ppu, memory: &dyn PpuMemoryMap) {
+        fn step_pre_render_line_full(ppu: &mut Ppu, memory: &mut dyn PpuMemoryMap) {
             ppu.set_vblank(false);
             ppu.set_sprite_zero_hit(false);
             ppu.set_sprite_overflow(false);
@@ -816,7 +835,7 @@ impl Ppu {
 
         fn step_visible_line_full(
             ppu: &mut Ppu,
-            memory: &dyn PpuMemoryMap,
+            memory: &mut dyn PpuMemoryMap,
             framebuffer: &mut [u32; 256 * 240],
         ) {
             ppu.current_scanline_dot = 1;
@@ -955,7 +974,11 @@ impl Ppu {
 
     // draws 8 pixels, without making any state changes to 'self', apart from
     // writing to 'framebuffer'. returns whether sprite zero was hit
-    fn draw_8_pixels(&self, framebuffer: &mut [u32; 256 * 240], memory: &dyn PpuMemoryMap) -> bool {
+    fn draw_8_pixels(
+        &self,
+        framebuffer: &mut [u32; 256 * 240],
+        memory: &mut dyn PpuMemoryMap,
+    ) -> bool {
         {
             if self.is_background_enable() || self.is_sprites_enable() {
                 return draw_8_pixels_bg_and_sprites(self, framebuffer, memory);

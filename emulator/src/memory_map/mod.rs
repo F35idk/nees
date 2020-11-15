@@ -46,8 +46,8 @@ pub trait CpuMemoryMap {
 }
 
 pub trait PpuMemoryMap {
-    fn read(&self, addr: u16, cycle_count: i32) -> u8;
-    fn write(&mut self, addr: u16, val: u8, cycle_count: i32);
+    fn read(&mut self, addr: u16, ppu_cycle_count: i32, cpu: &mut cpu::Cpu) -> u8;
+    fn write(&mut self, addr: u16, val: u8, ppu_cycle_count: i32, cpu: &mut cpu::Cpu);
     fn read_palette_memory(&self, color_idx: u8) -> u8;
 }
 
