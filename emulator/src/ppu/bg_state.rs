@@ -1,5 +1,5 @@
-use super::super::memory_map::PpuMemoryMap;
 use super::Ppu;
+use crate::address_bus::PpuAddressBus;
 use crate::cpu;
 
 #[derive(Default)]
@@ -39,21 +39,21 @@ impl BgDrawState {
         cycle_count: i32,
         background_pattern_table_addr: u16,
         current_vram_addr: super::VramAddrRegister,
-        memory: &mut dyn PpuMemoryMap,
+        bus: &mut dyn PpuAddressBus,
         cpu: &mut cpu::Cpu,
     ) {
         // get the high and low bitplanes for the current row of the current tile
         let (bg_bitplane_lo, bg_bitplane_hi) = {
             // get tile index from nametable using lower 12 bits of 'current_vram_addr' + 0x2000
             let addr = (current_vram_addr.get_addr() & 0xfff) | 0x2000;
-            let tile_index = memory.read(addr, cycle_count, cpu);
+            let tile_index = bus.read(addr, cycle_count, cpu);
 
             let tile_addr = background_pattern_table_addr + ((tile_index as u16) << 4);
             let fine_y = current_vram_addr.get_fine_y();
 
             (
-                memory.read(tile_addr + fine_y as u16, cycle_count + 2, cpu),
-                memory.read(tile_addr + 8 + fine_y as u16, cycle_count + 4, cpu),
+                bus.read(tile_addr + fine_y as u16, cycle_count + 2, cpu),
+                bus.read(tile_addr + 8 + fine_y as u16, cycle_count + 4, cpu),
             )
         };
 
@@ -68,7 +68,7 @@ impl BgDrawState {
                 | (coarse_x >> 2) as u16;
 
             // get the 'attribute' byte from the attribute table
-            let attribute = memory.read(attribute_addr, cycle_count + 6, cpu);
+            let attribute = bus.read(attribute_addr, cycle_count + 6, cpu);
             // calculate how much to shift 'attribute' by to get the current tile's palette index
             let shift_amt = ((coarse_y << 1) & 0b100) | (coarse_x & 0b10);
 

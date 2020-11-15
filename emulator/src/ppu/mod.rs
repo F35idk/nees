@@ -1,7 +1,6 @@
 #[macro_use]
 use super::{cpu, util};
-use super::memory_map::PpuMemoryMap;
-use super::pixel_renderer::PixelRenderer;
+use super::address_bus::PpuAddressBus;
 
 mod bg_state;
 mod palette;
@@ -196,7 +195,7 @@ impl Ppu {
     pub fn read_register_by_index(
         &mut self,
         index: u8,
-        memory: &mut dyn PpuMemoryMap,
+        bus: &mut dyn PpuAddressBus,
         cpu: &mut cpu::Cpu,
     ) -> u8 {
         // NOTE: to help readability, this function and a few others on 'Ppu' are
@@ -219,7 +218,7 @@ impl Ppu {
                 // ppuscroll | ppuaddr
                 5 | 6 => 0, // FIXME: should these reset the low bits toggle as well??
                 // ppudata
-                7 => read_ppudata(self, memory, cpu),
+                7 => read_ppudata(self, bus, cpu),
                 _ => 0,
             };
         }
@@ -256,14 +255,14 @@ impl Ppu {
             byte
         }
 
-        fn read_ppudata(ppu: &mut Ppu, memory: &mut dyn PpuMemoryMap, cpu: &mut cpu::Cpu) -> u8 {
+        fn read_ppudata(ppu: &mut Ppu, bus: &mut dyn PpuAddressBus, cpu: &mut cpu::Cpu) -> u8 {
             let val = if (ppu.current_vram_addr.inner >> 8) == 0b111111 {
                 // read directly from vram if address is in range
                 // 0x3f00-0x3fff (palette ram)
-                let val = memory.read(ppu.current_vram_addr.get_addr(), ppu.cycle_count, cpu);
+                let val = bus.read(ppu.current_vram_addr.get_addr(), ppu.cycle_count, cpu);
                 // store value at mirrored address (down to 0x2f00-0x2fff)
                 // in read buffer
-                ppu.ppudata_read_buffer = memory.read(
+                ppu.ppudata_read_buffer = bus.read(
                     ppu.current_vram_addr.get_addr() & !0b01000000000000,
                     ppu.cycle_count,
                     cpu,
@@ -273,7 +272,7 @@ impl Ppu {
                 // read from read buffer if address is in range 0-0x3eff
                 let val = ppu.ppudata_read_buffer;
                 ppu.ppudata_read_buffer =
-                    memory.read(ppu.current_vram_addr.get_addr(), ppu.cycle_count, cpu);
+                    bus.read(ppu.current_vram_addr.get_addr(), ppu.cycle_count, cpu);
                 val
             };
 
@@ -298,7 +297,7 @@ impl Ppu {
         index: u8,
         val: u8,
         cpu: &mut cpu::Cpu,
-        memory: &mut dyn PpuMemoryMap,
+        bus: &mut dyn PpuAddressBus,
     ) {
         {
             match index {
@@ -317,7 +316,7 @@ impl Ppu {
                 // ppuaddr
                 6 => write_ppuaddr(self, val),
                 // ppudata
-                7 => write_ppudata(self, val, memory, cpu),
+                7 => write_ppudata(self, val, bus, cpu),
                 _ => (),
             }
         }
@@ -392,13 +391,8 @@ impl Ppu {
             ppu.toggle_low_bits_toggle();
         }
 
-        fn write_ppudata(
-            ppu: &mut Ppu,
-            val: u8,
-            memory: &mut dyn PpuMemoryMap,
-            cpu: &mut cpu::Cpu,
-        ) {
-            memory.write(ppu.current_vram_addr.get_addr(), val, ppu.cycle_count, cpu);
+        fn write_ppudata(ppu: &mut Ppu, val: u8, bus: &mut dyn PpuAddressBus, cpu: &mut cpu::Cpu) {
+            bus.write(ppu.current_vram_addr.get_addr(), val, ppu.cycle_count, cpu);
             ppu.set_ppustatus_low_bits(val);
 
             // increment 'current_vram_addr' (same as when reading ppudata)
@@ -411,7 +405,7 @@ impl Ppu {
         }
     }
 
-    // NOTE: this is also used by 'CpuMemoryMap::write_oamdma()'
+    // NOTE: this is also used by 'CpuAddressBus::write_oamdma()'
     pub fn write_to_oam_and_increment_addr(&mut self, val: u8) {
         self.primary_oam.set_byte(self.oamaddr, val);
         self.oamaddr = self.oamaddr.wrapping_add(1);
@@ -422,32 +416,15 @@ impl Ppu {
     pub fn catch_up(
         &mut self,
         cpu: &mut cpu::Cpu,
-        memory: &mut dyn PpuMemoryMap,
+        bus: &mut dyn PpuAddressBus,
         framebuffer: &mut [u32; 256 * 240],
     ) {
         // NOTE: cpu.cycle_count could be negative here
         let target_cycles = cpu.cycle_count as i32 * 3;
-        let cycles_to_catch_up = target_cycles - (self.cycle_count);
-
-        // if the ppu is behind the cpu by more than 2 scanlines worth of cycles,
-        // start by using a separate scanline algorithm to catch up
-        if cycles_to_catch_up > 341 * 2 + 1 {
-            // line up with the next scanline
-            while self.current_scanline_dot != 0 {
-                self.step(cpu);
-            }
-
-            // step using scanline algorithm
-            let n_scanlines = (target_cycles - self.cycle_count) / 341;
-            for _ in 0..n_scanlines {
-                debug_assert!(!self.is_frame_done());
-                self.step_scanline(cpu);
-            }
-        }
 
         // step normally
         while (self.cycle_count as i32) < target_cycles {
-            self.step(cpu, memory, framebuffer);
+            self.step(cpu, bus, framebuffer);
         }
     }
 
@@ -456,16 +433,16 @@ impl Ppu {
     fn step(
         &mut self,
         cpu: &mut cpu::Cpu,
-        memory: &mut dyn PpuMemoryMap,
+        bus: &mut dyn PpuAddressBus,
         framebuffer: &mut [u32; 256 * 240],
     ) {
         // NOTE: this function is split into multiple subfunctions
         {
             match self.current_scanline {
                 // pre-render scanline
-                -1 => step_pre_render_line(self, memory, cpu),
+                -1 => step_pre_render_line(self, bus, cpu),
                 // visible scanlines
-                0..=239 => step_visible_line(self, memory, framebuffer, cpu),
+                0..=239 => step_visible_line(self, bus, framebuffer, cpu),
                 // idle scanline
                 240 => step_idle_line(self),
                 // vblank 'scanlines'
@@ -475,7 +452,7 @@ impl Ppu {
         }
 
         // TODO: dummy ram accesses during the entire line
-        fn step_pre_render_line(ppu: &mut Ppu, memory: &mut dyn PpuMemoryMap, cpu: &mut cpu::Cpu) {
+        fn step_pre_render_line(ppu: &mut Ppu, bus: &mut dyn PpuAddressBus, cpu: &mut cpu::Cpu) {
             match ppu.current_scanline_dot {
                 // idle cycle
                 0 => {
@@ -529,7 +506,7 @@ impl Ppu {
                             ppu.cycle_count,
                             ppu.get_background_pattern_table_addr(),
                             ppu.current_vram_addr,
-                            memory,
+                            bus,
                             cpu,
                         );
                         ppu.increment_vram_addr_coarse_x();
@@ -546,7 +523,7 @@ impl Ppu {
                             ppu.cycle_count,
                             ppu.get_background_pattern_table_addr(),
                             ppu.current_vram_addr,
-                            memory,
+                            bus,
                             cpu,
                         );
                         ppu.increment_vram_addr_coarse_x();
@@ -558,7 +535,7 @@ impl Ppu {
 
         fn step_visible_line(
             ppu: &mut Ppu,
-            memory: &mut dyn PpuMemoryMap,
+            bus: &mut dyn PpuAddressBus,
             framebuffer: &mut [u32; 256 * 240],
             cpu: &mut cpu::Cpu,
         ) {
@@ -606,7 +583,7 @@ impl Ppu {
                         }
                     }
 
-                    let sprite_zero_hit = ppu.draw_8_pixels(framebuffer, memory);
+                    let sprite_zero_hit = ppu.draw_8_pixels(framebuffer, bus);
 
                     if sprite_zero_hit {
                         ppu.set_sprite_zero_hit(true);
@@ -627,7 +604,7 @@ impl Ppu {
                                 ppu.cycle_count,
                                 ppu.get_background_pattern_table_addr(),
                                 ppu.current_vram_addr,
-                                memory,
+                                bus,
                                 cpu,
                             );
                             ppu.increment_vram_addr_coarse_x();
@@ -650,7 +627,7 @@ impl Ppu {
                             ppu.current_scanline_dot,
                             ppu.get_8x8_sprite_pattern_table_addr(),
                             ppu.cycle_count,
-                            memory,
+                            bus,
                             cpu,
                         );
                     }
@@ -674,7 +651,7 @@ impl Ppu {
                             ppu.current_scanline_dot,
                             ppu.get_8x8_sprite_pattern_table_addr(),
                             ppu.cycle_count,
-                            memory,
+                            bus,
                             cpu,
                         );
                     }
@@ -696,7 +673,7 @@ impl Ppu {
                             ppu.cycle_count,
                             ppu.get_background_pattern_table_addr(),
                             ppu.current_vram_addr,
-                            memory,
+                            bus,
                             cpu,
                         );
                         ppu.increment_vram_addr_coarse_x();
@@ -713,7 +690,7 @@ impl Ppu {
                             ppu.cycle_count,
                             ppu.get_background_pattern_table_addr(),
                             ppu.current_vram_addr,
-                            memory,
+                            bus,
                             cpu,
                         );
                         ppu.increment_vram_addr_coarse_x();
@@ -786,13 +763,13 @@ impl Ppu {
     fn draw_8_pixels(
         &self,
         framebuffer: &mut [u32; 256 * 240],
-        memory: &mut dyn PpuMemoryMap,
+        bus: &mut dyn PpuAddressBus,
     ) -> bool {
         {
             if self.is_background_enable() || self.is_sprites_enable() {
-                return draw_8_pixels_bg_and_sprites(self, framebuffer, memory);
+                return draw_8_pixels_bg_and_sprites(self, framebuffer, bus);
             } else {
-                draw_8_pixels_backdrop_color(self, framebuffer, memory);
+                draw_8_pixels_backdrop_color(self, framebuffer, bus);
                 return false;
             }
         }
@@ -800,7 +777,7 @@ impl Ppu {
         fn draw_8_pixels_bg_and_sprites(
             ppu: &Ppu,
             framebuffer: &mut [u32; 256 * 240],
-            memory: &dyn PpuMemoryMap,
+            bus: &dyn PpuAddressBus,
         ) -> bool {
             let mut sprite_zero_hit = false;
 
@@ -840,26 +817,24 @@ impl Ppu {
                     ppu.is_sprites_left_column_enable(),
                 ) {
                     // draw bg color if sprites are disabled
-                    (false, _, _) => calc_pixel_color(ppu, bg_palette_idx, bg_color_idx, memory),
+                    (false, _, _) => calc_pixel_color(ppu, bg_palette_idx, bg_color_idx, bus),
                     // draw bg color if on dots 1-8 and sprite
                     // drawing is disabled for the first 8 pixels
-                    (_, 1..=8, false) => {
-                        calc_pixel_color(ppu, bg_palette_idx, bg_color_idx, memory)
-                    }
+                    (_, 1..=8, false) => calc_pixel_color(ppu, bg_palette_idx, bg_color_idx, bus),
                     // otherwise, search for an active, non-transparent sprite at the current dot
                     _ => match ppu
                         .sprite_state
                         .get_sprite_at_dot_info(ppu.current_scanline_dot + i as u16)
                     {
                         // draw bg color if no sprite was found
-                        None => calc_pixel_color(ppu, bg_palette_idx, bg_color_idx, memory),
+                        None => calc_pixel_color(ppu, bg_palette_idx, bg_color_idx, bus),
                         Some(info) => {
                             sprite_zero = info.is_sprite_zero;
 
                             if info.is_in_front || bg_color_idx == 0 {
-                                calc_pixel_color(ppu, info.palette_index, info.color_index, memory)
+                                calc_pixel_color(ppu, info.palette_index, info.color_index, bus)
                             } else {
-                                calc_pixel_color(ppu, bg_palette_idx, bg_color_idx, memory)
+                                calc_pixel_color(ppu, bg_palette_idx, bg_color_idx, bus)
                             }
                         }
                     },
@@ -887,7 +862,7 @@ impl Ppu {
         fn draw_8_pixels_backdrop_color(
             ppu: &Ppu,
             framebuffer: &mut [u32; 256 * 240],
-            memory: &dyn PpuMemoryMap,
+            bus: &dyn PpuAddressBus,
         ) {
             for i in 0..8 {
                 let pixel_color = {
@@ -898,7 +873,7 @@ impl Ppu {
                         0
                     };
 
-                    let bg_color_byte = memory.read_palette_memory(bg_color_idx);
+                    let bg_color_byte = bus.read_palette_memory(bg_color_idx);
 
                     palette::COLOR_LUT.get(
                         bg_color_byte,
@@ -917,7 +892,7 @@ impl Ppu {
             ppu: &Ppu,
             palette_idx: u8,
             color_idx: u8,
-            memory: &dyn PpuMemoryMap,
+            bus: &dyn PpuAddressBus,
         ) -> u32 {
             let final_idx = if color_idx == 0 {
                 0
@@ -925,7 +900,7 @@ impl Ppu {
                 (((palette_idx << 2) as u16) | (color_idx as u16)) as u8
             };
 
-            let color_byte = memory.read_palette_memory(final_idx);
+            let color_byte = bus.read_palette_memory(final_idx);
             palette::COLOR_LUT.get(color_byte, ppu.is_greyscale_enabled(), ppu.ppumask >> 5)
         }
     }

@@ -1,29 +1,27 @@
 use super::super::{apu, controller as ctrl, cpu, ppu, util, win, PixelRenderer};
-use super::{CpuMemoryMap, CpuMemoryMapBase, PpuMemoryMap};
+use super::{CpuAddressBus, CpuAddressBusBase, PpuAddressBus};
 
-// the cpu memory map for games that use the 'NROM-128' cartridge/mapper (ines mapper 0)
-pub struct NromCpuMemory {
-    pub base: CpuMemoryMapBase,
-    pub ppu_memory: NromPpuMemory,
+pub struct NromCpuAddressBus {
+    pub base: CpuAddressBusBase,
+    pub ppu_bus: NromPpuAddressBus,
     internal_ram: [u8; 0x800],
     prg_rom: Box<[u8]>,
     prg_ram: [u8; 0x1000],
 }
 
-// the ppu memory map for both 'NROM-128' and 'NROM-256'
-pub struct NromPpuMemory {
+pub struct NromPpuAddressBus {
     pub chr_ram: [u8; 0x2000],
     pub nametables: [u8; 0x800],
     pub palettes: [u8; 32],
     pub hor_mirroring: bool,
 }
 
-impl NromCpuMemory {
+impl NromCpuAddressBus {
     // TODO: reduce unnecessary copying
     pub fn new(
         prg_rom: &[u8],
         ppu: ppu::Ppu,
-        ppu_memory: NromPpuMemory,
+        ppu_bus: NromPpuAddressBus,
         apu: apu::Apu,
         controller: ctrl::Controller,
         renderer: PixelRenderer,
@@ -35,15 +33,15 @@ impl NromCpuMemory {
             internal_ram: [0; 0x800],
             prg_ram: [0; 0x1000],
             prg_rom: prg_rom.to_vec().into_boxed_slice(),
-            ppu_memory,
-            base: CpuMemoryMapBase::new(ppu, apu, controller, renderer),
+            ppu_bus,
+            base: CpuAddressBusBase::new(ppu, apu, controller, renderer),
         }
     }
 
     pub fn new_empty(
         prg_rom_size: u16,
         ppu: ppu::Ppu,
-        ppu_memory: NromPpuMemory,
+        ppu_bus: NromPpuAddressBus,
         apu: apu::Apu,
         controller: ctrl::Controller,
         renderer: PixelRenderer,
@@ -54,13 +52,13 @@ impl NromCpuMemory {
             internal_ram: [0; 0x800],
             prg_ram: [0; 0x1000],
             prg_rom: vec![0; prg_rom_size as usize].into_boxed_slice(),
-            ppu_memory,
-            base: CpuMemoryMapBase::new(ppu, apu, controller, renderer),
+            ppu_bus,
+            base: CpuAddressBusBase::new(ppu, apu, controller, renderer),
         }
     }
 }
 
-impl NromPpuMemory {
+impl NromPpuAddressBus {
     pub fn new(hor_mirroring: bool) -> Self {
         Self {
             chr_ram: [0; 0x2000],
@@ -76,7 +74,7 @@ impl NromPpuMemory {
     }
 }
 
-impl CpuMemoryMap for NromCpuMemory {
+impl CpuAddressBus for NromCpuAddressBus {
     fn read(&mut self, mut addr: u16, cpu: &mut cpu::Cpu) -> u8 {
         // internal ram
         if super::is_0_to_1fff(addr) {
@@ -90,15 +88,13 @@ impl CpuMemoryMap for NromCpuMemory {
         if super::is_2000_to_3fff(addr) {
             // catch ppu up to cpu before reading
             let framebuffer = util::pixels_to_u32(&mut self.base.renderer);
-            self.base
-                .ppu
-                .catch_up(cpu, &mut self.ppu_memory, framebuffer);
+            self.base.ppu.catch_up(cpu, &mut self.ppu_bus, framebuffer);
             // ignore all but low 3 bits
             addr &= 0b111;
             return self
                 .base
                 .ppu
-                .read_register_by_index(addr as u8, &mut self.ppu_memory, cpu);
+                .read_register_by_index(addr as u8, &mut self.ppu_bus, cpu);
         }
 
         // prg ram
@@ -143,16 +139,11 @@ impl CpuMemoryMap for NromCpuMemory {
         if super::is_2000_to_3fff(addr) {
             // catch ppu up to cpu before writing
             let framebuffer = util::pixels_to_u32(&mut self.base.renderer);
+            self.base.ppu.catch_up(cpu, &mut self.ppu_bus, framebuffer);
+
             self.base
                 .ppu
-                .catch_up(cpu, &mut self.ppu_memory, framebuffer);
-
-            self.base.ppu.write_register_by_index(
-                addr as u8 & 0b111,
-                val,
-                cpu,
-                &mut self.ppu_memory,
-            );
+                .write_register_by_index(addr as u8 & 0b111, val, cpu, &mut self.ppu_bus);
 
             return;
         }
@@ -170,9 +161,7 @@ impl CpuMemoryMap for NromCpuMemory {
         // ppu oamdma register
         if addr == 0x4014 {
             let framebuffer = util::pixels_to_u32(&mut self.base.renderer);
-            self.base
-                .ppu
-                .catch_up(cpu, &mut self.ppu_memory, framebuffer);
+            self.base.ppu.catch_up(cpu, &mut self.ppu_bus, framebuffer);
             super::write_oamdma(self, val, cpu);
             return;
         }
@@ -185,12 +174,12 @@ impl CpuMemoryMap for NromCpuMemory {
         // necessary to explicitly ignore attempts to write to rom
     }
 
-    fn base(&mut self) -> (&mut CpuMemoryMapBase, &mut dyn PpuMemoryMap) {
-        (&mut self.base, &mut self.ppu_memory)
+    fn base(&mut self) -> (&mut CpuAddressBusBase, &mut dyn PpuAddressBus) {
+        (&mut self.base, &mut self.ppu_bus)
     }
 }
 
-impl PpuMemoryMap for NromPpuMemory {
+impl PpuAddressBus for NromPpuAddressBus {
     // NOTE: passing addresses higher than 0x3fff will read from palette ram
     fn read(&mut self, addr: u16, _: i32, _: &mut cpu::Cpu) -> u8 {
         if cfg!(not(test)) {
@@ -234,6 +223,8 @@ impl PpuMemoryMap for NromPpuMemory {
         unsafe { *self.chr_ram.get_unchecked_mut(addr as usize) = val };
     }
 
+    fn set_address(&mut self, addr: u16, ppu_cycle_count: i32, cpu: &mut cpu::Cpu) {}
+
     fn read_palette_memory(&self, color_idx: u8) -> u8 {
         self.palettes[super::calc_ppu_palette_addr(color_idx as u16) as usize]
     }
@@ -244,168 +235,168 @@ mod test {
 
     #[test]
     fn test_cpu_read_write() {
-        let (mut cpu, mut cpu_memory) = util::init_nes();
+        let (mut cpu, mut cpu_bus) = util::init_nes();
 
         // nrom-128
         {
             // internal ram reads/writes
-            cpu_memory.write(0x7ff, 0xaa, &mut cpu);
-            assert_eq!(cpu_memory.read(0x7ff, &mut cpu), 0xaa);
-            assert_eq!(cpu_memory.read(0xfff, &mut cpu), 0xaa);
-            assert_eq!(cpu_memory.read(0x17ff, &mut cpu), 0xaa);
-            assert_eq!(cpu_memory.read(0x1fff, &mut cpu), 0xaa);
+            cpu_bus.write(0x7ff, 0xaa, &mut cpu);
+            assert_eq!(cpu_bus.read(0x7ff, &mut cpu), 0xaa);
+            assert_eq!(cpu_bus.read(0xfff, &mut cpu), 0xaa);
+            assert_eq!(cpu_bus.read(0x17ff, &mut cpu), 0xaa);
+            assert_eq!(cpu_bus.read(0x1fff, &mut cpu), 0xaa);
 
-            cpu_memory.write(0, 0xbb, &mut cpu);
-            assert_eq!(cpu_memory.read(0, &mut cpu), 0xbb);
-            assert_eq!(cpu_memory.read(0x800, &mut cpu), 0xbb);
-            assert_eq!(cpu_memory.read(0x1000, &mut cpu), 0xbb);
-            assert_eq!(cpu_memory.read(0x1800, &mut cpu), 0xbb);
+            cpu_bus.write(0, 0xbb, &mut cpu);
+            assert_eq!(cpu_bus.read(0, &mut cpu), 0xbb);
+            assert_eq!(cpu_bus.read(0x800, &mut cpu), 0xbb);
+            assert_eq!(cpu_bus.read(0x1000, &mut cpu), 0xbb);
+            assert_eq!(cpu_bus.read(0x1800, &mut cpu), 0xbb);
 
             // 'unmapped' area reads, should return 0
-            assert_eq!(cpu_memory.read(0x48f0, &mut cpu), 0);
-            assert_eq!(cpu_memory.read(0x5000, &mut cpu), 0);
+            assert_eq!(cpu_bus.read(0x48f0, &mut cpu), 0);
+            assert_eq!(cpu_bus.read(0x5000, &mut cpu), 0);
 
             // prg ram writes
-            cpu_memory.write(0x7fffu16, 0xfe, &mut cpu);
-            cpu_memory.write(0x6000u16, 0xce, &mut cpu);
-            assert_eq!(cpu_memory.prg_ram[0x7ff], 0xfe);
-            assert_eq!(cpu_memory.read(0x6fff, &mut cpu), 0xfe);
-            assert_eq!(cpu_memory.prg_ram[0], 0xce);
-            assert_eq!(cpu_memory.read(0x7000, &mut cpu), 0xce);
+            cpu_bus.write(0x7fffu16, 0xfe, &mut cpu);
+            cpu_bus.write(0x6000u16, 0xce, &mut cpu);
+            assert_eq!(cpu_bus.prg_ram[0x7ff], 0xfe);
+            assert_eq!(cpu_bus.read(0x6fff, &mut cpu), 0xfe);
+            assert_eq!(cpu_bus.prg_ram[0], 0xce);
+            assert_eq!(cpu_bus.read(0x7000, &mut cpu), 0xce);
 
             // special io stuff, should just return 0
-            assert_eq!(cpu_memory.read(0x401f, &mut cpu), 0);
+            assert_eq!(cpu_bus.read(0x401f, &mut cpu), 0);
 
             // prg rom reads (prg rom should be mirrored twice)
-            cpu_memory.prg_rom[0x3fff] = 0xcc;
-            assert_eq!(cpu_memory.read(0xbfff, &mut cpu), 0xcc);
-            assert_eq!(cpu_memory.read(0xffff, &mut cpu), 0xcc);
+            cpu_bus.prg_rom[0x3fff] = 0xcc;
+            assert_eq!(cpu_bus.read(0xbfff, &mut cpu), 0xcc);
+            assert_eq!(cpu_bus.read(0xffff, &mut cpu), 0xcc);
 
-            cpu_memory.prg_rom[0] = 0xdd;
-            assert_eq!(cpu_memory.read(0x8000, &mut cpu), 0xdd);
-            assert_eq!(cpu_memory.read(0xc000, &mut cpu), 0xdd);
+            cpu_bus.prg_rom[0] = 0xdd;
+            assert_eq!(cpu_bus.read(0x8000, &mut cpu), 0xdd);
+            assert_eq!(cpu_bus.read(0xc000, &mut cpu), 0xdd);
 
             // prg rom writes
-            cpu_memory.write(0xcfff, 0xff, &mut cpu);
+            cpu_bus.write(0xcfff, 0xff, &mut cpu);
             // should not take effect
-            assert_ne!(cpu_memory.read(0xcfff, &mut cpu), 0xff);
+            assert_ne!(cpu_bus.read(0xcfff, &mut cpu), 0xff);
         }
 
         // nrom-256
         {
             // set prg rom length = 0x8000 (nrom-256)
-            cpu_memory.prg_rom = vec![0; 0x8000].into_boxed_slice();
+            cpu_bus.prg_rom = vec![0; 0x8000].into_boxed_slice();
 
             // prg rom reads (prg rom should not be mirrored)
-            cpu_memory.prg_rom[0x3fff] = 0xcc;
-            assert_eq!(cpu_memory.read(0xbfff, &mut cpu), 0xcc);
-            assert_ne!(cpu_memory.read(0xffff, &mut cpu), 0xcc);
+            cpu_bus.prg_rom[0x3fff] = 0xcc;
+            assert_eq!(cpu_bus.read(0xbfff, &mut cpu), 0xcc);
+            assert_ne!(cpu_bus.read(0xffff, &mut cpu), 0xcc);
 
-            cpu_memory.prg_rom[0] = 0xdd;
-            assert_eq!(cpu_memory.read(0x8000, &mut cpu), 0xdd);
-            assert_ne!(cpu_memory.read(0xc000, &mut cpu), 0xdd);
+            cpu_bus.prg_rom[0] = 0xdd;
+            assert_eq!(cpu_bus.read(0x8000, &mut cpu), 0xdd);
+            assert_ne!(cpu_bus.read(0xc000, &mut cpu), 0xdd);
 
-            cpu_memory.prg_rom[0x4000] = 0xee;
-            assert_eq!(cpu_memory.read(0xc000, &mut cpu), 0xee);
+            cpu_bus.prg_rom[0x4000] = 0xee;
+            assert_eq!(cpu_bus.read(0xc000, &mut cpu), 0xee);
 
-            cpu_memory.prg_rom[0x7fff] = 0xff;
-            assert_eq!(cpu_memory.read(0xffff, &mut cpu), 0xff);
+            cpu_bus.prg_rom[0x7fff] = 0xff;
+            assert_eq!(cpu_bus.read(0xffff, &mut cpu), 0xff);
 
             // prg rom writes
-            cpu_memory.write(0xcfff, 0xff, &mut cpu);
+            cpu_bus.write(0xcfff, 0xff, &mut cpu);
             // should not take effect
-            assert_ne!(cpu_memory.read(0xcfff, &mut cpu), 0xff);
+            assert_ne!(cpu_bus.read(0xcfff, &mut cpu), 0xff);
         }
     }
 
     #[test]
     fn test_ppu_read_write() {
-        let mut memory = NromPpuMemory::new(false);
+        let mut bus = NromPpuAddressBus::new(false);
         let mut cpu = cpu::Cpu::default();
 
         // test nametable writes (with mirroring = horizontal)
-        memory.write(0x2fff, 0xee, 0, &mut cpu);
-        assert_eq!(memory.nametables[0x7ff], 0xee);
-        memory.write(0x2bff, 0xcc, 0, &mut cpu);
-        assert_eq!(memory.nametables[0x3ff], 0xcc);
-        memory.write(0x2800, 0x66, 0, &mut cpu);
-        assert_eq!(memory.nametables[0], 0x66);
-        memory.write(0x28ff, 0x99, 0, &mut cpu);
-        assert_eq!(memory.nametables[0x0ff], 0x99);
+        bus.write(0x2fff, 0xee, 0, &mut cpu);
+        assert_eq!(bus.nametables[0x7ff], 0xee);
+        bus.write(0x2bff, 0xcc, 0, &mut cpu);
+        assert_eq!(bus.nametables[0x3ff], 0xcc);
+        bus.write(0x2800, 0x66, 0, &mut cpu);
+        assert_eq!(bus.nametables[0], 0x66);
+        bus.write(0x28ff, 0x99, 0, &mut cpu);
+        assert_eq!(bus.nametables[0x0ff], 0x99);
 
-        for i in memory.nametables.iter_mut() {
+        for i in bus.nametables.iter_mut() {
             *i = 0;
         }
 
         // set mirroring = horizontal
-        memory.hor_mirroring = true;
+        bus.hor_mirroring = true;
         // test nametable writes
-        memory.write(0x2fff, 0xee, 0, &mut cpu);
-        assert_eq!(memory.nametables[0x7ff], 0xee);
-        assert_eq!(memory.read(0x2bff, 0, &mut cpu), 0xee);
-        memory.write(0x2bff, 0xdd, 0, &mut cpu);
-        assert_eq!(memory.nametables[0x7ff], 0xdd);
-        assert_eq!(memory.read(0x2fff, 0, &mut cpu), 0xdd);
+        bus.write(0x2fff, 0xee, 0, &mut cpu);
+        assert_eq!(bus.nametables[0x7ff], 0xee);
+        assert_eq!(bus.read(0x2bff, 0, &mut cpu), 0xee);
+        bus.write(0x2bff, 0xdd, 0, &mut cpu);
+        assert_eq!(bus.nametables[0x7ff], 0xdd);
+        assert_eq!(bus.read(0x2fff, 0, &mut cpu), 0xdd);
 
-        memory.write(0x2cf0, 0xaa, 0, &mut cpu);
-        assert_eq!(memory.nametables[0x4f0], 0xaa);
-        assert_eq!(memory.read(0x28f0, 0, &mut cpu), 0xaa);
-        memory.write(0x28f0, 0x88, 0, &mut cpu);
-        assert_eq!(memory.nametables[0x4f0], 0x88);
-        assert_eq!(memory.read(0x2cf0, 0, &mut cpu), 0x88);
+        bus.write(0x2cf0, 0xaa, 0, &mut cpu);
+        assert_eq!(bus.nametables[0x4f0], 0xaa);
+        assert_eq!(bus.read(0x28f0, 0, &mut cpu), 0xaa);
+        bus.write(0x28f0, 0x88, 0, &mut cpu);
+        assert_eq!(bus.nametables[0x4f0], 0x88);
+        assert_eq!(bus.read(0x2cf0, 0, &mut cpu), 0x88);
 
         for addr in 0x2800..=0x2bff {
-            memory.write(addr as u16, 0xaa, 0, &mut cpu);
-            assert_eq!(memory.nametables[addr - 0x2400], 0xaa);
-            assert_eq!(memory.read(addr as u16, 0, &mut cpu), 0xaa);
-            assert_eq!(memory.read(addr as u16 + 0x400, 0, &mut cpu), 0xaa);
-            memory.write(addr as u16, 0, 0, &mut cpu);
+            bus.write(addr as u16, 0xaa, 0, &mut cpu);
+            assert_eq!(bus.nametables[addr - 0x2400], 0xaa);
+            assert_eq!(bus.read(addr as u16, 0, &mut cpu), 0xaa);
+            assert_eq!(bus.read(addr as u16 + 0x400, 0, &mut cpu), 0xaa);
+            bus.write(addr as u16, 0, 0, &mut cpu);
         }
 
         for addr in 0x2c00..=0x2fff {
-            memory.write(addr as u16, 0xaa, 0, &mut cpu);
-            assert_eq!(memory.nametables[addr - 0x2800], 0xaa);
-            assert_eq!(memory.read(addr as u16, 0, &mut cpu), 0xaa);
-            assert_eq!(memory.read(addr as u16 - 0x400, 0, &mut cpu), 0xaa);
-            memory.write(addr as u16, 0, 0, &mut cpu);
+            bus.write(addr as u16, 0xaa, 0, &mut cpu);
+            assert_eq!(bus.nametables[addr - 0x2800], 0xaa);
+            assert_eq!(bus.read(addr as u16, 0, &mut cpu), 0xaa);
+            assert_eq!(bus.read(addr as u16 - 0x400, 0, &mut cpu), 0xaa);
+            bus.write(addr as u16, 0, 0, &mut cpu);
         }
 
         for addr in 0x2000..=0x23ff {
-            memory.write(addr as u16, 0xaa, 0, &mut cpu);
-            assert_eq!(memory.nametables[addr - 0x2000], 0xaa);
-            assert_eq!(memory.read(addr as u16, 0, &mut cpu), 0xaa);
-            assert_eq!(memory.read(addr as u16 + 0x400, 0, &mut cpu), 0xaa);
-            memory.write(addr as u16, 0, 0, &mut cpu);
+            bus.write(addr as u16, 0xaa, 0, &mut cpu);
+            assert_eq!(bus.nametables[addr - 0x2000], 0xaa);
+            assert_eq!(bus.read(addr as u16, 0, &mut cpu), 0xaa);
+            assert_eq!(bus.read(addr as u16 + 0x400, 0, &mut cpu), 0xaa);
+            bus.write(addr as u16, 0, 0, &mut cpu);
         }
 
         for addr in 0x2400..=0x27ff {
-            memory.write(addr as u16, 0xaa, 0, &mut cpu);
-            assert_eq!(memory.nametables[addr - 0x2400], 0xaa);
-            assert_eq!(memory.read(addr as u16, 0, &mut cpu), 0xaa);
-            assert_eq!(memory.read(addr as u16 - 0x400, 0, &mut cpu), 0xaa);
-            memory.write(addr as u16, 0, 0, &mut cpu);
+            bus.write(addr as u16, 0xaa, 0, &mut cpu);
+            assert_eq!(bus.nametables[addr - 0x2400], 0xaa);
+            assert_eq!(bus.read(addr as u16, 0, &mut cpu), 0xaa);
+            assert_eq!(bus.read(addr as u16 - 0x400, 0, &mut cpu), 0xaa);
+            bus.write(addr as u16, 0, 0, &mut cpu);
         }
 
-        memory.write(0x2400, 0xcc, 0, &mut cpu);
-        assert_eq!(memory.nametables[0], 0xcc);
-        assert_eq!(memory.read(0x2000, 0, &mut cpu), 0xcc);
-        memory.write(0x2000, 0x44, 0, &mut cpu);
-        assert_eq!(memory.nametables[0], 0x44);
-        assert_eq!(memory.read(0x2400, 0, &mut cpu), 0x44);
+        bus.write(0x2400, 0xcc, 0, &mut cpu);
+        assert_eq!(bus.nametables[0], 0xcc);
+        assert_eq!(bus.read(0x2000, 0, &mut cpu), 0xcc);
+        bus.write(0x2000, 0x44, 0, &mut cpu);
+        assert_eq!(bus.nametables[0], 0x44);
+        assert_eq!(bus.read(0x2400, 0, &mut cpu), 0x44);
 
-        memory.write(0x27ff, 0x11, 0, &mut cpu);
-        assert_eq!(memory.nametables[0x3ff], 0x11);
-        assert_eq!(memory.read(0x23ff, 0, &mut cpu), 0x11);
-        memory.write(0x23ff, 0xff, 0, &mut cpu);
-        assert_eq!(memory.nametables[0x3ff], 0xff);
-        assert_eq!(memory.read(0x27ff, 0, &mut cpu), 0xff);
+        bus.write(0x27ff, 0x11, 0, &mut cpu);
+        assert_eq!(bus.nametables[0x3ff], 0x11);
+        assert_eq!(bus.read(0x23ff, 0, &mut cpu), 0x11);
+        bus.write(0x23ff, 0xff, 0, &mut cpu);
+        assert_eq!(bus.nametables[0x3ff], 0xff);
+        assert_eq!(bus.read(0x27ff, 0, &mut cpu), 0xff);
 
         // palette ram reads/writes
-        memory.write(0x3f20, 0x30, 0, &mut cpu);
-        assert_eq!(memory.palettes[0], 0x30);
+        bus.write(0x3f20, 0x30, 0, &mut cpu);
+        assert_eq!(bus.palettes[0], 0x30);
         // write out of bounds
-        memory.write(0xffff, 0x20, 0, &mut cpu);
+        bus.write(0xffff, 0x20, 0, &mut cpu);
         // should end up in palette ram
-        assert_eq!(memory.palettes[31], 0x20);
+        assert_eq!(bus.palettes[31], 0x20);
     }
 }

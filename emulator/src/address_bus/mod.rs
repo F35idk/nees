@@ -1,21 +1,21 @@
 mod mmc3;
 mod nrom;
 
-pub use mmc3::{Mmc3CpuMemory, Mmc3PpuMemory};
-pub use nrom::{NromCpuMemory, NromPpuMemory};
+pub use mmc3::{Mmc3CpuAddressBus, Mmc3PpuAddressBus};
+pub use nrom::{NromCpuAddressBus, NromPpuAddressBus};
 
 use crate::{apu, controller as ctrl, cpu, ppu, util, PixelRenderer};
 
-// the base struct that all 'CpuMemoryMap' implementations should inherit
-// from. can be accessed through the 'CpuMemoryMap::base()' trait method
-pub struct CpuMemoryMapBase {
+// the base struct that all 'CpuAddressBus' implementations should inherit
+// from. can be accessed through the 'CpuAddressBus::base()' trait method
+pub struct CpuAddressBusBase {
     pub apu: apu::Apu,
     pub ppu: ppu::Ppu,
     pub renderer: PixelRenderer,
     pub controller: ctrl::Controller,
 }
 
-impl CpuMemoryMapBase {
+impl CpuAddressBusBase {
     pub fn new(
         ppu: ppu::Ppu,
         apu: apu::Apu,
@@ -33,28 +33,29 @@ impl CpuMemoryMapBase {
 
 // trait to represent operations on the cpu memory map/address space.
 // allows implementing custom cpu memory read/write behavior for the
-// various 'mappers' used by nes games/cartridges. the 'CpuMemoryMap'
+// various 'mappers' used by nes games/cartridges. the 'CpuAddressBus'
 // implementations own all devices and other nes state, except the cpu
-// itself. a separate 'PpuMemoryMap' trait is used to implement mapping
-// functionality for the ppu. the 'CpuMemoryMap' implementor owns this
+// itself. a separate 'PpuAddressBus' trait is used to implement mapping
+// functionality for the ppu. the 'CpuAddressBus' implementor owns this
 // as well (it can be accessed through the 'base()' method)
 
-pub trait CpuMemoryMap {
-    fn base(&mut self) -> (&mut CpuMemoryMapBase, &mut dyn PpuMemoryMap);
+pub trait CpuAddressBus {
+    fn base(&mut self) -> (&mut CpuAddressBusBase, &mut dyn PpuAddressBus);
     fn read(&mut self, addr: u16, cpu: &mut cpu::Cpu) -> u8;
     fn write(&mut self, addr: u16, val: u8, cpu: &mut cpu::Cpu);
 }
 
-pub trait PpuMemoryMap {
+pub trait PpuAddressBus {
     fn read(&mut self, addr: u16, ppu_cycle_count: i32, cpu: &mut cpu::Cpu) -> u8;
     fn write(&mut self, addr: u16, val: u8, ppu_cycle_count: i32, cpu: &mut cpu::Cpu);
+    fn set_address(&mut self, addr: u16, ppu_cycle_count: i32, cpu: &mut cpu::Cpu);
     fn read_palette_memory(&self, color_idx: u8) -> u8;
 }
 
 // utility function for writing to the 'oamdma' register on the ppu
-// (0x4014). only requires 'CpuMemoryMap::read()' to be implemented.
-// intented to be used by 'CpuMemoryMap::write()' implementations.
-fn write_oamdma<M: CpuMemoryMap>(memory: &mut M, val: u8, cpu: &mut cpu::Cpu) {
+// (0x4014). only requires 'CpuAddressBus::read()' to be implemented.
+// intented to be used by 'CpuAddressBus::write()' implementations.
+fn write_oamdma<M: CpuAddressBus>(memory: &mut M, val: u8, cpu: &mut cpu::Cpu) {
     memory.base().0.ppu.set_ppustatus_low_bits(val);
 
     // if 'val' is $XX, start address should be $XX00
@@ -119,8 +120,6 @@ fn is_e000_to_ffff(addr: u16) -> bool {
 // assumes 'addr' points to ppu palette memory and applies
 // proper mirroring to it. returns a 5-bit index
 fn calc_ppu_palette_addr(mut addr: u16) -> u8 {
-    debug_assert!(addr >= 0x3f00);
-
     // ignore all but lowest 5 bits (32 palettes)
     addr &= 0b11111;
 

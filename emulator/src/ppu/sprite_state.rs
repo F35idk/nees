@@ -1,5 +1,5 @@
-use super::PpuMemoryMap;
 use super::{PrimaryOam, SecondaryOam, SpriteSize};
+use crate::address_bus::PpuAddressBus;
 use crate::cpu;
 
 #[derive(Default)]
@@ -146,7 +146,7 @@ impl SpriteDrawState {
         current_scanline_dot: u16,
         sprite_pattern_table_addr: u16,
         cycle_count: i32,
-        memory: &mut dyn PpuMemoryMap,
+        bus: &mut dyn PpuAddressBus,
         cpu: &mut cpu::Cpu,
     ) {
         debug_assert!(matches!(current_scanline, 0..=239));
@@ -155,8 +155,8 @@ impl SpriteDrawState {
         debug_assert!((self.current_sprite_idx >> 2) < 8);
 
         // make garbage nametable fetches
-        let _ = memory.read(0x2000, cycle_count, cpu);
-        let _ = memory.read(0x2000, cycle_count + 2, cpu);
+        let _ = bus.read(0x2000, cycle_count, cpu);
+        let _ = bus.read(0x2000, cycle_count + 2, cpu);
 
         if (self.current_sprite_idx >> 2) < self.sprites_found {
             // fill a slot in 'current_sprites_data' with data for the current sprite
@@ -196,13 +196,13 @@ impl SpriteDrawState {
                 if is_vert_flipped {
                     // use flipped tile bitplanes if sprite is vertically flipped
                     (
-                        memory.read(tile_addr + 7 - y_offset, cycle_count + 4, cpu),
-                        memory.read(tile_addr + 15 - y_offset, cycle_count + 6, cpu),
+                        bus.read(tile_addr + 7 - y_offset, cycle_count + 4, cpu),
+                        bus.read(tile_addr + 15 - y_offset, cycle_count + 6, cpu),
                     )
                 } else {
                     (
-                        memory.read(tile_addr + y_offset, cycle_count + 4, cpu),
-                        memory.read(tile_addr + 8 + y_offset, cycle_count + 6, cpu),
+                        bus.read(tile_addr + y_offset, cycle_count + 4, cpu),
+                        bus.read(tile_addr + 8 + y_offset, cycle_count + 6, cpu),
                     )
                 }
             };
@@ -222,8 +222,8 @@ impl SpriteDrawState {
                 SpriteSize::S8x16 => 0x1000 | (0xff << 4),
             };
             // TODO: emulate the exact dummy bitplane that would be fetched?
-            let _ = memory.read(tile_addr, cycle_count + 4, cpu);
-            let _ = memory.read(tile_addr, cycle_count + 6, cpu);
+            let _ = bus.read(tile_addr, cycle_count + 4, cpu);
+            let _ = bus.read(tile_addr, cycle_count + 6, cpu);
 
             // fill a slot in 'current_sprites_data' with sentinel value
             // (bit 2 of 'attributes' being set indicates end of array)

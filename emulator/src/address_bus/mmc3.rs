@@ -1,12 +1,20 @@
 use crate::{apu, controller as ctrl, cpu, parse, ppu, win};
 #[macro_use]
 use crate::util;
-use super::{CpuMemoryMap, CpuMemoryMapBase, PpuMemoryMap};
+use super::{CpuAddressBus, CpuAddressBusBase, PpuAddressBus};
 use crate::PixelRenderer;
 
-pub struct Mmc3CpuMemory {
-    pub base: CpuMemoryMapBase,
-    pub ppu_memory: Mmc3PpuMemory,
+// NOTE: ines header tells whether need care abt. nametable mirroring selection
+// NOTE: currently only care about mapper 004
+//
+
+// notes about the current implementation
+// NOTE: open bus behavior ignored
+// NOTE: mmc6 compatibility ignored
+
+pub struct Mmc3CpuAddressBus {
+    pub base: CpuAddressBusBase,
+    pub ppu_bus: Mmc3PpuAddressBus,
     internal_ram: [u8; 0x800],
     prg_ram: [u8; 0x2000],
     // up to 64 banks
@@ -14,13 +22,11 @@ pub struct Mmc3CpuMemory {
     // the bank register to update on the next write to
     // 'bank data'
     // NOTE: due to borrowck issues, the bank registers
-    // r0-r7 are located in 'Mmc3PpuMemory', instead of
+    // r0-r7 are located in 'Mmc3PpuAddressBus', instead of
     // in this struct
     bank_register_to_update: u8,
     // misc bool flags
     bits: Mmc3CpuBits::BitField,
-    irq_latch: u8,
-    irq_counter: u8,
 }
 
 bitfield!(Mmc3CpuBits<u8>(
@@ -29,25 +35,21 @@ bitfield!(Mmc3CpuBits<u8>(
     prg_banks_swapped: 0..0,
     prg_ram_enable: 1..1,
     prg_ram_protect: 2..2,
-    irq_reload: 3..3,
-    irq_enable: 4..4,
 ));
 
-pub struct Mmc3PpuMemory {
+pub struct Mmc3PpuAddressBus {
     // bank registers r0-r7 (for both prg and chr ram). though it would've
-    // made more sense to store this in 'Mmc3CpuMemory', putting it in
-    // 'Mmc3PpuMemory' allows both the ppu and the cpu memory maps access
-    // to it while keeping the borrow checker happy
+    // made more sense to store this in 'Mmc3CpuAddressBus', putting it in
+    // 'Mmc3PpuAddressBus' allows both the ppu and the cpu address buses
+    // access to it while keeping the borrow checker happy
     r: [u8; 8],
     // up to 256 banks
     chr_banks: Box<[[u8; 0x400]]>,
     nametables: Box<[u8]>,
     palettes: [u8; 32],
     irq_counter: u8,
-    // tuple containing the state of ppu a12 on the previous read or write
-    // (high or low) and the cycle count when this previous read or write
-    // occured
-    prev_a12_state: (bool, u32),
+    irq_latch: u8,
+    cycle_count_at_prev_a12_rise: i32,
     bits: Mmc3PpuBits::BitField,
 }
 
@@ -55,14 +57,66 @@ bitfield!(Mmc3PpuBits<u8>(
     hor_mirroring: 0..0,
     no_mirroring: 1..1,
     a12_invert: 2..2,
+    prev_a12: 3..3,
+    irq_reload: 4..4,
+    irq_enable: 5..5,
 ));
 
-impl PpuMemoryMap for Mmc3PpuMemory {
+// NOTE:
+// If the bus isn't 3-state, the PPU has to output something on the address bus at all times.
+// A rule "whenever rendering is disabled, put v on the bus" probably takes fewer gates than
+// "when rendering is disabled, hold the last value that happened to be on the bus".
+
+impl Mmc3PpuAddressBus {
+    fn clock_irq_counter(&mut self, a12: bool, cycle_count: i32, cpu: &mut cpu::Cpu) {
+        // if current a12 is high and a12 was low on previous read/write (a12 has risen)
+        if a12 && !self.bits.prev_a12.is_true() {
+            // println!("!");
+            // FIXME:::: gt?? gte??
+            // ignore a12 rise if there was another a12 rise 6 or fewer cycles ago
+            if cycle_count - self.cycle_count_at_prev_a12_rise > 6 {
+                if self.irq_counter == 0 && self.bits.irq_enable.is_true() {
+                    self.irq_counter = self.irq_latch;
+                    cpu.irq += 1;
+                    println!("?");
+                } else if self.irq_counter == 0 || self.bits.irq_reload.is_true() {
+                    println!("!");
+                    self.irq_counter = self.irq_latch;
+                } else {
+                    println!("-");
+                    self.irq_counter -= 1;
+                }
+
+                // println!("?");
+                // if self.bits.irq_reload.is_true() || self.irq_counter == 0 {
+                //     // reload counter
+                //     self.irq_counter = self.irq_latch;
+                // } else {
+                //     println!("!?");
+                //     // decrement
+                //     self.irq_counter -= 1;
+
+                //     if self.irq_counter == 0 && self.bits.irq_enable.is_true() {
+                //         self.irq_counter = self.irq_latch;
+                //         cpu.irq += 1;
+                //     }
+                // }
+            }
+
+            self.cycle_count_at_prev_a12_rise = cycle_count;
+        }
+
+        self.bits.prev_a12.set(a12 as u8);
+    }
+}
+
+impl PpuAddressBus for Mmc3PpuAddressBus {
     // TODO:FIXME: take in cycle count as well??
     fn read(&mut self, mut addr: u16, cycle_count: i32, cpu: &mut cpu::Cpu) -> u8 {
         assert!(addr <= 0x3fff);
 
-        // TODO: figure out how to filter nametable reads??
+        let a12 = (addr & 0b1_0000_0000_0000) != 0;
+        self.clock_irq_counter(a12, cycle_count, cpu);
 
         // palette memory
         if addr >= 0x3f00 {
@@ -87,7 +141,6 @@ impl PpuMemoryMap for Mmc3PpuMemory {
 
         // pattern tables (0-0x1fff)
 
-        let a12 = (addr & 0b1_0000_0000_0000) != 0;
         let a12_invert = self.bits.a12_invert.is_true();
         let n_banks = self.chr_banks.len() as u16;
         assert!(n_banks.is_power_of_two());
@@ -97,7 +150,6 @@ impl PpuMemoryMap for Mmc3PpuMemory {
 
             // calculate bank register index (should point to either r1 or r0)
             let bank_register_idx = ((addr >> 11) & 1) as u8;
-            assert!(bank_register_idx < 2);
 
             let bank_idx = if addr & 0b0100_0000_0000 != 0 {
                 // addr points to upper section of 2kb bank
@@ -139,6 +191,9 @@ impl PpuMemoryMap for Mmc3PpuMemory {
     }
 
     fn write(&mut self, mut addr: u16, val: u8, cycle_count: i32, cpu: &mut cpu::Cpu) {
+        let a12 = (addr & 0b1_0000_0000_0000) != 0;
+        self.clock_irq_counter(a12, cycle_count, cpu);
+
         if addr >= 0x3f00 {
             let addr = super::calc_ppu_palette_addr(addr);
             unsafe { *self.palettes.get_unchecked_mut(addr as usize) = val };
@@ -157,12 +212,14 @@ impl PpuMemoryMap for Mmc3PpuMemory {
         }
     }
 
+    fn set_address(&mut self, addr: u16, ppu_cycle_count: i32, cpu: &mut cpu::Cpu) {}
+
     fn read_palette_memory(&self, color_idx: u8) -> u8 {
         self.palettes[super::calc_ppu_palette_addr(color_idx as u16) as usize]
     }
 }
 
-impl Mmc3CpuMemory {
+impl Mmc3CpuAddressBus {
     pub fn new(
         prg_rom: &[u8],
         chr_rom: &[u8],
@@ -212,31 +269,30 @@ impl Mmc3CpuMemory {
 
         let nametables = vec![0u8; 0x400 * n_nametables].into_boxed_slice();
 
-        let ppu_memory = Mmc3PpuMemory {
+        let ppu_bus = Mmc3PpuAddressBus {
             chr_banks,
             nametables,
             palettes: [0; 32],
             r: [0; 8],
+            irq_latch: 0,
             irq_counter: 0,
-            prev_a12_state: (false, 0),
-            bits: Mmc3PpuBits::BitField::new(hor_mirroring as u8, no_mirroring as u8, 0),
+            cycle_count_at_prev_a12_rise: 0,
+            bits: Mmc3PpuBits::BitField::new(hor_mirroring as u8, no_mirroring as u8, 0, 0, 0, 0),
         };
 
         Self {
-            base: CpuMemoryMapBase::new(ppu, apu, controller, renderer),
-            ppu_memory,
+            base: CpuAddressBusBase::new(ppu, apu, controller, renderer),
+            ppu_bus,
             internal_ram: [0; 0x800],
             prg_ram: [0; 0x2000],
             prg_banks,
             bank_register_to_update: 0,
             bits: Mmc3CpuBits::BitField::zeroed(),
-            irq_latch: 0,
-            irq_counter: 0,
         }
     }
 }
 
-impl CpuMemoryMap for Mmc3CpuMemory {
+impl CpuAddressBus for Mmc3CpuAddressBus {
     fn read(&mut self, mut addr: u16, cpu: &mut cpu::Cpu) -> u8 {
         // internal ram
         if super::is_0_to_1fff(addr) {
@@ -248,7 +304,7 @@ impl CpuMemoryMap for Mmc3CpuMemory {
         if super::is_2000_to_3fff(addr) {
             self.base.ppu.catch_up(
                 cpu,
-                &mut self.ppu_memory,
+                &mut self.ppu_bus,
                 util::pixels_to_u32(&mut self.base.renderer),
             );
 
@@ -256,7 +312,7 @@ impl CpuMemoryMap for Mmc3CpuMemory {
             return self
                 .base
                 .ppu
-                .read_register_by_index(addr as u8, &mut self.ppu_memory, cpu);
+                .read_register_by_index(addr as u8, &mut self.ppu_bus, cpu);
         }
 
         // prg ram
@@ -275,7 +331,7 @@ impl CpuMemoryMap for Mmc3CpuMemory {
             } else {
                 let n_banks = self.prg_banks.len() as u8;
                 // the bank pointed to by r6 (modulo the number of banks)
-                &self.prg_banks[(self.ppu_memory.r[6] & (n_banks - 1)) as usize]
+                &self.prg_banks[(self.ppu_bus.r[6] & (n_banks - 1)) as usize]
             };
 
             addr &= !0b1110_0000_0000_0000;
@@ -285,7 +341,7 @@ impl CpuMemoryMap for Mmc3CpuMemory {
         // switchable bank
         if super::is_a000_to_bfff(addr) {
             let n_banks = self.prg_banks.len() as u8;
-            let bank = &self.prg_banks[(self.ppu_memory.r[7] & (n_banks - 1)) as usize];
+            let bank = &self.prg_banks[(self.ppu_bus.r[7] & (n_banks - 1)) as usize];
             addr &= !0b1110_0000_0000_0000;
             return unsafe { *bank.get(addr as usize).unwrap() };
         }
@@ -294,7 +350,7 @@ impl CpuMemoryMap for Mmc3CpuMemory {
         if super::is_c000_to_dfff(addr) {
             let bank = if self.bits.prg_banks_swapped.is_true() {
                 let n_banks = self.prg_banks.len() as u8;
-                &self.prg_banks[(self.ppu_memory.r[6] & (n_banks - 1)) as usize]
+                &self.prg_banks[(self.ppu_bus.r[6] & (n_banks - 1)) as usize]
             } else {
                 &self.prg_banks[self.prg_banks.len() - 2]
             };
@@ -327,16 +383,11 @@ impl CpuMemoryMap for Mmc3CpuMemory {
 
         if super::is_2000_to_3fff(addr) {
             let framebuffer = util::pixels_to_u32(&mut self.base.renderer);
+            self.base.ppu.catch_up(cpu, &mut self.ppu_bus, framebuffer);
+
             self.base
                 .ppu
-                .catch_up(cpu, &mut self.ppu_memory, framebuffer);
-
-            self.base.ppu.write_register_by_index(
-                addr as u8 & 0b111,
-                val,
-                cpu,
-                &mut self.ppu_memory,
-            );
+                .write_register_by_index(addr as u8 & 0b111, val, cpu, &mut self.ppu_bus);
 
             return;
         }
@@ -355,15 +406,12 @@ impl CpuMemoryMap for Mmc3CpuMemory {
             if addr & 1 == 0 {
                 self.bank_register_to_update = val & 0b111;
                 self.bits.prg_banks_swapped.set((val & 0b100_0000) >> 6);
-                self.ppu_memory
-                    .bits
-                    .a12_invert
-                    .set((val & 0b1000_0000) >> 7);
+                self.ppu_bus.bits.a12_invert.set((val & 0b1000_0000) >> 7);
             // TODO: mmc6 stuff
             } else {
                 // NOTE: 'val' is not %'d with the number of banks, as
                 // this is done when reading from the bank registers
-                self.ppu_memory.r[self.bank_register_to_update as usize] = val;
+                self.ppu_bus.r[self.bank_register_to_update as usize] = val;
             }
 
             return;
@@ -372,7 +420,7 @@ impl CpuMemoryMap for Mmc3CpuMemory {
         // mirroring/prg ram enable and protect
         if super::is_a000_to_bfff(addr) {
             if addr & 1 == 0 {
-                self.ppu_memory.bits.hor_mirroring.set(val & 1);
+                self.ppu_bus.bits.hor_mirroring.set(val & 1);
             } else {
                 self.bits.prg_ram_protect.set((val & 0b100_0000) >> 6);
                 self.bits.prg_ram_enable.set((val & 0b1000_0000) >> 7);
@@ -385,9 +433,10 @@ impl CpuMemoryMap for Mmc3CpuMemory {
         // irq latch/reload
         if super::is_c000_to_dfff(addr) {
             if addr & 1 == 0 {
-                self.irq_latch = val;
+                self.ppu_bus.irq_latch = val;
             } else {
-                self.bits.irq_reload.set(1);
+                self.ppu_bus.bits.irq_reload.set(1);
+                self.ppu_bus.irq_counter = 0;
             }
 
             return;
@@ -395,9 +444,10 @@ impl CpuMemoryMap for Mmc3CpuMemory {
 
         // irq disable/enable
         if super::is_e000_to_ffff(addr) {
-            self.bits.irq_enable.set(addr as u8 & 1);
-            if addr & 1 == 1 {
-                cpu.irq -= 1;
+            self.ppu_bus.bits.irq_enable.set(addr as u8 & 1);
+            if addr & 1 == 0 {
+                // acknowledge irq
+                cpu.irq = cpu.irq.saturating_sub(1);
             }
 
             return;
@@ -406,9 +456,7 @@ impl CpuMemoryMap for Mmc3CpuMemory {
         // oamdma
         if addr == 0x4014 {
             let framebuffer = util::pixels_to_u32(&mut self.base.renderer);
-            self.base
-                .ppu
-                .catch_up(cpu, &mut self.ppu_memory, framebuffer);
+            self.base.ppu.catch_up(cpu, &mut self.ppu_bus, framebuffer);
             super::write_oamdma(self, val, cpu);
             return;
         }
@@ -420,8 +468,8 @@ impl CpuMemoryMap for Mmc3CpuMemory {
         }
     }
 
-    fn base(&mut self) -> (&mut CpuMemoryMapBase, &mut dyn PpuMemoryMap) {
-        (&mut self.base, &mut self.ppu_memory)
+    fn base(&mut self) -> (&mut CpuAddressBusBase, &mut dyn PpuAddressBus) {
+        (&mut self.base, &mut self.ppu_bus)
     }
 }
 
@@ -441,7 +489,7 @@ mod test {
         let chr_rom = vec![0; 1024 * 128];
 
         let mut cpu = cpu::Cpu::default();
-        let mut cpu_memory = Mmc3CpuMemory::new(
+        let mut cpu_bus = Mmc3CpuAddressBus::new(
             &prg_rom,
             &chr_rom,
             parse::MirroringType::Hor,
@@ -451,160 +499,160 @@ mod test {
             renderer,
         );
 
-        assert_eq!(cpu_memory.ppu_memory.chr_banks.len(), 128);
-        assert_eq!(cpu_memory.prg_banks.len(), 16);
+        assert_eq!(cpu_bus.ppu_bus.chr_banks.len(), 128);
+        assert_eq!(cpu_bus.prg_banks.len(), 16);
 
         // enable prg ram
-        cpu_memory.write(0xa001, 0x80, &mut cpu);
-        assert!(cpu_memory.bits.prg_ram_enable.is_true());
+        cpu_bus.write(0xa001, 0x80, &mut cpu);
+        assert!(cpu_bus.bits.prg_ram_enable.is_true());
 
         // disable prg ram
-        cpu_memory.write(0xa001, 0, &mut cpu);
-        cpu_memory.write(0x6000, 0xff, &mut cpu);
-        assert_ne!(cpu_memory.read(0x6000, &mut cpu), 0xff);
+        cpu_bus.write(0xa001, 0, &mut cpu);
+        cpu_bus.write(0x6000, 0xff, &mut cpu);
+        assert_ne!(cpu_bus.read(0x6000, &mut cpu), 0xff);
 
         // r0 reads
         {
-            cpu_memory.ppu_memory.chr_banks[21][0x3ff] = 0xaa;
+            cpu_bus.ppu_bus.chr_banks[21][0x3ff] = 0xaa;
 
             // select r0 as bank to update on next write
-            cpu_memory.write(0x8000, 0, &mut cpu);
+            cpu_bus.write(0x8000, 0, &mut cpu);
             // update r0 to point to bank 20 (the 1 in 21 is &'d away)
-            cpu_memory.write(0x8001, 21, &mut cpu);
+            cpu_bus.write(0x8001, 21, &mut cpu);
 
-            // ppu_memory[0x7ff] = 0xaa
-            assert_eq!(cpu_memory.ppu_memory.read(0x7ff, 0, &mut cpu), 0xaa);
-            // ppu_memory[0x3ff] != 0xaa
-            assert_ne!(cpu_memory.ppu_memory.read(0x3ff, 0, &mut cpu), 0xaa);
+            // ppu_bus[0x7ff] = 0xaa
+            assert_eq!(cpu_bus.ppu_bus.read(0x7ff, 0, &mut cpu), 0xaa);
+            // ppu_bus[0x3ff] != 0xaa
+            assert_ne!(cpu_bus.ppu_bus.read(0x3ff, 0, &mut cpu), 0xaa);
 
             // invert a12
-            cpu_memory.write(0x8000, 0x80, &mut cpu);
-            assert!(cpu_memory.ppu_memory.bits.a12_invert.is_true());
+            cpu_bus.write(0x8000, 0x80, &mut cpu);
+            assert!(cpu_bus.ppu_bus.bits.a12_invert.is_true());
 
-            // ppu_memory[0x17ff] = 0xaa
-            assert_eq!(cpu_memory.ppu_memory.read(0x17ff, 0, &mut cpu), 0xaa);
-            // ppu_memory[0x13ff] != 0xaa
-            assert_ne!(cpu_memory.ppu_memory.read(0x13ff, 0, &mut cpu), 0xaa);
-            // ppu_memory[0x7ff] != 0xaa
-            assert_ne!(cpu_memory.ppu_memory.read(0x7ff, 0, &mut cpu), 0xaa);
+            // ppu_bus[0x17ff] = 0xaa
+            assert_eq!(cpu_bus.ppu_bus.read(0x17ff, 0, &mut cpu), 0xaa);
+            // ppu_bus[0x13ff] != 0xaa
+            assert_ne!(cpu_bus.ppu_bus.read(0x13ff, 0, &mut cpu), 0xaa);
+            // ppu_bus[0x7ff] != 0xaa
+            assert_ne!(cpu_bus.ppu_bus.read(0x7ff, 0, &mut cpu), 0xaa);
         }
 
         // r2 reads
         {
-            cpu_memory.ppu_memory.chr_banks[0x7f][0xff] = 0xbb;
+            cpu_bus.ppu_bus.chr_banks[0x7f][0xff] = 0xbb;
 
             // select r2 as bank to update on next write and reset a12
-            cpu_memory.write(0x8000, 2, &mut cpu);
+            cpu_bus.write(0x8000, 2, &mut cpu);
             // update r2 to point to bank 0x7f (0xff should be %'d down to 0x7f)
-            cpu_memory.write(0x8001, 0xff, &mut cpu);
+            cpu_bus.write(0x8001, 0xff, &mut cpu);
 
-            // ppu_memory[0x10ff] = 0xbb
-            assert_eq!(cpu_memory.ppu_memory.read(0x10ff, 0, &mut cpu), 0xbb);
-            assert_ne!(cpu_memory.ppu_memory.read(0x0ff, 0, &mut cpu), 0xbb);
+            // ppu_bus[0x10ff] = 0xbb
+            assert_eq!(cpu_bus.ppu_bus.read(0x10ff, 0, &mut cpu), 0xbb);
+            assert_ne!(cpu_bus.ppu_bus.read(0x0ff, 0, &mut cpu), 0xbb);
 
             // invert a12
-            cpu_memory.write(0x8000, 0x80, &mut cpu);
+            cpu_bus.write(0x8000, 0x80, &mut cpu);
 
-            // ppu_memory[0x0ff] = 0xbb
-            assert_eq!(cpu_memory.ppu_memory.read(0x0ff, 0, &mut cpu), 0xbb);
+            // ppu_bus[0x0ff] = 0xbb
+            assert_eq!(cpu_bus.ppu_bus.read(0x0ff, 0, &mut cpu), 0xbb);
         }
 
         // fixed prg bank (last bank) reads/writes
         {
-            let n_banks = cpu_memory.prg_banks.len();
-            cpu_memory.prg_banks[n_banks - 1][0x30] = 0xcc;
+            let n_banks = cpu_bus.prg_banks.len();
+            cpu_bus.prg_banks[n_banks - 1][0x30] = 0xcc;
 
-            // ppu_memory[0xe030] = 0cc
-            assert_eq!(cpu_memory.read(0xe030, &mut cpu), 0xcc);
+            // ppu_bus[0xe030] = 0cc
+            assert_eq!(cpu_bus.read(0xe030, &mut cpu), 0xcc);
 
             // change prg rom bank mode
-            cpu_memory.write(0x8000, 0x40, &mut cpu);
+            cpu_bus.write(0x8000, 0x40, &mut cpu);
             // .. should not change anything
-            assert_eq!(cpu_memory.read(0xe030, &mut cpu), 0xcc);
+            assert_eq!(cpu_bus.read(0xe030, &mut cpu), 0xcc);
 
             // reset prg rom bank mode
-            cpu_memory.write(0x8000, 0, &mut cpu);
+            cpu_bus.write(0x8000, 0, &mut cpu);
         }
 
         // second to last bank reads
         {
-            let n_banks = cpu_memory.prg_banks.len();
-            cpu_memory.prg_banks[n_banks - 2][0x55] = 0xdd;
+            let n_banks = cpu_bus.prg_banks.len();
+            cpu_bus.prg_banks[n_banks - 2][0x55] = 0xdd;
 
-            // ppu_memory[0xc055] = 0xdd
-            assert_eq!(cpu_memory.read(0xc055, &mut cpu), 0xdd);
+            // ppu_bus[0xc055] = 0xdd
+            assert_eq!(cpu_bus.read(0xc055, &mut cpu), 0xdd);
 
             // change prg rom bank mode
-            cpu_memory.write(0x8000, 0x40, &mut cpu);
+            cpu_bus.write(0x8000, 0x40, &mut cpu);
 
-            // ppu_memory[0x8055] = 0xdd
-            assert_eq!(cpu_memory.read(0x8055, &mut cpu), 0xdd);
+            // ppu_bus[0x8055] = 0xdd
+            assert_eq!(cpu_bus.read(0x8055, &mut cpu), 0xdd);
 
             // reset prg rom bank mode
-            cpu_memory.write(0x8000, 0, &mut cpu);
+            cpu_bus.write(0x8000, 0, &mut cpu);
         }
 
         // r6 reads
         {
-            cpu_memory.prg_banks[8][0xff] = 0xee;
+            cpu_bus.prg_banks[8][0xff] = 0xee;
 
             // select r6 as bank to update on next write
-            cpu_memory.write(0x8000, 6, &mut cpu);
+            cpu_bus.write(0x8000, 6, &mut cpu);
             // update r6 to point to bank 8
-            cpu_memory.write(0x8001, 8, &mut cpu);
+            cpu_bus.write(0x8001, 8, &mut cpu);
 
-            // ppu_memory[0x80ff] = 0xee
-            assert_eq!(cpu_memory.read(0x80ff, &mut cpu), 0xee);
+            // ppu_bus[0x80ff] = 0xee
+            assert_eq!(cpu_bus.read(0x80ff, &mut cpu), 0xee);
 
             // change prg rom bank mode
-            cpu_memory.write(0x8000, 0x40, &mut cpu);
+            cpu_bus.write(0x8000, 0x40, &mut cpu);
 
-            // ppu_memory[0xc0ff] = 0xee
-            assert_eq!(cpu_memory.read(0xc0ff, &mut cpu), 0xee);
+            // ppu_bus[0xc0ff] = 0xee
+            assert_eq!(cpu_bus.read(0xc0ff, &mut cpu), 0xee);
         }
 
         // r3 reads
         {
-            cpu_memory.ppu_memory.chr_banks[12][0] = 0xff;
+            cpu_bus.ppu_bus.chr_banks[12][0] = 0xff;
 
             // select r3 as bank to update on next write and reset a12
-            cpu_memory.write(0x8000, 3, &mut cpu);
+            cpu_bus.write(0x8000, 3, &mut cpu);
             // update r3 to point to bank 12
-            cpu_memory.write(0x8001, 12, &mut cpu);
+            cpu_bus.write(0x8001, 12, &mut cpu);
 
-            // ppu_memory[0x1400] = 0xff
-            assert_eq!(cpu_memory.ppu_memory.read(0x1400, 0, &mut cpu), 0xff);
+            // ppu_bus[0x1400] = 0xff
+            assert_eq!(cpu_bus.ppu_bus.read(0x1400, 0, &mut cpu), 0xff);
 
             // invert a12
-            cpu_memory.write(0x8000, 0x80, &mut cpu);
+            cpu_bus.write(0x8000, 0x80, &mut cpu);
 
-            // ppu_memory[0x0ff] = 0xbb
-            assert_eq!(cpu_memory.ppu_memory.read(0x400, 0, &mut cpu), 0xff);
+            // ppu_bus[0x0ff] = 0xbb
+            assert_eq!(cpu_bus.ppu_bus.read(0x400, 0, &mut cpu), 0xff);
         }
 
         // r1 reads
         {
-            cpu_memory.ppu_memory.chr_banks[33][0x3ff] = 0x99;
+            cpu_bus.ppu_bus.chr_banks[33][0x3ff] = 0x99;
 
             // select r1 as bank to update on next write and reset a12
-            cpu_memory.write(0x8000, 1, &mut cpu);
+            cpu_bus.write(0x8000, 1, &mut cpu);
             // update r1 to point to bank 32 (the 1 in 33 is &'d away)
-            cpu_memory.write(0x8001, 33, &mut cpu);
+            cpu_bus.write(0x8001, 33, &mut cpu);
 
-            // ppu_memory[0xfff] = 0x99
-            assert_eq!(cpu_memory.ppu_memory.read(0xfff, 0, &mut cpu), 0x99);
-            // ppu_memory[0xbff] != 0x99
-            assert_ne!(cpu_memory.ppu_memory.read(0xbff, 0, &mut cpu), 0x99);
+            // ppu_bus[0xfff] = 0x99
+            assert_eq!(cpu_bus.ppu_bus.read(0xfff, 0, &mut cpu), 0x99);
+            // ppu_bus[0xbff] != 0x99
+            assert_ne!(cpu_bus.ppu_bus.read(0xbff, 0, &mut cpu), 0x99);
 
             // invert a12
-            cpu_memory.write(0x8000, 0x80, &mut cpu);
+            cpu_bus.write(0x8000, 0x80, &mut cpu);
 
-            // ppu_memory[0x1fff] = 0x99
-            assert_eq!(cpu_memory.ppu_memory.read(0x1fff, 0, &mut cpu), 0x99);
-            // ppu_memory[0x1bff] != 0x99
-            assert_ne!(cpu_memory.ppu_memory.read(0x1bff, 0, &mut cpu), 0x99);
-            // ppu_memory[0xbff] != 0x99
-            assert_ne!(cpu_memory.ppu_memory.read(0xfff, 0, &mut cpu), 0x99);
+            // ppu_bus[0x1fff] = 0x99
+            assert_eq!(cpu_bus.ppu_bus.read(0x1fff, 0, &mut cpu), 0x99);
+            // ppu_bus[0x1bff] != 0x99
+            assert_ne!(cpu_bus.ppu_bus.read(0x1bff, 0, &mut cpu), 0x99);
+            // ppu_bus[0xbff] != 0x99
+            assert_ne!(cpu_bus.ppu_bus.read(0xfff, 0, &mut cpu), 0x99);
         }
     }
 
@@ -645,3 +693,31 @@ mod test {
         assert_eq!(calc_chr_bank_register_idx(0x0000, true), 2);
     }
 }
+
+// prg windows:
+//   swappable:
+//     0x8000-0x9fff / 0xc000-0xdfff (depending on mode)
+//     0xa000-0xbfff
+//   fixed:
+//     0xc000-0xdfff / 0x8000-0x9fff (depending on mode)
+//     0xe000-0xffff
+
+// chr windows (all swappable):
+// (? = 1 | 0, a12 may be inverted)
+//   0x?000-0x?7FF: 2 KB
+//   0x?800-0x?FFF: 2 KB
+//   0x?000-0x?3FF: 1 KB
+//   0x?400-0x?7FF: 1 KB
+//   0x?800-0x?BFF: 1 KB
+//   0x?C00-0x?FFF: 1 KB
+//
+// TODO: overview/plan:
+//
+// * in 'ppu_bus', track a12 rises (and filter based on whether they
+//   happened within 16 dots of each other). store this in 'a12_rise_count'.
+//
+// * then, when calling 'catch_up()', if 'irq_reload' is false, subtract
+//   'a12_rise_count' from 'irq_counter'. if 'irq_reload' is true, set
+//   'irq_counter' to zero 'irq_reload' to false.
+//
+// * if 'irq_reload' was false and 'irq_counter' is now zero, trigger irq.

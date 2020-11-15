@@ -1,5 +1,5 @@
 use super::PixelRenderer;
-use super::{apu, controller as ctrl, cpu, memory_map as mem, ppu, win};
+use super::{address_bus as bus, apu, controller as ctrl, cpu, ppu, win};
 use std::mem::transmute;
 
 pub fn pixels_to_u32<'a>(pixel_renderer: &'a mut PixelRenderer) -> &'a mut [u32; 256 * 240] {
@@ -7,22 +7,22 @@ pub fn pixels_to_u32<'a>(pixel_renderer: &'a mut PixelRenderer) -> &'a mut [u32;
 }
 
 // used by test functions
-pub fn init_nes() -> (cpu::Cpu, mem::NromCpuMemory) {
+pub fn init_nes() -> (cpu::Cpu, bus::NromCpuAddressBus) {
     let mut win = win::XcbWindowWrapper::new("test", 20, 20).unwrap();
     let renderer = PixelRenderer::new(&mut win.connection, win.win, 256, 240).unwrap();
 
-    let ppu_memory = mem::NromPpuMemory::new(false);
+    let ppu_memory = bus::NromPpuAddressBus::new(false);
     let ppu = ppu::Ppu::new();
     let apu = apu::Apu {};
     let cpu = cpu::Cpu::default();
     let controller = ctrl::Controller::default();
     let cpu_memory =
-        mem::NromCpuMemory::new_empty(0x4000, ppu, ppu_memory, apu, controller, renderer);
+        bus::NromCpuAddressBus::new_empty(0x4000, ppu, ppu_memory, apu, controller, renderer);
 
     (cpu, cpu_memory)
 }
 
-pub fn reset_nes_state(cpu: &mut cpu::Cpu, cpu_memory: &mut mem::NromCpuMemory) {
+pub fn reset_nes_state(cpu: &mut cpu::Cpu, cpu_memory: &mut bus::NromCpuAddressBus) {
     cpu_memory.base.ppu.reset_state();
     cpu_memory.base.controller = ctrl::Controller::default();
     cpu_memory.base.apu = apu::Apu {};

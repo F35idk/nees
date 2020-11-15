@@ -1,15 +1,16 @@
 #[macro_use]
 mod util;
+mod address_bus;
 mod apu;
 mod controller;
 mod cpu;
-mod memory_map;
 mod parse;
 mod ppu;
 mod win;
 
-use mem::{CpuMemoryMap, PpuMemoryMap};
-use memory_map as mem;
+use address_bus as bus;
+use bus::{CpuAddressBus, PpuAddressBus};
+use controller as ctrl;
 
 use pixel_renderer;
 use pixel_renderer::xcb;
@@ -44,16 +45,16 @@ fn main() {
     let prg_size = 0x4000 * (parse::get_prg_size(&rom) as usize);
     let chr_size = 0x2000 * (parse::get_chr_size(&rom) as usize);
 
-    let mut ppu_memory = mem::NromPpuMemory::new(hor_mirroring);
-    ppu_memory.load_chr_ram(&rom[0x10 + prg_size..=prg_size + chr_size + 0xf]);
+    let mut ppu_bus = bus::NromPpuAddressBus::new(hor_mirroring);
+    ppu_bus.load_chr_ram(&rom[0x10 + prg_size..=prg_size + chr_size + 0xf]);
 
     let ppu = ppu::Ppu::new();
     let apu = apu::Apu {};
     let controller = controller::Controller::default();
-    let mut cpu_memory = mem::NromCpuMemory::new(
+    let mut cpu_bus = bus::NromCpuAddressBus::new(
         &rom[0x10..=prg_size + 0xf],
         ppu,
-        ppu_memory,
+        ppu_bus,
         apu,
         controller,
         renderer,
@@ -62,12 +63,12 @@ fn main() {
 
     // set pc = reset vector
     cpu.pc = u16::from_le_bytes([
-        cpu_memory.read(0xfffc, &mut cpu),
-        cpu_memory.read(0xfffd, &mut cpu),
+        cpu_bus.read(0xfffc, &mut cpu),
+        cpu_bus.read(0xfffd, &mut cpu),
     ]);
 
-    cpu_memory.base.ppu.current_scanline = 240;
-    cpu_memory.base.ppu.cycle_count = 0;
+    cpu_bus.base.ppu.current_scanline = 240;
+    cpu_bus.base.ppu.cycle_count = 0;
     cpu.cycle_count = 0;
     cpu.p = 4;
     cpu.sp = 0xfd;
@@ -108,14 +109,14 @@ fn main() {
                                 }
                                 Some((xcb::CONFIGURE_NOTIFY, _)) | Some((xcb::EXPOSE, _)) => {
                                     // make sure to re-render frame on resize/expose events
-                                    let idx = cpu_memory.base.renderer.render_frame();
-                                    cpu_memory.base.renderer.present(idx);
+                                    let idx = cpu_bus.base.renderer.render_frame();
+                                    cpu_bus.base.renderer.present(idx);
                                 }
                                 _ => (),
                             }
                         }
                     } else {
-                        cpu_memory.base.controller.set_key(key_sym);
+                        cpu_bus.base.controller.set_key(key_sym);
                     }
                 }
                 xcb::KEY_RELEASE => {
@@ -140,7 +141,7 @@ fn main() {
                     }
 
                     let key_sym = key_syms.release_lookup_keysym(key_release, 0);
-                    cpu_memory.base.controller.unset_key(key_sym);
+                    cpu_bus.base.controller.unset_key(key_sym);
 
                     current_event = next_event;
                     continue;
@@ -153,27 +154,27 @@ fn main() {
 
         // run cpu and ppu side by side until frame is done
         // OPTIMIZE: no need to constantly catch the ppu up
-        while !cpu_memory.base.ppu.is_frame_done() {
-            cpu.exec_instruction(&mut cpu_memory);
-            cpu_memory.base.ppu.catch_up(
+        while !cpu_bus.base.ppu.is_frame_done() {
+            cpu.exec_instruction(&mut cpu_bus);
+            cpu_bus.base.ppu.catch_up(
                 &mut cpu,
-                &cpu_memory.ppu_memory,
-                util::pixels_to_u32(&mut cpu_memory.base.renderer),
+                &mut cpu_bus.ppu_bus,
+                util::pixels_to_u32(&mut cpu_bus.base.renderer),
             );
         }
 
         // reset counters
-        cpu_memory.base.ppu.cycle_count -= cpu.cycle_count as i32 * 3;
-        cpu_memory.base.ppu.set_frame_done(false);
+        cpu_bus.base.ppu.cycle_count -= cpu.cycle_count as i32 * 3;
+        cpu_bus.base.ppu.set_frame_done(false);
         cpu.cycle_count = 0;
 
-        let idx = cpu_memory.base.renderer.render_frame();
+        let idx = cpu_bus.base.renderer.render_frame();
         let elapsed = start_of_frame.elapsed();
         let frame_time_left = std::time::Duration::from_nanos(16_666_677)
             .checked_sub(elapsed)
             .unwrap_or_default();
 
         std::thread::sleep(frame_time_left);
-        cpu_memory.base.renderer.present(idx);
+        cpu_bus.base.renderer.present(idx);
     }
 }
