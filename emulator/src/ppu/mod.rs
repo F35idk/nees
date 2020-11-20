@@ -279,6 +279,8 @@ impl Ppu {
             if !ppu.is_currently_rendering() {
                 // if not currently rendering, increment normally
                 ppu.increment_vram_addr();
+                // set address on address bus equal to 'current_vram_addr'
+                bus.set_address(ppu.current_vram_addr.inner, ppu.cycle_count, cpu);
             } else {
                 // if currently rendering, increment the bits of the address
                 // corresponding to the y position and coarse x position (this
@@ -304,7 +306,7 @@ impl Ppu {
                 // ppuctrl
                 0 => write_ppuctrl(self, val, cpu),
                 // ppumask
-                1 => self.ppumask = val,
+                1 => write_ppumask(self, val, bus, cpu),
                 // ppustatus, ignore attemps to write
                 2 => return,
                 // oamaddr
@@ -314,7 +316,7 @@ impl Ppu {
                 // ppuscroll
                 5 => write_ppuscroll(self, val),
                 // ppuaddr
-                6 => write_ppuaddr(self, val),
+                6 => write_ppuaddr(self, val, bus, cpu),
                 // ppudata
                 7 => write_ppudata(self, val, bus, cpu),
                 _ => (),
@@ -333,6 +335,14 @@ impl Ppu {
 
             if nmi_toggled && ppu.is_vblank_nmi_enabled() && ppu.is_vblank() {
                 cpu.nmi = true;
+            }
+        }
+
+        fn write_ppumask(ppu: &mut Ppu, val: u8, bus: &mut dyn PpuAddressBus, cpu: &mut cpu::Cpu) {
+            ppu.ppumask = val;
+
+            if !ppu.is_currently_rendering() {
+                bus.set_address(ppu.current_vram_addr.inner, ppu.cycle_count, cpu);
             }
         }
 
@@ -369,7 +379,7 @@ impl Ppu {
             ppu.toggle_low_bits_toggle();
         }
 
-        fn write_ppuaddr(ppu: &mut Ppu, val: u8) {
+        fn write_ppuaddr(ppu: &mut Ppu, val: u8, bus: &mut dyn PpuAddressBus, cpu: &mut cpu::Cpu) {
             let mut temp_vram_addr_bytes = ppu.temp_vram_addr.inner.to_le_bytes();
 
             if !ppu.bits.low_bits_toggle.is_true() {
@@ -385,6 +395,12 @@ impl Ppu {
 
                 // set 'current_vram_addr' equal to 'temp_vram_addr'
                 ppu.current_vram_addr = ppu.temp_vram_addr;
+
+                if !ppu.is_currently_rendering() {
+                    // if not currently rendering, the address bus
+                    // should be set to 'current_vram_addr'
+                    bus.set_address(ppu.current_vram_addr.inner, ppu.cycle_count, cpu);
+                }
             }
 
             ppu.set_ppustatus_low_bits(val);
@@ -398,6 +414,7 @@ impl Ppu {
             // increment 'current_vram_addr' (same as when reading ppudata)
             if !ppu.is_currently_rendering() {
                 ppu.increment_vram_addr();
+                bus.set_address(ppu.current_vram_addr.inner, ppu.cycle_count, cpu);
             } else {
                 ppu.increment_vram_addr_coarse_x();
                 ppu.increment_vram_addr_y();
