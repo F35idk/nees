@@ -439,10 +439,8 @@ impl Ppu {
         // NOTE: this function is split into multiple subfunctions
         {
             match self.current_scanline {
-                // pre-render scanline
-                -1 => step_pre_render_line(self, bus, cpu),
-                // visible scanlines
-                0..=239 => step_visible_line(self, bus, framebuffer, cpu),
+                // pre-render and visible scanlines
+                -1..=239 => step_pre_render_or_visible_line(self, bus, framebuffer, cpu),
                 // idle scanline
                 240 => step_idle_line(self),
                 // vblank 'scanlines'
@@ -451,150 +449,83 @@ impl Ppu {
             };
         }
 
-        // TODO: dummy ram accesses during the entire line
-        fn step_pre_render_line(ppu: &mut Ppu, bus: &mut dyn PpuAddressBus, cpu: &mut cpu::Cpu) {
-            match ppu.current_scanline_dot {
-                // idle cycle
-                0 => {
-                    ppu.current_scanline_dot += 1;
-                    ppu.cycle_count += 1;
-                }
-                1 => {
-                    // clear vblank, sprite zero hit and sprite overflow flags
-                    ppu.set_vblank(false);
-                    ppu.set_sprite_zero_hit(false);
-                    ppu.set_sprite_overflow(false);
-
-                    ppu.cycle_count += 8;
-                    ppu.current_scanline_dot += 8;
-                }
-                2..=256 => {
-                    ppu.cycle_count += 8;
-                    ppu.current_scanline_dot += 8;
-                }
-                257 => {
-                    if ppu.is_sprites_enable() || ppu.is_background_enable() {
-                        ppu.transfer_temp_horizontal_bits();
-                    }
-
-                    ppu.cycle_count += 7;
-                    ppu.current_scanline_dot += 7;
-                }
-                258..=279 => {
-                    ppu.cycle_count += 8;
-                    ppu.current_scanline_dot += 8;
-                }
-                280 => {
-                    if ppu.is_sprites_enable() || ppu.is_background_enable() {
-                        ppu.transfer_temp_vert_bits();
-                    }
-
-                    ppu.cycle_count += 8;
-                    ppu.current_scanline_dot += 8;
-                }
-                281..=320 => {
-                    ppu.cycle_count += 8;
-                    ppu.current_scanline_dot += 8;
-                }
-                328 => {
-                    ppu.cycle_count += 8;
-                    ppu.current_scanline_dot += 8;
-
-                    if ppu.is_background_enable() || ppu.is_sprites_enable() {
-                        ppu.bg_state.shift_tile_data_by_8();
-                        ppu.bg_state.fetch_current_tile_data(
-                            ppu.cycle_count,
-                            ppu.get_background_pattern_table_addr(),
-                            ppu.current_vram_addr,
-                            bus,
-                            cpu,
-                        );
-                        ppu.increment_vram_addr_coarse_x();
-                    }
-                }
-                336 => {
-                    ppu.cycle_count += 5;
-                    ppu.current_scanline_dot = 0;
-                    ppu.current_scanline = 0;
-
-                    if ppu.is_background_enable() || ppu.is_sprites_enable() {
-                        ppu.bg_state.shift_tile_data_by_8();
-                        ppu.bg_state.fetch_current_tile_data(
-                            ppu.cycle_count,
-                            ppu.get_background_pattern_table_addr(),
-                            ppu.current_vram_addr,
-                            bus,
-                            cpu,
-                        );
-                        ppu.increment_vram_addr_coarse_x();
-                    }
-                }
-                _ => (),
-            }
-        }
-
-        fn step_visible_line(
+        fn step_pre_render_or_visible_line(
             ppu: &mut Ppu,
             bus: &mut dyn PpuAddressBus,
             framebuffer: &mut [u32; 256 * 240],
             cpu: &mut cpu::Cpu,
         ) {
-            match ppu.current_scanline_dot {
-                0 => {
+            match (ppu.current_scanline_dot, ppu.current_scanline) {
+                (0, sl) => {
                     ppu.current_scanline_dot += 1;
 
                     // if rendering is enabled and we're on the first visible scanline,
                     // only increment cycle count if current frame is even-numbered (idle
                     // cycle is skipped on odd frames)
-                    if ppu.current_scanline == 0
-                        && (ppu.is_background_enable() || ppu.is_sprites_enable())
-                    {
+                    if sl == 0 && (ppu.is_background_enable() || ppu.is_sprites_enable()) {
                         ppu.cycle_count += ppu.bits.even_frame.get() as i32;
                     } else {
                         ppu.cycle_count += 1;
                     }
 
-                    // reset 'sprites_found', 'eval_done' and 'current_sprite_idx' before use (in dots 65-256)
+                    // reset 'sprites_found', 'eval_done' and 'current_sprite_idx' before
+                    // use (in dots 65-256)
                     ppu.sprite_state.sprites_found = 0;
                     ppu.sprite_state.eval_done = false;
                     // TODO: obscure behavior where 'current_sprite_idx' is set equal to
-                    // the current value of oamaddr (at the start of sprite evaluation,
-                    // meaning a litle later than this)
+                    // the current value of oamaddr (which may not be zero) at the start
+                    // of sprite evaluation, meaning a litle later than this
                     ppu.sprite_state.current_sprite_idx = 0;
                 }
-                1..=256 => {
-                    if ppu.current_scanline_dot >= 65
-                        && (ppu.is_sprites_enable() || ppu.is_background_enable())
-                    {
-                        // evaluate sprite on next scanline
-                        for _ in 0..4 {
-                            let sprite_overflow = ppu.sprite_state.eval_next_scanline_sprite(
-                                ppu.is_sprite_overflow(),
-                                ppu.get_sprite_size(),
-                                &ppu.primary_oam,
-                                &mut ppu.secondary_oam,
-                                ppu.current_scanline,
-                                ppu.current_scanline_dot,
-                            );
+                (1..=256, sl) => {
+                    match sl {
+                        // pre-render line
+                        -1 => {
+                            // OPTIMIZE: ideally, we would find some way of moving this
+                            // block out into the outer match and have it fallthrough
+                            // into here instead
+                            if ppu.current_scanline_dot == 1 {
+                                // clear vblank, sprite zero hit and sprite overflow flags
+                                ppu.set_vblank(false);
+                                ppu.set_sprite_zero_hit(false);
+                                ppu.set_sprite_overflow(false);
+                            }
+                        }
+                        // visible lines
+                        _ => {
+                            if ppu.current_scanline_dot >= 65
+                                && (ppu.is_sprites_enable() || ppu.is_background_enable())
+                            {
+                                // evaluate sprite on next scanline
+                                for _ in 0..4 {
+                                    let sprite_overflow =
+                                        ppu.sprite_state.eval_next_scanline_sprite(
+                                            ppu.is_sprite_overflow(),
+                                            ppu.get_sprite_size(),
+                                            &ppu.primary_oam,
+                                            &mut ppu.secondary_oam,
+                                            ppu.current_scanline,
+                                            ppu.current_scanline_dot,
+                                        );
 
-                            if sprite_overflow {
-                                ppu.set_sprite_overflow(true);
+                                    if sprite_overflow {
+                                        ppu.set_sprite_overflow(true);
+                                    }
+                                }
+                            }
+
+                            // draw a row of 8 pixels horizontally
+                            let sprite_zero_hit = ppu.draw_8_pixels(framebuffer, bus);
+
+                            if sprite_zero_hit {
+                                ppu.set_sprite_zero_hit(true);
                             }
                         }
                     }
 
-                    let sprite_zero_hit = ppu.draw_8_pixels(framebuffer, bus);
-
-                    if sprite_zero_hit {
-                        ppu.set_sprite_zero_hit(true);
-                    }
-
-                    ppu.cycle_count += 8;
-                    ppu.current_scanline_dot += 8;
-
                     if ppu.is_background_enable() || ppu.is_sprites_enable() {
                         // if last pixel drawn was 256th (end of scanline)
-                        if ppu.current_scanline_dot == 257 {
+                        if ppu.current_scanline_dot + 8 == 257 {
                             // increment fine y
                             // NOTE: may wish to increment x here as well (what the ppu does irl)
                             ppu.increment_vram_addr_y();
@@ -610,8 +541,11 @@ impl Ppu {
                             ppu.increment_vram_addr_coarse_x();
                         }
                     }
+
+                    ppu.cycle_count += 8;
+                    ppu.current_scanline_dot += 8;
                 }
-                257 => {
+                (257, _) => {
                     ppu.oamaddr = 0;
                     // set current sprite to zero so it can be re-used
                     // in 'fetch_next_scanline_sprite_data()'
@@ -636,10 +570,10 @@ impl Ppu {
                         ppu.transfer_temp_horizontal_bits();
                     }
 
-                    ppu.cycle_count += 8;
-                    ppu.current_scanline_dot += 8;
+                    ppu.cycle_count += 7;
+                    ppu.current_scanline_dot += 7;
                 }
-                258..=320 => {
+                (258..=319, sl) => {
                     ppu.oamaddr = 0;
 
                     // continue fetching sprite data
@@ -656,17 +590,21 @@ impl Ppu {
                         );
                     }
 
-                    ppu.cycle_count += 8;
-                    ppu.current_scanline_dot += 8;
-                }
-                321..=328 => {
-                    ppu.cycle_count += 8;
-                    ppu.current_scanline_dot += 8;
-                }
-                329 => {
-                    ppu.cycle_count += 8;
-                    ppu.current_scanline_dot += 8;
+                    if sl == -1
+                        && ppu.current_scanline_dot == 280
+                        && (ppu.is_sprites_enable() || ppu.is_background_enable())
+                    {
+                        ppu.transfer_temp_vert_bits();
+                    }
 
+                    ppu.cycle_count += 8;
+                    ppu.current_scanline_dot += 8;
+                }
+                (320..=327, _) => {
+                    ppu.cycle_count += 8;
+                    ppu.current_scanline_dot += 8;
+                }
+                (328, _) => {
                     if ppu.is_background_enable() || ppu.is_sprites_enable() {
                         ppu.bg_state.shift_tile_data_by_8();
                         ppu.bg_state.fetch_current_tile_data(
@@ -678,23 +616,26 @@ impl Ppu {
                         );
                         ppu.increment_vram_addr_coarse_x();
                     }
+
+                    ppu.cycle_count += 8;
+                    ppu.current_scanline_dot += 8;
                 }
-                337 => {
-                    ppu.cycle_count += 4;
+                (336, _) => {
+                    if ppu.is_background_enable() || ppu.is_sprites_enable() {
+                        ppu.bg_state.shift_tile_data_by_8();
+                        ppu.bg_state.fetch_current_tile_data(
+                            ppu.cycle_count,
+                            ppu.get_background_pattern_table_addr(),
+                            ppu.current_vram_addr,
+                            bus,
+                            cpu,
+                        );
+                        ppu.increment_vram_addr_coarse_x();
+                    }
+
+                    ppu.cycle_count += 5;
                     ppu.current_scanline_dot = 0;
                     ppu.current_scanline += 1;
-
-                    if ppu.is_background_enable() || ppu.is_sprites_enable() {
-                        ppu.bg_state.shift_tile_data_by_8();
-                        ppu.bg_state.fetch_current_tile_data(
-                            ppu.cycle_count,
-                            ppu.get_background_pattern_table_addr(),
-                            ppu.current_vram_addr,
-                            bus,
-                            cpu,
-                        );
-                        ppu.increment_vram_addr_coarse_x();
-                    }
 
                     if ppu.current_scanline == 240 {
                         ppu.bits.frame_done.set(1);
