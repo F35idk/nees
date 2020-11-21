@@ -49,7 +49,7 @@ pub struct Mmc3PpuAddressBus {
     palettes: [u8; 32],
     irq_counter: u8,
     irq_latch: u8,
-    cycle_count_at_prev_a12_rise: i32,
+    cycle_count_at_prev_a12_high: i32,
     bits: Mmc3PpuBits::BitField,
 }
 
@@ -63,48 +63,35 @@ bitfield!(Mmc3PpuBits<u8>(
     trigger_irq: 6..6,
 ));
 
-// NOTE:
-// If the bus isn't 3-state, the PPU has to output something on the address bus at all times.
-// A rule "whenever rendering is disabled, put v on the bus" probably takes fewer gates than
-// "when rendering is disabled, hold the last value that happened to be on the bus".
-
 impl Mmc3PpuAddressBus {
     fn clock_irq_counter(&mut self, a12: bool, cycle_count: i32, cpu: &mut cpu::Cpu) {
         // if current a12 is high and a12 was low on previous read/write (a12 has risen)
-        if a12 && !self.bits.prev_a12.is_true() {
-            // println!("!");
-            // FIXME:::: gt?? gte??
-            // ignore a12 rise if there was another a12 rise 6 or fewer cycles ago
-            if cycle_count - self.cycle_count_at_prev_a12_rise > 6 {
-                if self.irq_counter == 0 && self.bits.irq_enable.is_true() {
-                    self.irq_counter = self.irq_latch;
-                    cpu.irq += 1;
-                    println!("?");
-                } else if self.irq_counter == 0 || self.bits.irq_reload.is_true() {
-                    println!("!");
-                    self.irq_counter = self.irq_latch;
-                } else {
-                    println!("-");
-                    self.irq_counter -= 1;
+        if a12 {
+            if !self.bits.prev_a12.is_true() {
+                // ignore a12 rise if there was another a12 rise 6 or fewer cycles ago
+                // FIXME:::: gt?? gte??
+                if (cycle_count - self.cycle_count_at_prev_a12_high) as u32 > 6 {
+                    if self.bits.irq_reload.is_true() || self.irq_counter == 0 {
+                        // reload counter
+                        self.irq_counter = self.irq_latch;
+                        self.bits.irq_reload.set(0);
+                    } else {
+                        // decrement
+                        self.irq_counter -= 1;
+                    }
+
+                    if self.irq_counter == 0 && self.bits.irq_enable.is_true() {
+                        // if not already triggering cpu irq
+                        if !self.bits.trigger_irq.is_true() {
+                            self.bits.trigger_irq.set(1);
+                            // increment 'irq' on cpu
+                            cpu.irq += 1;
+                        }
+                    }
                 }
-
-                // println!("?");
-                // if self.bits.irq_reload.is_true() || self.irq_counter == 0 {
-                //     // reload counter
-                //     self.irq_counter = self.irq_latch;
-                // } else {
-                //     println!("!?");
-                //     // decrement
-                //     self.irq_counter -= 1;
-
-                //     if self.irq_counter == 0 && self.bits.irq_enable.is_true() {
-                //         self.irq_counter = self.irq_latch;
-                //         cpu.irq += 1;
-                //     }
-                // }
             }
 
-            self.cycle_count_at_prev_a12_rise = cycle_count;
+            self.cycle_count_at_prev_a12_high = cycle_count;
         }
 
         self.bits.prev_a12.set(a12 as u8);
@@ -112,7 +99,6 @@ impl Mmc3PpuAddressBus {
 }
 
 impl PpuAddressBus for Mmc3PpuAddressBus {
-    // TODO:FIXME: take in cycle count as well??
     fn read(&mut self, mut addr: u16, cycle_count: i32, cpu: &mut cpu::Cpu) -> u8 {
         assert!(addr <= 0x3fff);
 
@@ -213,7 +199,10 @@ impl PpuAddressBus for Mmc3PpuAddressBus {
         }
     }
 
-    fn set_address(&mut self, addr: u16, ppu_cycle_count: i32, cpu: &mut cpu::Cpu) {}
+    fn set_address(&mut self, addr: u16, cycle_count: i32, cpu: &mut cpu::Cpu) {
+        let a12 = (addr & 0b1_0000_0000_0000) != 0;
+        self.clock_irq_counter(a12, cycle_count, cpu);
+    }
 
     fn read_palette_memory(&self, color_idx: u8) -> u8 {
         self.palettes[super::calc_ppu_palette_addr(color_idx as u16) as usize]
@@ -277,7 +266,7 @@ impl Mmc3CpuAddressBus {
             r: [0; 8],
             irq_latch: 0,
             irq_counter: 0,
-            cycle_count_at_prev_a12_rise: 0,
+            cycle_count_at_prev_a12_high: 0,
             bits: Mmc3PpuBits::BitField::new(
                 hor_mirroring as u8,
                 no_mirroring as u8,
