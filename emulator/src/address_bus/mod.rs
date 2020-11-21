@@ -8,19 +8,19 @@ use crate::{apu, controller as ctrl, cpu, ppu, util, PixelRenderer};
 
 // the base struct that all 'CpuAddressBus' implementations should inherit
 // from. can be accessed through the 'CpuAddressBus::base()' trait method
-pub struct CpuAddressBusBase {
+pub struct CpuAddressBusBase<'a> {
     pub apu: apu::Apu,
     pub ppu: ppu::Ppu,
-    pub renderer: PixelRenderer,
+    pub renderer: PixelRenderer<'a>,
     pub controller: ctrl::Controller,
 }
 
-impl CpuAddressBusBase {
+impl<'a> CpuAddressBusBase<'a> {
     pub fn new(
         ppu: ppu::Ppu,
         apu: apu::Apu,
         controller: ctrl::Controller,
-        renderer: PixelRenderer,
+        renderer: PixelRenderer<'a>,
     ) -> Self {
         Self {
             ppu,
@@ -39,8 +39,8 @@ impl CpuAddressBusBase {
 // functionality for the ppu. the 'CpuAddressBus' implementor owns this
 // as well (it can be accessed through the 'base()' method)
 
-pub trait CpuAddressBus {
-    fn base(&mut self) -> (&mut CpuAddressBusBase, &mut dyn PpuAddressBus);
+pub trait CpuAddressBus<'a> {
+    fn base(&mut self) -> (&mut CpuAddressBusBase<'a>, &mut dyn PpuAddressBus);
     fn read(&mut self, addr: u16, cpu: &mut cpu::Cpu) -> u8;
     fn write(&mut self, addr: u16, val: u8, cpu: &mut cpu::Cpu);
 }
@@ -55,7 +55,7 @@ pub trait PpuAddressBus {
 // utility function for writing to the 'oamdma' register on the ppu
 // (0x4014). only requires 'CpuAddressBus::read()' to be implemented.
 // intented to be used by 'CpuAddressBus::write()' implementations.
-fn write_oamdma<M: CpuAddressBus>(memory: &mut M, val: u8, cpu: &mut cpu::Cpu) {
+fn write_oamdma<'a, M: CpuAddressBus<'a>>(memory: &mut M, val: u8, cpu: &mut cpu::Cpu) {
     memory.base().0.ppu.set_ppustatus_low_bits(val);
 
     // if 'val' is $XX, start address should be $XX00

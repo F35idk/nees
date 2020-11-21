@@ -55,10 +55,10 @@ fn extension_names() -> Vec<*const i8> {
     ]
 }
 
-pub struct PixelRenderer {
+pub struct PixelRenderer<'a> {
     entry: ash::Entry,
     instance: ash::Instance,
-    surface: SurfaceWrapper,
+    surface: SurfaceWrapper<'a>,
     device: DeviceWrapper,
     swapchain: SwapchainWrapper,
 
@@ -75,9 +75,9 @@ pub struct PixelRenderer {
     debug_messenger: Option<DebugMessengerWrapper>,
 }
 
-impl PixelRenderer {
+impl<'a> PixelRenderer<'a> {
     pub fn new(
-        xcb_conn: &mut Connection,
+        xcb_conn: &'a Connection,
         xcb_win: Window,
         width: u64,
         height: u64,
@@ -417,7 +417,7 @@ impl PixelRenderer {
     }
 
     #[inline]
-    pub fn get_pixels<'a>(&'a mut self) -> &'a mut [u8] {
+    pub fn get_pixels<'b>(&'b mut self) -> &'b mut [u8] {
         unsafe {
             std::slice::from_raw_parts_mut::<u8>(
                 self.pixel_image.pixels_raw,
@@ -721,7 +721,7 @@ impl PixelRenderer {
     }
 }
 
-impl Drop for PixelRenderer {
+impl<'a> Drop for PixelRenderer<'a> {
     fn drop(&mut self) {
         unsafe {
             // wait for all queue operations to finish before destroying

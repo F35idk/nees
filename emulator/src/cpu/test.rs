@@ -1,5 +1,5 @@
-use super::super::{address_bus as bus, util};
 use super::Cpu;
+use crate::{address_bus as bus, util, win};
 use bus::{CpuAddressBus, PpuAddressBus};
 
 fn test_adc(cpu: &mut Cpu, memory: &mut bus::NromCpuAddressBus) {
@@ -435,7 +435,8 @@ fn test_brk() {
 
 #[test]
 fn test_all() {
-    let (ref mut cpu, ref mut memory) = util::init_nes();
+    let mut win = win::XcbWindowWrapper::new("test", 20, 20).unwrap();
+    let (ref mut cpu, ref mut memory) = util::init_nes(&mut win);
 
     test_adc(cpu, memory);
     util::reset_nes_state(cpu, memory);

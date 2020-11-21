@@ -12,8 +12,8 @@ use crate::PixelRenderer;
 // NOTE: open bus behavior ignored
 // NOTE: mmc6 compatibility ignored
 
-pub struct Mmc3CpuAddressBus {
-    pub base: CpuAddressBusBase,
+pub struct Mmc3CpuAddressBus<'a> {
+    pub base: CpuAddressBusBase<'a>,
     pub ppu_bus: Mmc3PpuAddressBus,
     internal_ram: [u8; 0x800],
     prg_ram: [u8; 0x2000],
@@ -209,7 +209,7 @@ impl PpuAddressBus for Mmc3PpuAddressBus {
     }
 }
 
-impl Mmc3CpuAddressBus {
+impl<'a> Mmc3CpuAddressBus<'a> {
     pub fn new(
         prg_rom: &[u8],
         chr_rom: &[u8],
@@ -217,7 +217,7 @@ impl Mmc3CpuAddressBus {
         ppu: ppu::Ppu,
         apu: apu::Apu,
         controller: ctrl::Controller,
-        renderer: PixelRenderer,
+        renderer: PixelRenderer<'a>,
     ) -> Self {
         // TODO: proper error handling if given invalid input
         assert!(prg_rom.len() <= 0x80000);
@@ -290,7 +290,7 @@ impl Mmc3CpuAddressBus {
     }
 }
 
-impl CpuAddressBus for Mmc3CpuAddressBus {
+impl<'a> CpuAddressBus<'a> for Mmc3CpuAddressBus<'a> {
     fn read(&mut self, mut addr: u16, cpu: &mut cpu::Cpu) -> u8 {
         // internal ram
         if super::is_0_to_1fff(addr) {
@@ -470,7 +470,7 @@ impl CpuAddressBus for Mmc3CpuAddressBus {
         }
     }
 
-    fn base(&mut self) -> (&mut CpuAddressBusBase, &mut dyn PpuAddressBus) {
+    fn base(&mut self) -> (&mut CpuAddressBusBase<'a>, &mut dyn PpuAddressBus) {
         (&mut self.base, &mut self.ppu_bus)
     }
 }

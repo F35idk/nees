@@ -7,8 +7,7 @@ pub fn pixels_to_u32<'a>(pixel_renderer: &'a mut PixelRenderer) -> &'a mut [u32;
 }
 
 // used by test functions
-pub fn init_nes() -> (cpu::Cpu, bus::NromCpuAddressBus) {
-    let mut win = win::XcbWindowWrapper::new("test", 20, 20).unwrap();
+pub fn init_nes(win: &mut win::XcbWindowWrapper) -> (cpu::Cpu, bus::NromCpuAddressBus) {
     let renderer = PixelRenderer::new(&mut win.connection, win.win, 256, 240).unwrap();
 
     let ppu_memory = bus::NromPpuAddressBus::new(false);

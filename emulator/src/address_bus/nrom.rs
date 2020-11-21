@@ -1,8 +1,8 @@
-use super::super::{apu, controller as ctrl, cpu, ppu, util, win, PixelRenderer};
 use super::{CpuAddressBus, CpuAddressBusBase, PpuAddressBus};
+use crate::{apu, controller as ctrl, cpu, parse, ppu, util, win, PixelRenderer};
 
-pub struct NromCpuAddressBus {
-    pub base: CpuAddressBusBase,
+pub struct NromCpuAddressBus<'a> {
+    pub base: CpuAddressBusBase<'a>,
     pub ppu_bus: NromPpuAddressBus,
     internal_ram: [u8; 0x800],
     prg_rom: Box<[u8]>,
@@ -16,7 +16,7 @@ pub struct NromPpuAddressBus {
     pub hor_mirroring: bool,
 }
 
-impl NromCpuAddressBus {
+impl<'a> NromCpuAddressBus<'a> {
     // TODO: reduce unnecessary copying
     pub fn new(
         prg_rom: &[u8],
@@ -24,7 +24,7 @@ impl NromCpuAddressBus {
         ppu_bus: NromPpuAddressBus,
         apu: apu::Apu,
         controller: ctrl::Controller,
-        renderer: PixelRenderer,
+        renderer: PixelRenderer<'a>,
     ) -> Self {
         // nrom-128 or nrom-256
         assert!(matches!(prg_rom.len(), 0x4000 | 0x8000));
@@ -44,7 +44,7 @@ impl NromCpuAddressBus {
         ppu_bus: NromPpuAddressBus,
         apu: apu::Apu,
         controller: ctrl::Controller,
-        renderer: PixelRenderer,
+        renderer: PixelRenderer<'a>,
     ) -> Self {
         assert!(matches!(prg_rom_size, 0x4000 | 0x8000));
 
@@ -74,7 +74,7 @@ impl NromPpuAddressBus {
     }
 }
 
-impl CpuAddressBus for NromCpuAddressBus {
+impl<'a> CpuAddressBus<'a> for NromCpuAddressBus<'a> {
     fn read(&mut self, mut addr: u16, cpu: &mut cpu::Cpu) -> u8 {
         // internal ram
         if super::is_0_to_1fff(addr) {
@@ -174,7 +174,7 @@ impl CpuAddressBus for NromCpuAddressBus {
         // necessary to explicitly ignore attempts to write to rom
     }
 
-    fn base(&mut self) -> (&mut CpuAddressBusBase, &mut dyn PpuAddressBus) {
+    fn base(&mut self) -> (&mut CpuAddressBusBase<'a>, &mut dyn PpuAddressBus) {
         (&mut self.base, &mut self.ppu_bus)
     }
 }
@@ -235,7 +235,8 @@ mod test {
 
     #[test]
     fn test_cpu_read_write() {
-        let (mut cpu, mut cpu_bus) = util::init_nes();
+        let mut win = win::XcbWindowWrapper::new("test", 20, 20).unwrap();
+        let (mut cpu, mut cpu_bus) = util::init_nes(&mut win);
 
         // nrom-128
         {

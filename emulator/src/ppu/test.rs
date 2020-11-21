@@ -318,7 +318,8 @@ fn test_temp_to_current_vram_transfer(ppu: &mut super::Ppu) {
 
 #[test]
 fn test_all() {
-    let (ref mut cpu, ref mut cpu_bus) = util::init_nes();
+    let mut win = win::XcbWindowWrapper::new("test", 20, 20).unwrap();
+    let (ref mut cpu, ref mut cpu_bus) = util::init_nes(&mut win);
 
     test_registers(cpu, &mut cpu_bus.base.ppu, &mut cpu_bus.ppu_bus);
     util::reset_nes_state(cpu, cpu_bus);
