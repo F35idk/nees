@@ -60,6 +60,7 @@ bitfield!(Mmc3PpuBits<u8>(
     prev_a12: 3..3,
     irq_reload: 4..4,
     irq_enable: 5..5,
+    trigger_irq: 6..6,
 ));
 
 // NOTE:
@@ -277,7 +278,15 @@ impl Mmc3CpuAddressBus {
             irq_latch: 0,
             irq_counter: 0,
             cycle_count_at_prev_a12_rise: 0,
-            bits: Mmc3PpuBits::BitField::new(hor_mirroring as u8, no_mirroring as u8, 0, 0, 0, 0),
+            bits: Mmc3PpuBits::BitField::new(
+                hor_mirroring as u8,
+                no_mirroring as u8,
+                0,
+                0,
+                0,
+                0,
+                0,
+            ),
         };
 
         Self {
@@ -445,9 +454,13 @@ impl CpuAddressBus for Mmc3CpuAddressBus {
         // irq disable/enable
         if super::is_e000_to_ffff(addr) {
             self.ppu_bus.bits.irq_enable.set(addr as u8 & 1);
+            if addr & 1 == 1 {}
             if addr & 1 == 0 {
-                // acknowledge irq
-                cpu.irq = cpu.irq.saturating_sub(1);
+                // stop triggering irq
+                if self.ppu_bus.bits.trigger_irq.is_true() {
+                    self.ppu_bus.bits.trigger_irq.set(0);
+                    cpu.irq = cpu.irq.saturating_sub(1);
+                }
             }
 
             return;
