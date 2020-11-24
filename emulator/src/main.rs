@@ -17,61 +17,129 @@ use pixel_renderer::xcb;
 use pixel_renderer::PixelRenderer;
 use xcb_util::keysyms;
 
+use std::io::Read;
+
+struct Nes<'a> {
+    cpu: cpu::Cpu,
+    bus: &'a mut dyn CpuAddressBus<'a>,
+}
+
+impl<'a> Nes<'a> {
+    fn new(win: &'a win::XcbWindowWrapper, rom_file: &mut std::fs::File) -> Self {
+        let mut rom = vec![0; rom_file.metadata().unwrap().len() as usize];
+        rom_file.read(&mut rom).unwrap();
+
+        let prg_size = 0x4000 * (parse::get_prg_size(&rom) as usize);
+        let chr_size = 0x2000 * (parse::get_chr_size(&rom) as usize);
+        let mirroring = parse::get_mirroring_type(&rom);
+
+        // TODO: proper error handling
+        assert!(parse::is_valid(&rom));
+        logln!("{}", std::str::from_utf8(&rom[0..=3]).unwrap());
+        logln!("is nes 2.0: {}", parse::is_nes_2_format(&rom));
+        logln!("has trainer: {}", parse::has_trainer(&rom));
+        logln!("mirroring type: {:?}", parse::get_mirroring_type(&rom));
+        logln!("mapper number: {}", parse::get_mapper_num(&rom));
+        logln!("prg rom size: {}KB", parse::get_prg_size(&rom) as u32 * 16);
+        logln!("chr rom size: {}KB", parse::get_chr_size(&rom) as u32 * 8);
+        logln!(
+            "has battery-backed RAM: {}",
+            parse::has_persistent_mem(&rom)
+        );
+
+        let renderer = PixelRenderer::new(&win.connection, win.win, 256, 240).unwrap();
+        let ppu = ppu::Ppu::new();
+        let apu = apu::Apu {};
+        let controller = ctrl::Controller::default();
+
+        let cpu = cpu::Cpu::default();
+        let bus: &mut dyn CpuAddressBus = match parse::get_mapper_num(&rom) {
+            // mapper 0 => nrom
+            0 => Box::leak(Box::new(bus::NromCpuAddressBus::new(
+                &rom[0x10..=prg_size + 0xf],
+                &rom[0x10 + prg_size..=prg_size + chr_size + 0xf],
+                mirroring,
+                ppu,
+                apu,
+                controller,
+                renderer,
+            ))),
+            // mapper 4 => mmc3
+            4 => Box::leak(Box::new(bus::Mmc3CpuAddressBus::new(
+                &rom[0x10..=prg_size + 0xf],
+                &rom[0x10 + prg_size..=prg_size + chr_size + 0xf],
+                mirroring,
+                ppu,
+                apu,
+                controller,
+                renderer,
+            ))),
+            // TODO: proper error handling
+            _ => panic!(),
+        };
+
+        Self { cpu, bus }
+    }
+
+    #[cfg(test)]
+    fn reset_state(&mut self) {
+        self.cpu = cpu::Cpu::default();
+        let base = self.bus.base().0;
+        base.ppu.reset_state();
+        base.controller = ctrl::Controller::default();
+        base.apu = apu::Apu {};
+        // TODO: rest of state
+    }
+
+    #[cfg(test)]
+    fn new_test(win: &'a win::XcbWindowWrapper) -> Self {
+        let renderer = PixelRenderer::new(&win.connection, win.win, 256, 240).unwrap();
+
+        let ppu = ppu::Ppu::new();
+        let apu = apu::Apu {};
+        let cpu = cpu::Cpu::default();
+        let controller = ctrl::Controller::default();
+        let bus = Box::leak(Box::new(bus::NromCpuAddressBus::new_empty(
+            0x4000, ppu, apu, controller, renderer,
+        )));
+
+        Self { cpu, bus }
+    }
+}
+
 fn main() {
-    let rom = std::fs::read("Super Mario Bros (PC10).nes").unwrap();
-    assert!(parse::is_valid(&rom));
-    logln!("{}", std::str::from_utf8(&rom[0..=3]).unwrap());
-    logln!("is nes 2.0: {}", parse::is_nes_2_format(&rom));
-    logln!("has trainer: {}", parse::has_trainer(&rom));
-    logln!("mirroring type: {:?}", parse::get_mirroring_type(&rom));
-    logln!("mapper number: {}", parse::get_mapper_num(&rom));
-    logln!("prg rom size: {}KB", parse::get_prg_size(&rom) as u32 * 16);
-    logln!("chr rom size: {}KB", parse::get_chr_size(&rom) as u32 * 8);
-    logln!(
-        "has battery-backed RAM: {}",
-        parse::has_persistent_mem(&rom)
-    );
+    let rom_path = "rom.nes";
 
-    let mut win = win::XcbWindowWrapper::new("mynes", 1200, 600).unwrap();
-    let renderer = PixelRenderer::new(&mut win.connection, win.win, 256, 240).unwrap();
+    let win = win::XcbWindowWrapper::new("mynes", 1200, 600).unwrap();
     let key_syms = keysyms::KeySymbols::new(&win.connection);
+    let mut rom_file = std::fs::File::open(rom_path).unwrap();
 
-    let hor_mirroring = match parse::get_mirroring_type(&rom) {
-        parse::MirroringType::Hor => true,
-        parse::MirroringType::Vert => false,
-        parse::MirroringType::FourScreen => panic!("nrom doesn't support 4-screen vram"),
-    };
+    let Nes { mut cpu, bus } = Nes::new(&win, &mut rom_file);
+    // NOTE: raw pointers are used to circumvent the borrow checker
+    //
+    // SAFETY AND RATIONALE: all of the '(*base_raw)' and
+    // '(*ppu_bus_raw)' dereferences in the main loop below are
+    // equivalent to simply accessing the 'base' and 'ppu_bus'
+    // fields on 'bus', which borrow checks just fine. however,
+    // accessing these fields directly is only possible when 'bus'
+    // isn't hidden behind a dyn pointer. when 'bus' is behind a
+    // dyn pointer, the only way to access the fields is through
+    // the 'CpuAddressBus::base()' virtual method. to avoid
+    // repeated calls to 'base()' and to circumvent the borrow
+    // checker, the 'base' and 'ppu_bus' pointers are instead
+    // stored as raw pointers and accessed directly when needed.
+    let (base_raw, ppu_bus_raw): (*mut bus::CpuAddressBusBase, *mut dyn bus::PpuAddressBus) =
+        unsafe { (bus.base().0, std::mem::transmute(bus.base().1)) };
 
-    let prg_size = 0x4000 * (parse::get_prg_size(&rom) as usize);
-    let chr_size = 0x2000 * (parse::get_chr_size(&rom) as usize);
-
-    let mut ppu_bus = bus::NromPpuAddressBus::new(hor_mirroring);
-    ppu_bus.load_chr_ram(&rom[0x10 + prg_size..=prg_size + chr_size + 0xf]);
-
-    let ppu = ppu::Ppu::new();
-    let apu = apu::Apu {};
-    let controller = controller::Controller::default();
-    let mut cpu_bus = bus::NromCpuAddressBus::new(
-        &rom[0x10..=prg_size + 0xf],
-        ppu,
-        ppu_bus,
-        apu,
-        controller,
-        renderer,
-    );
-    let mut cpu = cpu::Cpu::default();
-
-    // set pc = reset vector
-    cpu.pc = u16::from_le_bytes([
-        cpu_bus.read(0xfffc, &mut cpu),
-        cpu_bus.read(0xfffd, &mut cpu),
-    ]);
-
-    cpu_bus.base.ppu.current_scanline = 240;
-    cpu_bus.base.ppu.cycle_count = 0;
+    unsafe {
+        (*base_raw).ppu.current_scanline = 240;
+        (*base_raw).ppu.cycle_count = 0;
+    }
     cpu.cycle_count = 0;
     cpu.p = 4;
     cpu.sp = 0xfd;
+    // set pc = reset vector
+    cpu.pc = u16::from_le_bytes([bus.read(0xfffc, &mut cpu), bus.read(0xfffd, &mut cpu)]);
 
     win.map_and_flush();
 
@@ -109,14 +177,16 @@ fn main() {
                                 }
                                 Some((xcb::CONFIGURE_NOTIFY, _)) | Some((xcb::EXPOSE, _)) => {
                                     // make sure to re-render frame on resize/expose events
-                                    let idx = cpu_bus.base.renderer.render_frame();
-                                    cpu_bus.base.renderer.present(idx);
+                                    unsafe {
+                                        let idx = (*base_raw).renderer.render_frame();
+                                        (*base_raw).renderer.present(idx);
+                                    }
                                 }
                                 _ => (),
                             }
                         }
                     } else {
-                        cpu_bus.base.controller.set_key(key_sym);
+                        unsafe { (*base_raw).controller.set_key(key_sym) };
                     }
                 }
                 xcb::KEY_RELEASE => {
@@ -141,7 +211,7 @@ fn main() {
                     }
 
                     let key_sym = key_syms.release_lookup_keysym(key_release, 0);
-                    cpu_bus.base.controller.unset_key(key_sym);
+                    unsafe { (*base_raw).controller.unset_key(key_sym) };
 
                     current_event = next_event;
                     continue;
@@ -154,27 +224,32 @@ fn main() {
 
         // run cpu and ppu side by side until frame is done
         // OPTIMIZE: no need to constantly catch the ppu up
-        while !cpu_bus.base.ppu.is_frame_done() {
-            cpu.exec_instruction(&mut cpu_bus);
-            cpu_bus.base.ppu.catch_up(
-                &mut cpu,
-                &mut cpu_bus.ppu_bus,
-                util::pixels_to_u32(&mut cpu_bus.base.renderer),
-            );
+        unsafe {
+            while !(*base_raw).ppu.is_frame_done() {
+                cpu.exec_instruction(bus);
+                (*base_raw).ppu.catch_up(
+                    &mut cpu,
+                    &mut *ppu_bus_raw,
+                    util::pixels_to_u32(&mut (*base_raw).renderer),
+                );
+            }
         }
 
         // reset counters
-        cpu_bus.base.ppu.cycle_count -= cpu.cycle_count as i32 * 3;
-        cpu_bus.base.ppu.set_frame_done(false);
+        unsafe {
+            (*base_raw).ppu.cycle_count -= cpu.cycle_count as i32 * 3;
+            (*base_raw).ppu.set_frame_done(false);
+        }
         cpu.cycle_count = 0;
 
-        let idx = cpu_bus.base.renderer.render_frame();
+        let idx = unsafe { (*base_raw).renderer.render_frame() };
         let elapsed = start_of_frame.elapsed();
-        let frame_time_left = std::time::Duration::from_nanos(16_666_677)
+        let frame_time_left = std::time::Duration::from_nanos(16_666_677 - 200_000)
             .checked_sub(elapsed)
             .unwrap_or_default();
 
+        // sleep until slightly less than 16.67 ms have passed
         std::thread::sleep(frame_time_left);
-        cpu_bus.base.renderer.present(idx);
+        unsafe { (*base_raw).renderer.present(idx) };
     }
 }

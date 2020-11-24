@@ -6,28 +6,6 @@ pub fn pixels_to_u32<'a>(pixel_renderer: &'a mut PixelRenderer) -> &'a mut [u32;
     unsafe { transmute(pixel_renderer.get_pixels().as_mut_ptr() as *mut u32) }
 }
 
-// used by test functions
-pub fn init_nes(win: &mut win::XcbWindowWrapper) -> (cpu::Cpu, bus::NromCpuAddressBus) {
-    let renderer = PixelRenderer::new(&mut win.connection, win.win, 256, 240).unwrap();
-
-    let ppu_memory = bus::NromPpuAddressBus::new(false);
-    let ppu = ppu::Ppu::new();
-    let apu = apu::Apu {};
-    let cpu = cpu::Cpu::default();
-    let controller = ctrl::Controller::default();
-    let cpu_memory =
-        bus::NromCpuAddressBus::new_empty(0x4000, ppu, ppu_memory, apu, controller, renderer);
-
-    (cpu, cpu_memory)
-}
-
-pub fn reset_nes_state(cpu: &mut cpu::Cpu, cpu_memory: &mut bus::NromCpuAddressBus) {
-    cpu_memory.base.ppu.reset_state();
-    cpu_memory.base.controller = ctrl::Controller::default();
-    cpu_memory.base.apu = apu::Apu {};
-    *cpu = cpu::Cpu::default();
-}
-
 macro_rules! logln {
     ($( $args:expr ),*) => { if cfg!(feature = "logging") { println!( $( $args ),* ); } }
 }

@@ -1,5 +1,5 @@
 use super::{CpuAddressBus, CpuAddressBusBase, PpuAddressBus};
-use crate::{apu, controller as ctrl, cpu, parse, ppu, util, win, PixelRenderer};
+use crate::{apu, bus, controller as ctrl, cpu, parse, ppu, util, win, PixelRenderer};
 
 pub struct NromCpuAddressBus<'a> {
     pub base: CpuAddressBusBase<'a>,
@@ -20,28 +20,46 @@ impl<'a> NromCpuAddressBus<'a> {
     // TODO: reduce unnecessary copying
     pub fn new(
         prg_rom: &[u8],
+        chr_ram: &[u8],
+        mirroring: parse::MirroringType,
         ppu: ppu::Ppu,
-        ppu_bus: NromPpuAddressBus,
         apu: apu::Apu,
         controller: ctrl::Controller,
         renderer: PixelRenderer<'a>,
     ) -> Self {
+        assert_eq!(chr_ram.len(), 0x2000);
         // nrom-128 or nrom-256
         assert!(matches!(prg_rom.len(), 0x4000 | 0x8000));
 
+        let hor_mirroring = match mirroring {
+            parse::MirroringType::Hor => true,
+            parse::MirroringType::Vert => false,
+            // TODO: proper error handling
+            parse::MirroringType::FourScreen => panic!("nrom doesn't support 4-screen vram"),
+        };
+
+        let mut ppu_bus = NromPpuAddressBus {
+            chr_ram: [0; 0x2000],
+            nametables: [0; 0x800],
+            palettes: [0; 32],
+            hor_mirroring,
+        };
+
+        // TODO: avoid this copy
+        ppu_bus.chr_ram.copy_from_slice(chr_ram);
+
         Self {
+            base: CpuAddressBusBase::new(ppu, apu, controller, renderer),
+            ppu_bus,
             internal_ram: [0; 0x800],
             prg_ram: [0; 0x1000],
             prg_rom: prg_rom.to_vec().into_boxed_slice(),
-            ppu_bus,
-            base: CpuAddressBusBase::new(ppu, apu, controller, renderer),
         }
     }
 
     pub fn new_empty(
         prg_rom_size: u16,
         ppu: ppu::Ppu,
-        ppu_bus: NromPpuAddressBus,
         apu: apu::Apu,
         controller: ctrl::Controller,
         renderer: PixelRenderer<'a>,
@@ -52,25 +70,14 @@ impl<'a> NromCpuAddressBus<'a> {
             internal_ram: [0; 0x800],
             prg_ram: [0; 0x1000],
             prg_rom: vec![0; prg_rom_size as usize].into_boxed_slice(),
-            ppu_bus,
+            ppu_bus: NromPpuAddressBus {
+                chr_ram: [0; 0x2000],
+                nametables: [0; 0x800],
+                palettes: [0; 32],
+                hor_mirroring: false,
+            },
             base: CpuAddressBusBase::new(ppu, apu, controller, renderer),
         }
-    }
-}
-
-impl NromPpuAddressBus {
-    pub fn new(hor_mirroring: bool) -> Self {
-        Self {
-            chr_ram: [0; 0x2000],
-            nametables: [0; 0x800],
-            palettes: [0; 32],
-            hor_mirroring,
-        }
-    }
-
-    pub fn load_chr_ram(&mut self, ram: &[u8]) {
-        assert_eq!(ram.len(), 0x2000);
-        self.chr_ram.copy_from_slice(ram);
     }
 }
 
@@ -235,84 +242,94 @@ mod test {
 
     #[test]
     fn test_cpu_read_write() {
-        let mut win = win::XcbWindowWrapper::new("test", 20, 20).unwrap();
-        let (mut cpu, mut cpu_bus) = util::init_nes(&mut win);
+        let win = win::XcbWindowWrapper::new("test", 20, 20).unwrap();
+        let renderer = PixelRenderer::new(&win.connection, win.win, 256, 240).unwrap();
+        let ppu = ppu::Ppu::new();
+        let apu = apu::Apu {};
+        let controller = ctrl::Controller::default();
+        let mut bus = bus::NromCpuAddressBus::new_empty(0x4000, ppu, apu, controller, renderer);
+        let mut cpu = cpu::Cpu::default();
 
         // nrom-128
         {
             // internal ram reads/writes
-            cpu_bus.write(0x7ff, 0xaa, &mut cpu);
-            assert_eq!(cpu_bus.read(0x7ff, &mut cpu), 0xaa);
-            assert_eq!(cpu_bus.read(0xfff, &mut cpu), 0xaa);
-            assert_eq!(cpu_bus.read(0x17ff, &mut cpu), 0xaa);
-            assert_eq!(cpu_bus.read(0x1fff, &mut cpu), 0xaa);
+            bus.write(0x7ff, 0xaa, &mut cpu);
+            assert_eq!(bus.read(0x7ff, &mut cpu), 0xaa);
+            assert_eq!(bus.read(0xfff, &mut cpu), 0xaa);
+            assert_eq!(bus.read(0x17ff, &mut cpu), 0xaa);
+            assert_eq!(bus.read(0x1fff, &mut cpu), 0xaa);
 
-            cpu_bus.write(0, 0xbb, &mut cpu);
-            assert_eq!(cpu_bus.read(0, &mut cpu), 0xbb);
-            assert_eq!(cpu_bus.read(0x800, &mut cpu), 0xbb);
-            assert_eq!(cpu_bus.read(0x1000, &mut cpu), 0xbb);
-            assert_eq!(cpu_bus.read(0x1800, &mut cpu), 0xbb);
+            bus.write(0, 0xbb, &mut cpu);
+            assert_eq!(bus.read(0, &mut cpu), 0xbb);
+            assert_eq!(bus.read(0x800, &mut cpu), 0xbb);
+            assert_eq!(bus.read(0x1000, &mut cpu), 0xbb);
+            assert_eq!(bus.read(0x1800, &mut cpu), 0xbb);
 
             // 'unmapped' area reads, should return 0
-            assert_eq!(cpu_bus.read(0x48f0, &mut cpu), 0);
-            assert_eq!(cpu_bus.read(0x5000, &mut cpu), 0);
+            assert_eq!(bus.read(0x48f0, &mut cpu), 0);
+            assert_eq!(bus.read(0x5000, &mut cpu), 0);
 
             // prg ram writes
-            cpu_bus.write(0x7fffu16, 0xfe, &mut cpu);
-            cpu_bus.write(0x6000u16, 0xce, &mut cpu);
-            assert_eq!(cpu_bus.prg_ram[0x7ff], 0xfe);
-            assert_eq!(cpu_bus.read(0x6fff, &mut cpu), 0xfe);
-            assert_eq!(cpu_bus.prg_ram[0], 0xce);
-            assert_eq!(cpu_bus.read(0x7000, &mut cpu), 0xce);
+            bus.write(0x7fffu16, 0xfe, &mut cpu);
+            bus.write(0x6000u16, 0xce, &mut cpu);
+            assert_eq!(bus.prg_ram[0x7ff], 0xfe);
+            assert_eq!(bus.read(0x6fff, &mut cpu), 0xfe);
+            assert_eq!(bus.prg_ram[0], 0xce);
+            assert_eq!(bus.read(0x7000, &mut cpu), 0xce);
 
             // special io stuff, should just return 0
-            assert_eq!(cpu_bus.read(0x401f, &mut cpu), 0);
+            assert_eq!(bus.read(0x401f, &mut cpu), 0);
 
             // prg rom reads (prg rom should be mirrored twice)
-            cpu_bus.prg_rom[0x3fff] = 0xcc;
-            assert_eq!(cpu_bus.read(0xbfff, &mut cpu), 0xcc);
-            assert_eq!(cpu_bus.read(0xffff, &mut cpu), 0xcc);
+            bus.prg_rom[0x3fff] = 0xcc;
+            assert_eq!(bus.read(0xbfff, &mut cpu), 0xcc);
+            assert_eq!(bus.read(0xffff, &mut cpu), 0xcc);
 
-            cpu_bus.prg_rom[0] = 0xdd;
-            assert_eq!(cpu_bus.read(0x8000, &mut cpu), 0xdd);
-            assert_eq!(cpu_bus.read(0xc000, &mut cpu), 0xdd);
+            bus.prg_rom[0] = 0xdd;
+            assert_eq!(bus.read(0x8000, &mut cpu), 0xdd);
+            assert_eq!(bus.read(0xc000, &mut cpu), 0xdd);
 
             // prg rom writes
-            cpu_bus.write(0xcfff, 0xff, &mut cpu);
+            bus.write(0xcfff, 0xff, &mut cpu);
             // should not take effect
-            assert_ne!(cpu_bus.read(0xcfff, &mut cpu), 0xff);
+            assert_ne!(bus.read(0xcfff, &mut cpu), 0xff);
         }
 
         // nrom-256
         {
             // set prg rom length = 0x8000 (nrom-256)
-            cpu_bus.prg_rom = vec![0; 0x8000].into_boxed_slice();
+            bus.prg_rom = vec![0; 0x8000].into_boxed_slice();
 
             // prg rom reads (prg rom should not be mirrored)
-            cpu_bus.prg_rom[0x3fff] = 0xcc;
-            assert_eq!(cpu_bus.read(0xbfff, &mut cpu), 0xcc);
-            assert_ne!(cpu_bus.read(0xffff, &mut cpu), 0xcc);
+            bus.prg_rom[0x3fff] = 0xcc;
+            assert_eq!(bus.read(0xbfff, &mut cpu), 0xcc);
+            assert_ne!(bus.read(0xffff, &mut cpu), 0xcc);
 
-            cpu_bus.prg_rom[0] = 0xdd;
-            assert_eq!(cpu_bus.read(0x8000, &mut cpu), 0xdd);
-            assert_ne!(cpu_bus.read(0xc000, &mut cpu), 0xdd);
+            bus.prg_rom[0] = 0xdd;
+            assert_eq!(bus.read(0x8000, &mut cpu), 0xdd);
+            assert_ne!(bus.read(0xc000, &mut cpu), 0xdd);
 
-            cpu_bus.prg_rom[0x4000] = 0xee;
-            assert_eq!(cpu_bus.read(0xc000, &mut cpu), 0xee);
+            bus.prg_rom[0x4000] = 0xee;
+            assert_eq!(bus.read(0xc000, &mut cpu), 0xee);
 
-            cpu_bus.prg_rom[0x7fff] = 0xff;
-            assert_eq!(cpu_bus.read(0xffff, &mut cpu), 0xff);
+            bus.prg_rom[0x7fff] = 0xff;
+            assert_eq!(bus.read(0xffff, &mut cpu), 0xff);
 
             // prg rom writes
-            cpu_bus.write(0xcfff, 0xff, &mut cpu);
+            bus.write(0xcfff, 0xff, &mut cpu);
             // should not take effect
-            assert_ne!(cpu_bus.read(0xcfff, &mut cpu), 0xff);
+            assert_ne!(bus.read(0xcfff, &mut cpu), 0xff);
         }
     }
 
     #[test]
     fn test_ppu_read_write() {
-        let mut bus = NromPpuAddressBus::new(false);
+        let mut bus = NromPpuAddressBus {
+            chr_ram: [0; 0x2000],
+            nametables: [0; 0x800],
+            palettes: [0; 32],
+            hor_mirroring: false,
+        };
         let mut cpu = cpu::Cpu::default();
 
         // test nametable writes (with mirroring = horizontal)

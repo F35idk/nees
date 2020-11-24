@@ -1,5 +1,5 @@
 use super::super::PixelRenderer;
-use super::super::{address_bus as bus, cpu, parse, util, win};
+use crate::{address_bus as bus, cpu, parse, util, win, Nes};
 use bus::{CpuAddressBus, PpuAddressBus};
 
 fn test_registers(cpu: &mut cpu::Cpu, ppu: &mut super::Ppu, ppu_bus: &mut dyn PpuAddressBus) {
@@ -66,7 +66,7 @@ fn test_registers(cpu: &mut cpu::Cpu, ppu: &mut super::Ppu, ppu_bus: &mut dyn Pp
     assert_eq!(ppu.current_vram_addr.inner, 0x4fe8 % 0x4000);
 }
 
-fn test_write_2007(cpu: &mut cpu::Cpu, cpu_bus: &mut bus::NromCpuAddressBus) {
+fn test_write_2007(cpu: &mut cpu::Cpu, cpu_bus: &mut dyn CpuAddressBus) {
     // LDA #ee
     cpu_bus.write(0u16, 0xa9, cpu);
     cpu_bus.write(1u16, 0xee, cpu);
@@ -76,40 +76,33 @@ fn test_write_2007(cpu: &mut cpu::Cpu, cpu_bus: &mut bus::NromCpuAddressBus) {
     cpu_bus.write(4u16, 0x20, cpu);
 
     // disable renderering
-    cpu_bus.base.ppu.ppumask = 0;
+    cpu_bus.base().0.ppu.ppumask = 0;
     // set scanline = visible
-    cpu_bus.base.ppu.current_scanline = 222;
+    cpu_bus.base().0.ppu.current_scanline = 222;
 
     // set increment mode = 32
-    cpu_bus.base.ppu.ppuctrl = 0b100;
+    cpu_bus.base().0.ppu.ppuctrl = 0b100;
 
     cpu.pc = 0;
     for _ in 0..2 {
         cpu.exec_instruction(cpu_bus);
     }
 
-    assert_eq!(cpu_bus.base.ppu.current_vram_addr.inner, 32);
-    cpu_bus.base.ppu.current_vram_addr.inner = 0;
+    assert_eq!(cpu_bus.base().0.ppu.current_vram_addr.inner, 32);
+    cpu_bus.base().0.ppu.current_vram_addr.inner = 0;
 
-    // first read should yield nothing
-    assert_eq!(
-        cpu_bus
-            .base
-            .ppu
-            .read_register_by_index(7, &mut cpu_bus.ppu_bus, cpu),
-        0
-    );
-    // second read should get contents at addr
-    assert_eq!(
-        cpu_bus
-            .base
-            .ppu
-            .read_register_by_index(7, &mut cpu_bus.ppu_bus, cpu),
-        0xee
-    );
+    {
+        let (bus::CpuAddressBusBase { ppu, .. }, ref mut ppu_bus) = cpu_bus.base();
+
+        // first read should yield nothing
+        assert_eq!(ppu.read_register_by_index(7, *ppu_bus, cpu), 0);
+
+        // second read should get contents at addr
+        assert_eq!(ppu.read_register_by_index(7, *ppu_bus, cpu), 0xee);
+    }
 }
 
-fn test_write_2000(cpu: &mut cpu::Cpu, cpu_bus: &mut bus::NromCpuAddressBus) {
+fn test_write_2000(cpu: &mut cpu::Cpu, cpu_bus: &mut dyn CpuAddressBus) {
     // LDA #ff
     cpu_bus.write(0u16, 0xa9, cpu);
     cpu_bus.write(1u16, 0xff, cpu);
@@ -123,23 +116,23 @@ fn test_write_2000(cpu: &mut cpu::Cpu, cpu_bus: &mut bus::NromCpuAddressBus) {
         cpu.exec_instruction(cpu_bus);
     }
 
-    assert_eq!(cpu_bus.base.ppu.temp_vram_addr.inner, 0b11_00000_00000)
+    assert_eq!(cpu_bus.base().0.ppu.temp_vram_addr.inner, 0b11_00000_00000)
 }
 
-fn test_read_2002(cpu: &mut cpu::Cpu, cpu_bus: &mut bus::NromCpuAddressBus) {
+fn test_read_2002(cpu: &mut cpu::Cpu, cpu_bus: &mut dyn CpuAddressBus) {
     // LDA $2002
     cpu_bus.write(0u16, 0xad, cpu);
     cpu_bus.write(1u16, 02, cpu);
     cpu_bus.write(2u16, 0x20, cpu);
 
-    cpu_bus.base.ppu.bits.low_bits_toggle.set(1);
+    cpu_bus.base().0.ppu.bits.low_bits_toggle.set(1);
     cpu.pc = 0;
     cpu.exec_instruction(cpu_bus);
 
-    assert_eq!(cpu_bus.base.ppu.bits.low_bits_toggle.is_true(), false);
+    assert_eq!(cpu_bus.base().0.ppu.bits.low_bits_toggle.is_true(), false);
 }
 
-fn test_write_2005(cpu: &mut cpu::Cpu, cpu_bus: &mut bus::NromCpuAddressBus) {
+fn test_write_2005(cpu: &mut cpu::Cpu, cpu_bus: &mut dyn CpuAddressBus) {
     // LDA #7d (0b01111_101)
     cpu_bus.write(0u16, 0xa9, cpu);
     cpu_bus.write(1u16, 0x7d, cpu);
@@ -153,9 +146,9 @@ fn test_write_2005(cpu: &mut cpu::Cpu, cpu_bus: &mut bus::NromCpuAddressBus) {
         cpu.exec_instruction(cpu_bus);
     }
 
-    assert_eq!(cpu_bus.base.ppu.bits.fine_x_scroll.get(), 0b101);
-    assert_eq!(cpu_bus.base.ppu.bits.low_bits_toggle.is_true(), true);
-    assert_eq!(cpu_bus.base.ppu.temp_vram_addr.inner, 0b00_00000_01111);
+    assert_eq!(cpu_bus.base().0.ppu.bits.fine_x_scroll.get(), 0b101);
+    assert_eq!(cpu_bus.base().0.ppu.bits.low_bits_toggle.is_true(), true);
+    assert_eq!(cpu_bus.base().0.ppu.temp_vram_addr.inner, 0b00_00000_01111);
 
     // LDA #5e (0b01011_110)
     cpu_bus.write(5u16, 0xa9, cpu);
@@ -169,12 +162,15 @@ fn test_write_2005(cpu: &mut cpu::Cpu, cpu_bus: &mut bus::NromCpuAddressBus) {
         cpu.exec_instruction(cpu_bus);
     }
 
-    assert_eq!(cpu_bus.base.ppu.temp_vram_addr.inner >> 12, 0b110);
-    assert_eq!(cpu_bus.base.ppu.bits.low_bits_toggle.is_true(), false);
-    assert_eq!(cpu_bus.base.ppu.temp_vram_addr.inner, 0b110_00_01011_01111);
+    assert_eq!(cpu_bus.base().0.ppu.temp_vram_addr.inner >> 12, 0b110);
+    assert_eq!(cpu_bus.base().0.ppu.bits.low_bits_toggle.is_true(), false);
+    assert_eq!(
+        cpu_bus.base().0.ppu.temp_vram_addr.inner,
+        0b110_00_01011_01111
+    );
 }
 
-fn test_write_2006(cpu: &mut cpu::Cpu, cpu_bus: &mut bus::NromCpuAddressBus) {
+fn test_write_2006(cpu: &mut cpu::Cpu, cpu_bus: &mut dyn CpuAddressBus) {
     // LDA #ed (0b11101101)
     cpu_bus.write(0u16, 0xa9, cpu);
     cpu_bus.write(1u16, 0xed, cpu);
@@ -183,16 +179,19 @@ fn test_write_2006(cpu: &mut cpu::Cpu, cpu_bus: &mut bus::NromCpuAddressBus) {
     cpu_bus.write(3u16, 06, cpu);
     cpu_bus.write(4u16, 0x20, cpu);
     // set bit 14 of 'temp_vram_addr'
-    cpu_bus.base.ppu.temp_vram_addr.inner |= 0b0100000000000000;
+    cpu_bus.base().0.ppu.temp_vram_addr.inner |= 0b0100000000000000;
     cpu.pc = 0;
     for _ in 0..2 {
         cpu.exec_instruction(cpu_bus);
     }
 
-    assert_eq!(cpu_bus.base.ppu.bits.low_bits_toggle.is_true(), true);
+    assert_eq!(cpu_bus.base().0.ppu.bits.low_bits_toggle.is_true(), true);
     // bit 14 should be cleared and bits 8-13 should be
     // equal to bits 0-6 of the value written to 0x2006
-    assert_eq!(cpu_bus.base.ppu.temp_vram_addr.inner, 0b010_11_01000_00000);
+    assert_eq!(
+        cpu_bus.base().0.ppu.temp_vram_addr.inner,
+        0b010_11_01000_00000
+    );
 
     // LDA #f0 (0b11110000)
     cpu_bus.write(5u16, 0xa9, cpu);
@@ -206,17 +205,18 @@ fn test_write_2006(cpu: &mut cpu::Cpu, cpu_bus: &mut bus::NromCpuAddressBus) {
         cpu.exec_instruction(cpu_bus);
     }
 
-    assert_eq!(cpu_bus.base.ppu.bits.low_bits_toggle.is_true(), false);
-    // low 8 bits should all be set equal to the value written
-    assert_eq!(cpu_bus.base.ppu.temp_vram_addr.inner, 0b010_11_01111_10000);
-    // 'temp_vram_addr' should've been transferred to 'current_vram_addr'
-    assert_eq!(
-        cpu_bus.base.ppu.temp_vram_addr.inner,
-        cpu_bus.base.ppu.current_vram_addr.inner
-    );
+    {
+        let ref ppu = cpu_bus.base().0.ppu;
+
+        assert_eq!(ppu.bits.low_bits_toggle.is_true(), false);
+        // low 8 bits should all be set equal to the value written
+        assert_eq!(ppu.temp_vram_addr.inner, 0b010_11_01111_10000);
+        // 'temp_vram_addr' should've been transferred to 'current_vram_addr'
+        assert_eq!(ppu.temp_vram_addr.inner, ppu.current_vram_addr.inner);
+    }
 }
 
-fn test_write_2003_read_2004(cpu: &mut cpu::Cpu, cpu_bus: &mut bus::NromCpuAddressBus) {
+fn test_write_2003_read_2004(cpu: &mut cpu::Cpu, cpu_bus: &mut dyn CpuAddressBus) {
     // LDA #ff
     cpu_bus.write(0u16, 0xa9, cpu);
     cpu_bus.write(1u16, 0xff, cpu);
@@ -231,7 +231,7 @@ fn test_write_2003_read_2004(cpu: &mut cpu::Cpu, cpu_bus: &mut bus::NromCpuAddre
     }
 
     // set oam[0xff] = 0xee
-    cpu_bus.base.ppu.primary_oam.set_byte(0xff, 0xee);
+    cpu_bus.base().0.ppu.primary_oam.set_byte(0xff, 0xee);
 
     // LDA $2004 (read from oamdata, i.e read the byte at oam[oamaddr])
     cpu_bus.write(5u16, 0xad, cpu);
@@ -321,32 +321,41 @@ fn test_all() {
     let mut win = win::XcbWindowWrapper::new("test", 20, 20).unwrap();
     let (ref mut cpu, ref mut cpu_bus) = util::init_nes(&mut win);
 
-    test_registers(cpu, &mut cpu_bus.base.ppu, &mut cpu_bus.ppu_bus);
-    util::reset_nes_state(cpu, cpu_bus);
+    let win = win::XcbWindowWrapper::new("test", 20, 20).unwrap();
+    let mut nes = Nes::new_test(&win);
 
-    test_write_2007(cpu, cpu_bus);
-    util::reset_nes_state(cpu, cpu_bus);
+    {
+        let (bus::CpuAddressBusBase { ppu, .. }, ref mut ppu_bus) = cpu_bus.base();
+        test_registers(cpu, ppu, *ppu_bus);
+        nes.reset_state();
+    }
 
-    test_write_2000(cpu, cpu_bus);
-    util::reset_nes_state(cpu, cpu_bus);
+    test_write_2007(cpu, nes.bus);
+    nes.reset_state();
 
-    test_read_2002(cpu, cpu_bus);
-    util::reset_nes_state(cpu, cpu_bus);
+    test_write_2000(cpu, nes.bus);
+    nes.reset_state();
 
-    test_write_2005(cpu, cpu_bus);
-    util::reset_nes_state(cpu, cpu_bus);
+    test_read_2002(cpu, nes.bus);
+    nes.reset_state();
 
-    test_write_2006(cpu, cpu_bus);
-    util::reset_nes_state(cpu, cpu_bus);
+    test_write_2005(cpu, nes.bus);
+    nes.reset_state();
 
-    test_write_2003_read_2004(cpu, cpu_bus);
-    util::reset_nes_state(cpu, cpu_bus);
+    test_write_2006(cpu, nes.bus);
+    nes.reset_state();
 
-    test_increment_vram_addr(cpu, &mut cpu_bus.base.ppu, &mut cpu_bus.ppu_bus);
-    util::reset_nes_state(cpu, cpu_bus);
+    test_write_2003_read_2004(cpu, nes.bus);
+    nes.reset_state();
 
-    test_increment_vram_addr_xy(&mut cpu_bus.base.ppu);
-    util::reset_nes_state(cpu, cpu_bus);
+    {
+        let (bus::CpuAddressBusBase { ppu, .. }, ref mut ppu_bus) = cpu_bus.base();
+        test_increment_vram_addr(cpu, ppu, *ppu_bus);
+        nes.reset_state();
+    }
 
-    test_temp_to_current_vram_transfer(&mut cpu_bus.base.ppu);
+    test_increment_vram_addr_xy(&mut nes.bus.base().0.ppu);
+    nes.reset_state();
+
+    test_temp_to_current_vram_transfer(&mut nes.bus.base().0.ppu);
 }
