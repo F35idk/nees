@@ -27,15 +27,26 @@ impl<'a> NromCpuAddressBus<'a> {
         controller: ctrl::Controller,
         renderer: PixelRenderer<'a>,
     ) -> Self {
-        assert_eq!(chr_ram.len(), 0x2000);
-        // nrom-128 or nrom-256
-        assert!(matches!(prg_rom.len(), 0x4000 | 0x8000));
+        if chr_ram.len() != 0x2000 {
+            error_exit!(
+                "Failed to load rom file: prg rom was the wrong size for nrom (mapper 0) ({})",
+                chr_ram.len()
+            )
+        }
+
+        if !matches!(prg_rom.len(), 0x4000 | 0x8000) {
+            error_exit!(
+                "Failed to load rom file: prg rom was the wrong size for nrom (mapper 0) ({})",
+                prg_rom.len()
+            )
+        }
 
         let hor_mirroring = match mirroring {
             parse::MirroringType::Hor => true,
             parse::MirroringType::Vert => false,
-            // TODO: proper error handling
-            parse::MirroringType::FourScreen => panic!("nrom doesn't support 4-screen vram"),
+            parse::MirroringType::FourScreen => error_exit!(
+                "Failed to load rom file: nrom (mapper 0) doesn't support 4-screen vram"
+            ),
         };
 
         let mut ppu_bus = NromPpuAddressBus {

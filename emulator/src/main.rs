@@ -33,8 +33,10 @@ impl<'a> Nes<'a> {
         let chr_size = 0x2000 * (parse::get_chr_size(&rom) as usize);
         let mirroring = parse::get_mirroring_type(&rom);
 
-        // TODO: proper error handling
-        assert!(parse::is_valid(&rom));
+        if !parse::is_valid(&rom) {
+            error_exit!("Failed to load rom file: invalid ines header information");
+        }
+
         logln!("{}", std::str::from_utf8(&rom[0..=3]).unwrap());
         logln!("is nes 2.0: {}", parse::is_nes_2_format(&rom));
         logln!("has trainer: {}", parse::has_trainer(&rom));
@@ -47,7 +49,11 @@ impl<'a> Nes<'a> {
             parse::has_persistent_mem(&rom)
         );
 
-        let renderer = PixelRenderer::new(&win.connection, win.win, 256, 240).unwrap();
+        let renderer = match PixelRenderer::new(&win.connection, win.win, 256, 240) {
+            Ok(r) => r,
+            Err(e) => error_exit!("Failed to initialize renderer: {}", e),
+        };
+
         let ppu = ppu::Ppu::new();
         let apu = apu::Apu {};
         let controller = ctrl::Controller::default();
@@ -74,8 +80,10 @@ impl<'a> Nes<'a> {
                 controller,
                 renderer,
             ))),
-            // TODO: proper error handling
-            _ => panic!(),
+            n => error_exit!(
+                "Failed to load rom file: ines mapper {} is not supported",
+                n
+            ),
         };
 
         Self { cpu, bus }
@@ -108,15 +116,24 @@ impl<'a> Nes<'a> {
 }
 
 fn main() {
-    let rom_path = "rom.nes";
+    let mut args = std::env::args();
+    if args.len() < 2 {
+        error_exit!("Failed to parse commandline arguments: too few arguments were provided");
+    }
+    let rom_path = args.nth(1).unwrap();
+    let mut rom_file = match std::fs::File::open(rom_path) {
+        Ok(f) => f,
+        Err(e) => error_exit!("Failed to open rom file: {}", e),
+    };
 
-    let win = win::XcbWindowWrapper::new("mynes", 1200, 600).unwrap();
+    let win = match win::XcbWindowWrapper::new("mynes", 1200, 600) {
+        Ok(w) => w,
+        Err(e) => error_exit!("Failed to create XCB window: {}", e),
+    };
     let key_syms = keysyms::KeySymbols::new(&win.connection);
-    let mut rom_file = std::fs::File::open(rom_path).unwrap();
 
     let Nes { mut cpu, bus } = Nes::new(&win, &mut rom_file);
     // NOTE: raw pointers are used to circumvent the borrow checker
-    //
     // SAFETY AND RATIONALE: all of the '(*base_raw)' and
     // '(*ppu_bus_raw)' dereferences in the main loop below are
     // equivalent to simply accessing the 'base' and 'ppu_bus'

@@ -6,6 +6,13 @@ pub fn pixels_to_u32<'a>(pixel_renderer: &'a mut PixelRenderer) -> &'a mut [u32;
     unsafe { transmute(pixel_renderer.get_pixels().as_mut_ptr() as *mut u32) }
 }
 
+macro_rules! error_exit {
+    ($($arg:tt)*) => { {
+        eprintln!($($arg)*);
+        std::process::exit(1);
+    } }
+}
+
 macro_rules! logln {
     ($( $args:expr ),*) => { if cfg!(feature = "logging") { println!( $( $args ),* ); } }
 }

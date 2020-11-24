@@ -219,14 +219,29 @@ impl<'a> Mmc3CpuAddressBus<'a> {
         controller: ctrl::Controller,
         renderer: PixelRenderer<'a>,
     ) -> Self {
-        // TODO: proper error handling if given invalid input
-        assert!(prg_rom.len() <= 0x80000);
-        assert!(prg_rom.len() >= 0x4000);
-        assert!(prg_rom.len().is_power_of_two());
+        match prg_rom.len() {
+            0x4000..=0x80000 => (),
+            _ => error_exit!("Failed to load rom file: prg rom must be between 16 and 512 KB for mmc3 (mapper 4)")
+        }
 
-        assert!(chr_rom.len() <= 0x40000);
-        assert!(chr_rom.len() >= 0x2000);
-        assert!(chr_rom.len().is_power_of_two());
+        if !prg_rom.len().is_power_of_two() {
+            error_exit!(
+                "Failed to load rom file: prg rom size must be a power of two for mmc3 (mapper 4)"
+            );
+        }
+
+        match chr_rom.len() {
+            0x2000..=0x40000 => (),
+            _ => error_exit!(
+                "Failed to load rom file: chr rom must be between 8 and 256 KB for mmc3 (mapper 4)"
+            ),
+        }
+
+        if !chr_rom.len().is_power_of_two() {
+            error_exit!(
+                "Failed to load rom file: chr rom size must be a power of two for mmc3 (mapper 4)"
+            );
+        }
 
         let prg_banks = {
             let slice = prg_rom.to_vec().into_boxed_slice();
