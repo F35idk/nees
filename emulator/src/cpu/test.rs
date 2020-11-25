@@ -436,7 +436,8 @@ fn test_brk() {
 #[test]
 fn test_all() {
     let win = win::XcbWindowWrapper::new("test", 20, 20).unwrap();
-    let mut nes = Nes::new_test(&win);
+    let mut framebuffer = [0u32; 256 * 240];
+    let mut nes = Nes::new_test(&mut framebuffer);
 
     test_adc(&mut nes.cpu, nes.bus);
     nes.reset_state();

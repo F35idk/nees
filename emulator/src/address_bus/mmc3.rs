@@ -12,8 +12,8 @@ use crate::PixelRenderer;
 // NOTE: open bus behavior ignored
 // NOTE: mmc6 compatibility ignored
 
-pub struct Mmc3CpuAddressBus<'a> {
-    pub base: CpuAddressBusBase<'a>,
+pub struct Mmc3CpuAddressBus {
+    pub base: CpuAddressBusBase,
     pub ppu_bus: Mmc3PpuAddressBus,
     internal_ram: [u8; 0x800],
     prg_ram: [u8; 0x2000],
@@ -209,7 +209,7 @@ impl PpuAddressBus for Mmc3PpuAddressBus {
     }
 }
 
-impl<'a> Mmc3CpuAddressBus<'a> {
+impl Mmc3CpuAddressBus {
     pub fn new(
         prg_rom: &[u8],
         chr_rom: &[u8],
@@ -217,7 +217,7 @@ impl<'a> Mmc3CpuAddressBus<'a> {
         ppu: ppu::Ppu,
         apu: apu::Apu,
         controller: ctrl::Controller,
-        renderer: PixelRenderer<'a>,
+        framebuffer: &mut [u32; 256 * 240],
     ) -> Self {
         match prg_rom.len() {
             0x4000..=0x80000 => (),
@@ -294,7 +294,7 @@ impl<'a> Mmc3CpuAddressBus<'a> {
         };
 
         Self {
-            base: CpuAddressBusBase::new(ppu, apu, controller, renderer),
+            base: CpuAddressBusBase::new(ppu, apu, controller, framebuffer),
             ppu_bus,
             internal_ram: [0; 0x800],
             prg_ram: [0; 0x2000],
@@ -305,7 +305,7 @@ impl<'a> Mmc3CpuAddressBus<'a> {
     }
 }
 
-impl<'a> CpuAddressBus<'a> for Mmc3CpuAddressBus<'a> {
+impl CpuAddressBus for Mmc3CpuAddressBus {
     fn read(&mut self, mut addr: u16, cpu: &mut cpu::Cpu) -> u8 {
         // internal ram
         if super::is_0_to_1fff(addr) {
@@ -315,11 +315,9 @@ impl<'a> CpuAddressBus<'a> for Mmc3CpuAddressBus<'a> {
 
         // ppu registers
         if super::is_2000_to_3fff(addr) {
-            self.base.ppu.catch_up(
-                cpu,
-                &mut self.ppu_bus,
-                util::pixels_to_u32(&mut self.base.renderer),
-            );
+            self.base.ppu.catch_up(cpu, &mut self.ppu_bus, unsafe {
+                &mut *self.base.framebuffer_raw
+            });
 
             addr &= 0b111;
             return self
@@ -395,7 +393,7 @@ impl<'a> CpuAddressBus<'a> for Mmc3CpuAddressBus<'a> {
         }
 
         if super::is_2000_to_3fff(addr) {
-            let framebuffer = util::pixels_to_u32(&mut self.base.renderer);
+            let framebuffer = unsafe { &mut *self.base.framebuffer_raw };
             self.base.ppu.catch_up(cpu, &mut self.ppu_bus, framebuffer);
 
             self.base
@@ -472,7 +470,7 @@ impl<'a> CpuAddressBus<'a> for Mmc3CpuAddressBus<'a> {
 
         // oamdma
         if addr == 0x4014 {
-            let framebuffer = util::pixels_to_u32(&mut self.base.renderer);
+            let framebuffer = unsafe { &mut *self.base.framebuffer_raw };
             self.base.ppu.catch_up(cpu, &mut self.ppu_bus, framebuffer);
             super::write_oamdma(self, val, cpu);
             return;
@@ -485,7 +483,7 @@ impl<'a> CpuAddressBus<'a> for Mmc3CpuAddressBus<'a> {
         }
     }
 
-    fn base(&mut self) -> (&mut CpuAddressBusBase<'a>, &mut dyn PpuAddressBus) {
+    fn base(&mut self) -> (&mut CpuAddressBusBase, &mut dyn PpuAddressBus) {
         (&mut self.base, &mut self.ppu_bus)
     }
 }
@@ -495,12 +493,10 @@ mod test {
 
     #[test]
     fn test_ppu_calc_addr() {
-        let mut win = win::XcbWindowWrapper::new("test", 20, 20).unwrap();
-        let renderer = PixelRenderer::new(&mut win.connection, win.win, 256, 240).unwrap();
-
         let ppu = ppu::Ppu::new();
         let apu = apu::Apu {};
         let controller = ctrl::Controller::default();
+        let mut framebuffer = [0u32; 256 * 240];
 
         let prg_rom = vec![0; 1024 * 128];
         let chr_rom = vec![0; 1024 * 128];
@@ -513,7 +509,7 @@ mod test {
             ppu,
             apu,
             controller,
-            renderer,
+            &mut framebuffer,
         );
 
         assert_eq!(cpu_bus.ppu_bus.chr_banks.len(), 128);

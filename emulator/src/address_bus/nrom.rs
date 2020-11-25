@@ -1,8 +1,8 @@
 use super::{CpuAddressBus, CpuAddressBusBase, PpuAddressBus};
 use crate::{apu, bus, controller as ctrl, cpu, parse, ppu, util, win, PixelRenderer};
 
-pub struct NromCpuAddressBus<'a> {
-    pub base: CpuAddressBusBase<'a>,
+pub struct NromCpuAddressBus {
+    pub base: CpuAddressBusBase,
     pub ppu_bus: NromPpuAddressBus,
     internal_ram: [u8; 0x800],
     prg_rom: Box<[u8]>,
@@ -16,7 +16,7 @@ pub struct NromPpuAddressBus {
     pub hor_mirroring: bool,
 }
 
-impl<'a> NromCpuAddressBus<'a> {
+impl NromCpuAddressBus {
     // TODO: reduce unnecessary copying
     pub fn new(
         prg_rom: &[u8],
@@ -25,7 +25,7 @@ impl<'a> NromCpuAddressBus<'a> {
         ppu: ppu::Ppu,
         apu: apu::Apu,
         controller: ctrl::Controller,
-        renderer: PixelRenderer<'a>,
+        framebuffer: &mut [u32; 256 * 240],
     ) -> Self {
         if chr_ram.len() != 0x2000 {
             error_exit!(
@@ -60,7 +60,7 @@ impl<'a> NromCpuAddressBus<'a> {
         ppu_bus.chr_ram.copy_from_slice(chr_ram);
 
         Self {
-            base: CpuAddressBusBase::new(ppu, apu, controller, renderer),
+            base: CpuAddressBusBase::new(ppu, apu, controller, framebuffer),
             ppu_bus,
             internal_ram: [0; 0x800],
             prg_ram: [0; 0x1000],
@@ -73,7 +73,7 @@ impl<'a> NromCpuAddressBus<'a> {
         ppu: ppu::Ppu,
         apu: apu::Apu,
         controller: ctrl::Controller,
-        renderer: PixelRenderer<'a>,
+        framebuffer: &mut [u32; 256 * 240],
     ) -> Self {
         assert!(matches!(prg_rom_size, 0x4000 | 0x8000));
 
@@ -87,12 +87,12 @@ impl<'a> NromCpuAddressBus<'a> {
                 palettes: [0; 32],
                 hor_mirroring: false,
             },
-            base: CpuAddressBusBase::new(ppu, apu, controller, renderer),
+            base: CpuAddressBusBase::new(ppu, apu, controller, framebuffer),
         }
     }
 }
 
-impl<'a> CpuAddressBus<'a> for NromCpuAddressBus<'a> {
+impl CpuAddressBus for NromCpuAddressBus {
     fn read(&mut self, mut addr: u16, cpu: &mut cpu::Cpu) -> u8 {
         // internal ram
         if super::is_0_to_1fff(addr) {
@@ -105,7 +105,7 @@ impl<'a> CpuAddressBus<'a> for NromCpuAddressBus<'a> {
         // ppu registers
         if super::is_2000_to_3fff(addr) {
             // catch ppu up to cpu before reading
-            let framebuffer = util::pixels_to_u32(&mut self.base.renderer);
+            let framebuffer = unsafe { &mut *self.base.framebuffer_raw };
             self.base.ppu.catch_up(cpu, &mut self.ppu_bus, framebuffer);
             // ignore all but low 3 bits
             addr &= 0b111;
@@ -156,7 +156,7 @@ impl<'a> CpuAddressBus<'a> for NromCpuAddressBus<'a> {
 
         if super::is_2000_to_3fff(addr) {
             // catch ppu up to cpu before writing
-            let framebuffer = util::pixels_to_u32(&mut self.base.renderer);
+            let framebuffer = unsafe { &mut *self.base.framebuffer_raw };
             self.base.ppu.catch_up(cpu, &mut self.ppu_bus, framebuffer);
 
             self.base
@@ -178,7 +178,7 @@ impl<'a> CpuAddressBus<'a> for NromCpuAddressBus<'a> {
 
         // ppu oamdma register
         if addr == 0x4014 {
-            let framebuffer = util::pixels_to_u32(&mut self.base.renderer);
+            let framebuffer = unsafe { &mut *self.base.framebuffer_raw };
             self.base.ppu.catch_up(cpu, &mut self.ppu_bus, framebuffer);
             super::write_oamdma(self, val, cpu);
             return;
@@ -192,7 +192,7 @@ impl<'a> CpuAddressBus<'a> for NromCpuAddressBus<'a> {
         // necessary to explicitly ignore attempts to write to rom
     }
 
-    fn base(&mut self) -> (&mut CpuAddressBusBase<'a>, &mut dyn PpuAddressBus) {
+    fn base(&mut self) -> (&mut CpuAddressBusBase, &mut dyn PpuAddressBus) {
         (&mut self.base, &mut self.ppu_bus)
     }
 }
@@ -253,12 +253,12 @@ mod test {
 
     #[test]
     fn test_cpu_read_write() {
-        let win = win::XcbWindowWrapper::new("test", 20, 20).unwrap();
-        let renderer = PixelRenderer::new(&win.connection, win.win, 256, 240).unwrap();
         let ppu = ppu::Ppu::new();
         let apu = apu::Apu {};
         let controller = ctrl::Controller::default();
-        let mut bus = bus::NromCpuAddressBus::new_empty(0x4000, ppu, apu, controller, renderer);
+        let mut framebuffer = [0u32; 256 * 240];
+        let mut bus =
+            bus::NromCpuAddressBus::new_empty(0x4000, ppu, apu, controller, &mut framebuffer);
         let mut cpu = cpu::Cpu::default();
 
         // nrom-128

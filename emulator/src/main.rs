@@ -21,11 +21,11 @@ use std::io::Read;
 
 struct Nes<'a> {
     cpu: cpu::Cpu,
-    bus: &'a mut dyn CpuAddressBus<'a>,
+    bus: &'a mut dyn CpuAddressBus,
 }
 
 impl<'a> Nes<'a> {
-    fn new(win: &'a win::XcbWindowWrapper, rom_file: &mut std::fs::File) -> Self {
+    fn new(framebuffer: &mut [u32; 256 * 240], rom_file: &mut std::fs::File) -> Self {
         let mut rom = vec![0; rom_file.metadata().unwrap().len() as usize];
         rom_file.read(&mut rom).unwrap();
 
@@ -49,16 +49,16 @@ impl<'a> Nes<'a> {
             parse::has_persistent_mem(&rom)
         );
 
-        let renderer = match PixelRenderer::new(&win.connection, win.win, 256, 240) {
-            Ok(r) => r,
-            Err(e) => error_exit!("Failed to initialize renderer: {}", e),
-        };
-
         let ppu = ppu::Ppu::new();
         let apu = apu::Apu {};
         let controller = ctrl::Controller::default();
 
         let cpu = cpu::Cpu::default();
+        // NOTE: 'bus' stores the 'framebuffer' pointer as a raw pointer and keeps it
+        // until the emulator exits. in the context of this program, this is totally
+        // safe, as the pointer stays valid at all times. the 'PixelRenderer' that
+        // provides the framebuffer pointer is guaranteed to live for the entire
+        // duration of the program, and the framebuffer itself is never moved in memory.
         let bus: &mut dyn CpuAddressBus = match parse::get_mapper_num(&rom) {
             // mapper 0 => nrom
             0 => Box::leak(Box::new(bus::NromCpuAddressBus::new(
@@ -68,7 +68,7 @@ impl<'a> Nes<'a> {
                 ppu,
                 apu,
                 controller,
-                renderer,
+                framebuffer,
             ))),
             // mapper 4 => mmc3
             4 => Box::leak(Box::new(bus::Mmc3CpuAddressBus::new(
@@ -78,7 +78,7 @@ impl<'a> Nes<'a> {
                 ppu,
                 apu,
                 controller,
-                renderer,
+                framebuffer,
             ))),
             n => error_exit!(
                 "Failed to load rom file: ines mapper {} is not supported",
@@ -100,15 +100,17 @@ impl<'a> Nes<'a> {
     }
 
     #[cfg(test)]
-    fn new_test(win: &'a win::XcbWindowWrapper) -> Self {
-        let renderer = PixelRenderer::new(&win.connection, win.win, 256, 240).unwrap();
-
+    fn new_test(framebuffer: &mut [u32; 256 * 240]) -> Self {
         let ppu = ppu::Ppu::new();
         let apu = apu::Apu {};
         let cpu = cpu::Cpu::default();
         let controller = ctrl::Controller::default();
         let bus = Box::leak(Box::new(bus::NromCpuAddressBus::new_empty(
-            0x4000, ppu, apu, controller, renderer,
+            0x4000,
+            ppu,
+            apu,
+            controller,
+            framebuffer,
         )));
 
         Self { cpu, bus }
@@ -130,9 +132,13 @@ fn main() {
         Ok(w) => w,
         Err(e) => error_exit!("Failed to create XCB window: {}", e),
     };
+    let mut renderer = match PixelRenderer::new(&win.connection, win.win, 256, 240) {
+        Ok(r) => r,
+        Err(e) => error_exit!("Failed to initialize renderer: {}", e),
+    };
     let key_syms = keysyms::KeySymbols::new(&win.connection);
 
-    let Nes { mut cpu, bus } = Nes::new(&win, &mut rom_file);
+    let Nes { mut cpu, bus } = Nes::new(util::pixels_to_u32(&mut renderer), &mut rom_file);
     // NOTE: raw pointers are used to circumvent the borrow checker
     // SAFETY AND RATIONALE: all of the '(*base_raw)' and
     // '(*ppu_bus_raw)' dereferences in the main loop below are
@@ -194,10 +200,8 @@ fn main() {
                                 }
                                 Some((xcb::CONFIGURE_NOTIFY, _)) | Some((xcb::EXPOSE, _)) => {
                                     // make sure to re-render frame on resize/expose events
-                                    unsafe {
-                                        let idx = (*base_raw).renderer.render_frame();
-                                        (*base_raw).renderer.present(idx);
-                                    }
+                                    let idx = renderer.render_frame();
+                                    renderer.present(idx);
                                 }
                                 _ => (),
                             }
@@ -247,7 +251,7 @@ fn main() {
                 (*base_raw).ppu.catch_up(
                     &mut cpu,
                     &mut *ppu_bus_raw,
-                    util::pixels_to_u32(&mut (*base_raw).renderer),
+                    util::pixels_to_u32(&mut renderer),
                 );
             }
         }
@@ -259,7 +263,7 @@ fn main() {
         }
         cpu.cycle_count = 0;
 
-        let idx = unsafe { (*base_raw).renderer.render_frame() };
+        let idx = renderer.render_frame();
         let elapsed = start_of_frame.elapsed();
         let frame_time_left = std::time::Duration::from_nanos(16_666_677 - 200_000)
             .checked_sub(elapsed)
@@ -267,6 +271,6 @@ fn main() {
 
         // sleep until slightly less than 16.67 ms have passed
         std::thread::sleep(frame_time_left);
-        unsafe { (*base_raw).renderer.present(idx) };
+        renderer.present(idx);
     }
 }

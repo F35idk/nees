@@ -318,39 +318,36 @@ fn test_temp_to_current_vram_transfer(ppu: &mut super::Ppu) {
 
 #[test]
 fn test_all() {
-    let mut win = win::XcbWindowWrapper::new("test", 20, 20).unwrap();
-    let (ref mut cpu, ref mut cpu_bus) = util::init_nes(&mut win);
-
-    let win = win::XcbWindowWrapper::new("test", 20, 20).unwrap();
-    let mut nes = Nes::new_test(&win);
+    let mut framebuffer = [0u32; 256 * 240];
+    let mut nes = Nes::new_test(&mut framebuffer);
 
     {
-        let (bus::CpuAddressBusBase { ppu, .. }, ref mut ppu_bus) = cpu_bus.base();
-        test_registers(cpu, ppu, *ppu_bus);
+        let (bus::CpuAddressBusBase { ref mut ppu, .. }, ref mut ppu_bus) = nes.bus.base();
+        test_registers(&mut nes.cpu, ppu, *ppu_bus);
         nes.reset_state();
     }
 
-    test_write_2007(cpu, nes.bus);
+    test_write_2007(&mut nes.cpu, nes.bus);
     nes.reset_state();
 
-    test_write_2000(cpu, nes.bus);
+    test_write_2000(&mut nes.cpu, nes.bus);
     nes.reset_state();
 
-    test_read_2002(cpu, nes.bus);
+    test_read_2002(&mut nes.cpu, nes.bus);
     nes.reset_state();
 
-    test_write_2005(cpu, nes.bus);
+    test_write_2005(&mut nes.cpu, nes.bus);
     nes.reset_state();
 
-    test_write_2006(cpu, nes.bus);
+    test_write_2006(&mut nes.cpu, nes.bus);
     nes.reset_state();
 
-    test_write_2003_read_2004(cpu, nes.bus);
+    test_write_2003_read_2004(&mut nes.cpu, nes.bus);
     nes.reset_state();
 
     {
-        let (bus::CpuAddressBusBase { ppu, .. }, ref mut ppu_bus) = cpu_bus.base();
-        test_increment_vram_addr(cpu, ppu, *ppu_bus);
+        let (bus::CpuAddressBusBase { ppu, .. }, ref mut ppu_bus) = nes.bus.base();
+        test_increment_vram_addr(&mut nes.cpu, ppu, *ppu_bus);
         nes.reset_state();
     }
 
