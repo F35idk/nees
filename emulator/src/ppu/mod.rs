@@ -231,6 +231,8 @@ impl Ppu {
             ppu.set_vblank(false);
 
             if ppu.current_scanline == 241 && ppu.current_scanline_dot == 1 {
+                // vblank flag should not have been set yet
+                debug_assert!(status & 0b10000000 == 0);
                 // if there is one cycle left before the vblank flag will be set
                 // (when scanline = 241 and dot = 1, the flag will be set on the
                 // next call to 'step()'), prevent the vblank flag from being set
@@ -685,16 +687,31 @@ impl Ppu {
                     ppu.current_scanline_dot += 1;
                 }
                 1 => {
+                    // NOTE: setting of vblank flag may be suppressed by reads to ppustatus
                     if (ppu.current_scanline == 241) && !ppu.bits.suppress_vblank_flag.is_true() {
                         ppu.set_vblank(true);
+                    }
 
-                        if ppu.is_vblank_nmi_enabled() {
-                            cpu.nmi = true;
+                    ppu.cycle_count += 1;
+                    ppu.current_scanline_dot += 1;
+                }
+                2 => {
+                    ppu.cycle_count += 1;
+                    ppu.current_scanline_dot += 1;
+                }
+                3 => {
+                    // NOTE: we wait until dot 3 to assert nmi (even though the vblank flag
+                    // is set on dot 1), in order to more accurately emulate nmi/vblank flag
+                    // suppression. this way, any reads to ppustatus during dot 2 or 3 (before
+                    // this chunck of code is executed) will prevent nmi from being asserted
+                    if ppu.current_scanline == 241 {
+                        if ppu.is_vblank_nmi_enabled() && ppu.is_vblank() {
+                            cpu.bits.nmi.set(1);
                         }
                     }
 
-                    ppu.cycle_count += 7;
-                    ppu.current_scanline_dot += 7;
+                    ppu.cycle_count += 5;
+                    ppu.current_scanline_dot += 5;
                 }
                 336 => {
                     ppu.cycle_count += 5;

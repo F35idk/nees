@@ -3,7 +3,6 @@ use super::address_bus::CpuAddressBus;
 mod addressing;
 mod test;
 
-#[derive(Default)]
 pub struct Cpu {
     pub a: u8,
     pub x: u8,
@@ -12,38 +11,50 @@ pub struct Cpu {
     pub sp: u8,
     pub pc: u16,
     pub cycle_count: i16,
-    // TODO: keep track of when (at what cycle) the nmi/irq was triggered?
-    // OPTIMIZE: pack bools together
-    pub nmi: bool,
     pub irq: u8,
-    pub delay_irq: bool,
+    pub bits: CpuBits::BitField,
+}
+
+bitfield!(CpuBits<u8>(
+    nmi: 0..0,
+    delay_nmi: 1..1,
+    delay_irq: 2..2
+));
+
+impl Default for Cpu {
+    fn default() -> Self {
+        Self {
+            a: 0,
+            x: 0,
+            y: 0,
+            p: 0,
+            sp: 0,
+            pc: 0,
+            cycle_count: 0,
+            irq: 0,
+            bits: CpuBits::BitField::zeroed(),
+        }
+    }
 }
 
 impl Cpu {
-    pub fn new_nestest() -> Self {
-        Self {
-            pc: 0xc000,
-            p: 0x24,
-            sp: 0xfd,
-            cycle_count: 7, // for whatever reason
-            ..Default::default()
-        }
-    }
-
     pub fn exec_instruction(&mut self, bus: &mut dyn CpuAddressBus) {
-        if self.nmi {
+        if self.bits.nmi.is_true() && !self.bits.delay_nmi.is_true() {
             self.nmi(bus);
-            // println!("nmi!");
-            self.nmi = false;
+            self.bits.nmi.set(0);
             return;
         }
 
-        if self.is_irq_pending() && !self.delay_irq {
+        if self.is_irq_pending() && !self.bits.delay_irq.is_true() {
             self.irq(bus);
             return;
         }
 
-        self.delay_irq = false;
+        // HACK: in the absence of a properly emulated, cycle-steppable
+        // cpu, we use 'delay' flags to delay irqs and nmis that have been
+        // asserted after the irq/nmi polling phase of an instruction
+        self.bits.delay_nmi.set(0);
+        self.bits.delay_irq.set(0);
 
         // TODO: implement more subtle interrupt (mis)behavior (i.e interrupt
         // hijacking, irq/nmi delay on 3-cycle branch instructions, etc.)
@@ -567,7 +578,7 @@ impl Cpu {
 
         // delay potential irq (known 6502 quirk that also affects sei and plp)
         if self.is_irq_pending() {
-            self.delay_irq = true;
+            self.bits.delay_irq.set(1);
         }
 
         self.cycle_count += 2;
@@ -1029,7 +1040,7 @@ impl Cpu {
         self.p = (self.pull_val(bus) & !0b10000) | 0b100000;
 
         if self.is_irq_pending() {
-            self.delay_irq = true;
+            self.bits.delay_irq.set(1);
         }
     }
 
@@ -1197,7 +1208,7 @@ impl Cpu {
         self.set_i_from_bit(4);
 
         if self.is_irq_pending() {
-            self.delay_irq = true;
+            self.bits.delay_irq.set(1);
         }
 
         self.cycle_count += 2;

@@ -78,7 +78,7 @@ fn write_oamdma<M: CpuAddressBus>(memory: &mut M, val: u8, cpu: &mut cpu::Cpu) {
 
     // set 'Cpu.nmi' = false in case a call to 'Ppu.catch_up()' set it to true
     // TODO: less hacky solution (pass 'do_nmi' param to 'catch_up()' or something)
-    cpu.nmi = false;
+    cpu.bits.nmi.set(0);
 
     // in total, dma should take 513 cpu cycles (or 514 if on an odd cpu cycle)
     cpu.cycle_count += 1 + (cpu.cycle_count % 2);
