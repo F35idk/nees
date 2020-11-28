@@ -16,7 +16,7 @@ pub struct Cpu {
     // OPTIMIZE: pack bools together
     pub nmi: bool,
     pub irq: u8,
-    pub irq_delayed: bool,
+    pub delay_irq: bool,
 }
 
 impl Cpu {
@@ -38,10 +38,15 @@ impl Cpu {
             return;
         }
 
-        if self.is_irq_pending() && !self.irq_delayed {
+        if self.is_irq_pending() && !self.delay_irq {
             self.irq(bus);
             return;
         }
+
+        self.delay_irq = false;
+
+        // TODO: implement more subtle interrupt (mis)behavior (i.e interrupt
+        // hijacking, irq/nmi delay on 3-cycle branch instructions, etc.)
 
         let opcode = bus.read(self.pc, self);
 
@@ -264,14 +269,6 @@ impl Cpu {
             0x98 => self.tya(),
             o => panic!("TODO: handle invalid opcode: 0x{:>01x}", o),
         }
-
-        // ensure pending irqs will be delayed if the executed instruction was CLI, SEI or PLP
-        let mut delay = self.is_irq_pending() && matches!(opcode, 0x58 | 0x78 | 0x28);
-        delay &= !self.irq_delayed;
-        self.irq_delayed = delay;
-
-        // TODO: implement more subtle interrupt (mis)behavior (i.e interrupt
-        // hijacking, irq/nmi delay on 3-cycle branch instructions, etc.)
     }
 
     pub fn fetch_operand_byte(&mut self, bus: &mut dyn CpuAddressBus) -> u8 {
@@ -567,6 +564,12 @@ impl Cpu {
     fn cli(&mut self) {
         self.pc += 1;
         self.set_i_from_bit(0);
+
+        // delay potential irq (known 6502 quirk that also affects sei and plp)
+        if self.is_irq_pending() {
+            self.delay_irq = true;
+        }
+
         self.cycle_count += 2;
     }
 
@@ -1024,6 +1027,10 @@ impl Cpu {
 
     fn plp(&mut self, bus: &mut dyn CpuAddressBus) {
         self.p = (self.pull_val(bus) & !0b10000) | 0b100000;
+
+        if self.is_irq_pending() {
+            self.delay_irq = true;
+        }
     }
 
     fn rol(&mut self, val: u8) -> u8 {
@@ -1188,6 +1195,11 @@ impl Cpu {
     fn sei(&mut self) {
         self.pc += 1;
         self.set_i_from_bit(4);
+
+        if self.is_irq_pending() {
+            self.delay_irq = true;
+        }
+
         self.cycle_count += 2;
     }
 
