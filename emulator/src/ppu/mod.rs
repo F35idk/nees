@@ -334,7 +334,9 @@ impl Ppu {
             ppu.set_ppustatus_low_bits(val);
 
             if nmi_toggled && ppu.is_vblank_nmi_enabled() && ppu.is_vblank() {
-                cpu.nmi = true;
+                cpu.bits.nmi.set(1);
+                // HACK: delay nmi by one instruction
+                cpu.bits.delay_nmi.set(1);
             }
         }
 
