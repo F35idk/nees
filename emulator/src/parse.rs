@@ -1,5 +1,3 @@
-use std::mem::transmute;
-
 #[derive(Debug)]
 pub enum MirroringType {
     Hor = 0,
@@ -35,7 +33,7 @@ pub fn get_mapper_num(rom_header: &[u8]) -> u8 {
 }
 
 pub fn get_mirroring_type(rom_header: &[u8]) -> MirroringType {
-    unsafe { transmute((rom_header[6] & 1) | ((rom_header[6] & 0b1000) >> 3) * 0xf) }
+    unsafe { std::mem::transmute((rom_header[6] & 1) | ((rom_header[6] & 0b1000) >> 3) * 0xf) }
 }
 
 // NOTE: all persistent memory is not the same
@@ -51,21 +49,3 @@ pub fn has_trainer(rom_header: &[u8]) -> bool {
 pub fn is_nes_2_format(rom_header: &[u8]) -> bool {
     (rom_header[7] & 0b1100) == 8
 }
-
-// fn parse_header(rom_header: &[u8]) {
-//     if rom_header[0..=3] != [b'N', b'E', b'S', 0x1a] {
-//         return;
-//     }
-//
-//     let prg_size = rom_header[4];
-//     // NOTE: if zero, game uses chr /ram/, not chr rom
-//     let chr_size = rom_header[5];
-//
-//     let flags_6 = rom_header[6];
-//     let flags_7 = rom_header[7];
-//
-//     let mapper_num_low = flags_6 & 0b11110000;
-//     let mapper_num_hi = flags_7 & 0b11110000;
-//     let mapper_num = mapper_num_hi + mapper_num_low >> 4;
-//     let vert_mirroring = (flags_6 & 1) != 0;
-// }

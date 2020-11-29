@@ -98,7 +98,7 @@ impl<'a> PixelRenderer<'a> {
                     }
                 }
 
-                if found == false {
+                if !found {
                     panic!("required validation layers not available")
                 }
             }

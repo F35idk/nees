@@ -1,6 +1,6 @@
 use super::Cpu;
-use crate::{address_bus as bus, util, win, Nes};
-use bus::{CpuAddressBus, PpuAddressBus};
+use crate::{address_bus as bus, Nes};
+use bus::CpuAddressBus;
 
 fn test_adc(cpu: &mut Cpu, memory: &mut dyn CpuAddressBus) {
     cpu.p = 0x6e;
@@ -435,7 +435,6 @@ fn test_brk() {
 
 #[test]
 fn test_all() {
-    let win = win::XcbWindowWrapper::new("test", 20, 20).unwrap();
     let mut framebuffer = [0u32; 256 * 240];
     let mut nes = Nes::new_test(&mut framebuffer);
 

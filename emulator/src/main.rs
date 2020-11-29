@@ -6,6 +6,7 @@ mod controller;
 mod cpu;
 mod parse;
 mod ppu;
+mod test;
 mod win;
 
 use address_bus as bus;
@@ -167,26 +168,19 @@ fn main() {
     let key_syms = keysyms::KeySymbols::new(&win.connection);
 
     let Nes { mut cpu, bus } = Nes::new(util::pixels_to_u32(&mut renderer), &mut rom_file);
-    // NOTE: raw pointers are used to circumvent the borrow checker
-    // SAFETY AND RATIONALE: all of the '(*base_raw)' and
-    // '(*ppu_bus_raw)' dereferences in the main loop below are
-    // equivalent to simply accessing the 'base' and 'ppu_bus'
-    // fields on 'bus', which borrow checks just fine. however,
-    // accessing these fields directly is only possible when 'bus'
-    // isn't hidden behind a dyn pointer. when 'bus' is behind a
-    // dyn pointer, the only way to access the fields is through
-    // the 'CpuAddressBus::base()' virtual method. to avoid
-    // repeated calls to 'base()' and to circumvent the borrow
-    // checker, the 'base' and 'ppu_bus' pointers are instead
-    // stored as raw pointers and accessed directly when needed.
+    // NOTE: raw pointers are used to avoid repeated virtual function calls
+    // SAFETY AND RATIONALE: all of the '(*base_raw)' and '(*ppu_bus_raw)'
+    // dereferences in the main loop below are equivalent to simply
+    // accessing the 'base' and 'ppu_bus' fields on 'bus', which borrow
+    // checks just fine. however, accessing these fields directly is only
+    // possible when 'bus' isn't hidden behind a dyn pointer. when 'bus'
+    // is behind a dyn pointer, the only way to access the fields is
+    // through the 'CpuAddressBus::base()' virtual method. to avoid
+    // repeated calls to 'base()' in the main loop', 'base' and 'ppu_bus'
+    // are instead stored as raw pointers and accessed directly when needed.
     let (base_raw, ppu_bus_raw): (*mut bus::CpuAddressBusBase, *mut dyn bus::PpuAddressBus) =
         unsafe { (bus.base().0, std::mem::transmute(bus.base().1)) };
 
-    unsafe {
-        (*base_raw).ppu.current_scanline = 240;
-        (*base_raw).ppu.cycle_count = 0;
-    }
-    cpu.cycle_count = 0;
     cpu.p = 4;
     cpu.sp = 0xfd;
     // set pc = reset vector
@@ -286,7 +280,7 @@ fn main() {
 
         // reset counters
         unsafe {
-            (*base_raw).ppu.cycle_count -= cpu.cycle_count as i32 * 3;
+            (*base_raw).ppu.sub_cycle_count(cpu.cycle_count as i32 * 3);
             (*base_raw).ppu.set_frame_done(false);
         }
         cpu.cycle_count = 0;

@@ -2,18 +2,18 @@ use super::{CpuAddressBus, CpuAddressBusBase, PpuAddressBus};
 use crate::{apu, bus, controller as ctrl, cpu, parse, ppu, util, win, PixelRenderer};
 
 pub struct NromCpuAddressBus {
-    pub base: CpuAddressBusBase,
-    pub ppu_bus: NromPpuAddressBus,
+    base: CpuAddressBusBase,
+    ppu_bus: NromPpuAddressBus,
     internal_ram: [u8; 0x800],
     prg_rom: Box<[u8]>,
     prg_ram: [u8; 0x1000],
 }
 
 pub struct NromPpuAddressBus {
-    pub chr_ram: [u8; 0x2000],
-    pub nametables: [u8; 0x800],
-    pub palettes: [u8; 32],
-    pub hor_mirroring: bool,
+    chr_ram: [u8; 0x2000],
+    nametables: [u8; 0x800],
+    palettes: [u8; 32],
+    hor_mirroring: bool,
 }
 
 impl NromCpuAddressBus {
@@ -29,14 +29,14 @@ impl NromCpuAddressBus {
     ) -> Self {
         if chr_ram.len() != 0x2000 {
             error_exit!(
-                "Failed to load rom file: prg rom was the wrong size for nrom (mapper 0) ({})",
+                "Failed to load rom file: prg rom was the wrong size ({}) for nrom (mapper 0)",
                 chr_ram.len()
             )
         }
 
         if !matches!(prg_rom.len(), 0x4000 | 0x8000) {
             error_exit!(
-                "Failed to load rom file: prg rom was the wrong size for nrom (mapper 0) ({})",
+                "Failed to load rom file: prg rom was the wrong size ({}) for nrom (mapper 0)",
                 prg_rom.len()
             )
         }

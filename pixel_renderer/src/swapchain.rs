@@ -1,5 +1,4 @@
 use ash::extensions::khr;
-use ash::prelude::VkResult;
 use ash::version::DeviceV1_0;
 use ash::{self, vk};
 

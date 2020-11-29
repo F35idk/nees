@@ -1,20 +1,15 @@
-use crate::{apu, controller as ctrl, cpu, parse, ppu, win};
+use crate::{apu, controller as ctrl, cpu, parse, ppu};
 #[macro_use]
 use crate::util;
 use super::{CpuAddressBus, CpuAddressBusBase, PpuAddressBus};
 use crate::PixelRenderer;
 
-// NOTE: ines header tells whether need care abt. nametable mirroring selection
-// NOTE: currently only care about mapper 004
-//
-
-// notes about the current implementation
-// NOTE: open bus behavior ignored
-// NOTE: mmc6 compatibility ignored
+// NOTE: current implementation ignores open bus behavior
+// and compatibility with mmc6 or any non-mapper-4 cartridges,
 
 pub struct Mmc3CpuAddressBus {
-    pub base: CpuAddressBusBase,
-    pub ppu_bus: Mmc3PpuAddressBus,
+    base: CpuAddressBusBase,
+    ppu_bus: Mmc3PpuAddressBus,
     internal_ram: [u8; 0x800],
     prg_ram: [u8; 0x2000],
     // up to 64 banks
@@ -456,7 +451,6 @@ impl CpuAddressBus for Mmc3CpuAddressBus {
         // irq disable/enable
         if super::is_e000_to_ffff(addr) {
             self.ppu_bus.bits.irq_enable.set(addr as u8 & 1);
-            if addr & 1 == 1 {}
             if addr & 1 == 0 {
                 // stop triggering irq
                 if self.ppu_bus.bits.trigger_irq.is_true() {
@@ -706,31 +700,3 @@ mod test {
         assert_eq!(calc_chr_bank_register_idx(0x0000, true), 2);
     }
 }
-
-// prg windows:
-//   swappable:
-//     0x8000-0x9fff / 0xc000-0xdfff (depending on mode)
-//     0xa000-0xbfff
-//   fixed:
-//     0xc000-0xdfff / 0x8000-0x9fff (depending on mode)
-//     0xe000-0xffff
-
-// chr windows (all swappable):
-// (? = 1 | 0, a12 may be inverted)
-//   0x?000-0x?7FF: 2 KB
-//   0x?800-0x?FFF: 2 KB
-//   0x?000-0x?3FF: 1 KB
-//   0x?400-0x?7FF: 1 KB
-//   0x?800-0x?BFF: 1 KB
-//   0x?C00-0x?FFF: 1 KB
-//
-// TODO: overview/plan:
-//
-// * in 'ppu_bus', track a12 rises (and filter based on whether they
-//   happened within 16 dots of each other). store this in 'a12_rise_count'.
-//
-// * then, when calling 'catch_up()', if 'irq_reload' is false, subtract
-//   'a12_rise_count' from 'irq_counter'. if 'irq_reload' is true, set
-//   'irq_counter' to zero 'irq_reload' to false.
-//
-// * if 'irq_reload' was false and 'irq_counter' is now zero, trigger irq.

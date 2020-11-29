@@ -1,5 +1,5 @@
-use super::super::PixelRenderer;
-use crate::{address_bus as bus, cpu, parse, util, win, Nes};
+use crate::Nes;
+use crate::{address_bus as bus, cpu};
 use bus::{CpuAddressBus, PpuAddressBus};
 
 fn test_registers(cpu: &mut cpu::Cpu, ppu: &mut super::Ppu, ppu_bus: &mut dyn PpuAddressBus) {

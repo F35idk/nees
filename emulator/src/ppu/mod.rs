@@ -8,9 +8,8 @@ mod sprite_state;
 pub mod test;
 
 pub struct Ppu {
-    pub renderer: PixelRenderer,
-    pub current_scanline: i16,
-    pub cycle_count: i32,
+    cycle_count: i32,
+    current_scanline: i16,
     current_scanline_dot: u16,
     primary_oam: PrimaryOam,
     secondary_oam: SecondaryOam,
@@ -168,7 +167,7 @@ impl Ppu {
             ppudata_read_buffer: 0,
             current_vram_addr: VramAddrRegister { inner: 0 },
             temp_vram_addr: VramAddrRegister { inner: 0 },
-            current_scanline: -1,
+            current_scanline: 240,
             current_scanline_dot: 0,
             bits: PpuBits::BitField::new(0, 1, 0, 0, 0),
             cycle_count: 0,
@@ -189,6 +188,24 @@ impl Ppu {
         self.current_scanline_dot = 0;
         self.bits = PpuBits::BitField::new(0, 1, 0, 0, 0);
         self.cycle_count = 0;
+    }
+
+    pub fn sub_cycle_count(&mut self, sub: i32) {
+        self.cycle_count -= sub;
+    }
+
+    // sets the low 5 bits of 'ppustatus' equal to the low 5 bits of 'val'
+    pub fn set_ppustatus_low_bits(&mut self, val: u8) {
+        self.ppustatus &= !0b11111;
+        self.ppustatus |= val & 0b11111;
+    }
+
+    pub fn is_frame_done(&self) -> bool {
+        self.bits.frame_done.is_true()
+    }
+
+    pub fn set_frame_done(&mut self, done: bool) {
+        self.bits.frame_done.set(done as u8);
     }
 
     // used for reading the registers located in the cpu memory map at 0x2000-0x2007
@@ -443,8 +460,7 @@ impl Ppu {
         // NOTE: cpu.cycle_count could be negative here
         let target_cycles = cpu.cycle_count as i32 * 3;
 
-        // step normally
-        while (self.cycle_count as i32) < target_cycles {
+        while self.cycle_count < target_cycles {
             self.step(cpu, bus, framebuffer);
         }
     }
@@ -963,22 +979,8 @@ impl Ppu {
     }
 }
 
-// second impl block to separate getter/setter/convenience functions from the rest
-impl<'a> Ppu<'a> {
-    // sets the low 5 bits of 'ppustatus' equal to the low 5 bits of 'val'
-    pub fn set_ppustatus_low_bits(&mut self, val: u8) {
-        self.ppustatus &= !0b11111;
-        self.ppustatus |= val & 0b11111;
-    }
-
-    pub fn is_frame_done(&self) -> bool {
-        self.bits.frame_done.is_true()
-    }
-
-    pub fn set_frame_done(&mut self, done: bool) {
-        self.bits.frame_done.set(done as u8);
-    }
-
+// second impl block to separate private getter/setter/convenience functions from the rest
+impl Ppu {
     fn toggle_even_frame(&mut self) {
         let prev = self.bits.even_frame.is_true();
         self.bits.even_frame.set(!prev as u8);
@@ -990,7 +992,6 @@ impl<'a> Ppu<'a> {
     }
 
     fn get_base_nametable_addr(&self) -> u16 {
-        // NOTE: may not need to actually multiply out etc.
         0x2000 | (((self.ppuctrl & 3) as u16) << 10)
     }
 
@@ -1000,7 +1001,6 @@ impl<'a> Ppu<'a> {
     }
 
     fn get_8x8_sprite_pattern_table_addr(&self) -> u16 {
-        // NOTE: may not need to actually multiply out etc.
         ((self.ppuctrl & 0b1000) as u16) << 9
     }
 
@@ -1014,11 +1014,6 @@ impl<'a> Ppu<'a> {
         } else {
             SpriteSize::S8x8
         }
-    }
-
-    // TODO: enum or whatever
-    fn get_master_slave_mode(&self) -> bool {
-        (self.ppuctrl & 0b1000000) != 0
     }
 
     fn is_vblank_nmi_enabled(&self) -> bool {

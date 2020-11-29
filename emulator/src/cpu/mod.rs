@@ -1317,27 +1317,4 @@ impl Cpu {
         self.exec_instruction(bus);
         (self.cycle_count - prev_cycles) as u8
     }
-
-    pub fn log_register_values_old(&self) {
-        log!("A:{:0>2X} ", self.a);
-        log!("X:{:0>2X} ", self.x);
-        log!("Y:{:0>2X} ", self.y);
-        log!("P:{:0>2X} ", self.p);
-        log!("SP:{:0>2X} ", self.sp);
-        log!("CYC:{}\n", self.cycle_count)
-    }
-
-    pub fn log_register_values(&mut self, scanline: i16, vbl: bool, ppu_dot: u32) {
-        print!("{:0>4X} ", self.pc);
-        // print!("${:0>2X}  ", bus.read(self.pc, self));
-        print!("A:{:0>2X} ", self.a);
-        print!("X:{:0>2X} ", self.x);
-        print!("Y:{:0>2X} ", self.y);
-        // FIXME: or in b flag bit????
-        print!("P:{:0>2X} ", self.p);
-        print!("SP:{:0>2X} ", self.sp);
-        print!("CYC:{0:>3} ", ppu_dot);
-        print!("SL:{:0>2}\n ", scanline);
-        // print!("VBL:{:}\n", vbl);
-    }
 }

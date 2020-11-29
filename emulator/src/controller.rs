@@ -1,6 +1,6 @@
-use super::win;
+use crate::win;
 #[macro_use]
-use super::util;
+use crate::util;
 
 #[derive(Default)]
 pub struct Controller {
@@ -74,8 +74,4 @@ impl Controller {
             (self.key_state_bitmap & 1) | 0b1000000
         }
     }
-}
-
-mod test {
-    // TODO: !!!!!!!!!
 }

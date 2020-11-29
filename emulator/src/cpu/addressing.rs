@@ -1,5 +1,5 @@
-use super::super::address_bus::CpuAddressBus;
 use super::Cpu;
+use crate::address_bus::CpuAddressBus;
 
 // submodules used for improved readability inside of this module.
 // (everything is re-exported, so these are not visible to the outside)

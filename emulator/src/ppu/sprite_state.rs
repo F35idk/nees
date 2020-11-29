@@ -149,7 +149,7 @@ impl SpriteDrawState {
         bus: &mut dyn PpuAddressBus,
         cpu: &mut cpu::Cpu,
     ) {
-        debug_assert!(matches!(current_scanline, 0..=239));
+        debug_assert!(matches!(current_scanline, -1..=239));
         debug_assert!(matches!(current_scanline_dot, 257..=320));
         debug_assert!(self.sprites_found <= 8);
         debug_assert!((self.current_sprite_idx >> 2) < 8);

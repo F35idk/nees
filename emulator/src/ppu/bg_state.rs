@@ -1,4 +1,3 @@
-use super::Ppu;
 use crate::address_bus::PpuAddressBus;
 use crate::cpu;
 
@@ -48,7 +47,7 @@ impl BgDrawState {
             let addr = (current_vram_addr.get_addr() & 0xfff) | 0x2000;
             let tile_index = bus.read(addr, cycle_count, cpu);
 
-            let tile_addr = background_pattern_table_addr + ((tile_index as u16) << 4);
+            let tile_addr = background_pattern_table_addr | ((tile_index as u16) << 4);
             let fine_y = current_vram_addr.get_fine_y();
 
             (

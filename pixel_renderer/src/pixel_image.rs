@@ -69,8 +69,6 @@ impl PixelImage {
         let pixels_raw: *mut u8 = unsafe { mem::transmute::<*mut c_void, _>(mapped) };
 
         // memset mapped buffer memory to 0
-        // SAFETY: any bit pattern and alignment is valid for u8, so
-        // we can write directly to the uninitialized mapped memory
         unsafe { ptr::write_bytes::<u8>(pixels_raw, 0, img_size as usize) };
 
         // NOTE: we don't need to flush our writes to the mapped memory here as
@@ -119,7 +117,7 @@ impl PixelImage {
             image_memory,
             view,
             buffer,
-            pixels_raw: pixels_raw,
+            pixels_raw,
             width,
             height,
         })

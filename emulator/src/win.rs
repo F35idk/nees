@@ -1,4 +1,4 @@
-use super::xcb;
+use crate::xcb;
 
 pub enum Keys {}
 

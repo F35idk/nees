@@ -1,9 +1,7 @@
-use super::PixelRenderer;
-use super::{address_bus as bus, apu, controller as ctrl, cpu, ppu, win};
-use std::mem::transmute;
+use crate::PixelRenderer;
 
 pub fn pixels_to_u32<'a>(pixel_renderer: &'a mut PixelRenderer) -> &'a mut [u32; 256 * 240] {
-    unsafe { transmute(pixel_renderer.get_pixels().as_mut_ptr() as *mut u32) }
+    unsafe { std::mem::transmute(pixel_renderer.get_pixels().as_mut_ptr() as *mut u32) }
 }
 
 macro_rules! error_exit {
