@@ -8,8 +8,12 @@ pub fn pixels_to_u32<'a>(pixel_renderer: &'a mut PixelRenderer) -> &'a mut [u32;
 
 macro_rules! error_exit {
     ($($arg:tt)*) => { {
-        eprintln!($($arg)*);
-        std::process::exit(1);
+        if cfg!(test) {
+            panic!($($arg)*);
+        } else {
+            eprintln!($($arg)*);
+            std::process::exit(1);
+        }
     } }
 }
 

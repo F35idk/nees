@@ -59,31 +59,59 @@ impl<'a> Nes<'a> {
         // safe, as the pointer stays valid at all times. the 'PixelRenderer' that
         // provides the framebuffer pointer is guaranteed to live for the entire
         // duration of the program, and the framebuffer itself is never moved in memory.
-        let bus: &mut dyn CpuAddressBus = match parse::get_mapper_num(&rom) {
-            // mapper 0 => nrom
-            0 => Box::leak(Box::new(bus::NromCpuAddressBus::new(
-                &rom[0x10..=prg_size + 0xf],
-                &rom[0x10 + prg_size..=prg_size + chr_size + 0xf],
-                mirroring,
-                ppu,
-                apu,
-                controller,
-                framebuffer,
-            ))),
-            // mapper 4 => mmc3
-            4 => Box::leak(Box::new(bus::Mmc3CpuAddressBus::new(
-                &rom[0x10..=prg_size + 0xf],
-                &rom[0x10 + prg_size..=prg_size + chr_size + 0xf],
-                mirroring,
-                ppu,
-                apu,
-                controller,
-                framebuffer,
-            ))),
-            n => error_exit!(
-                "Failed to load rom file: ines mapper {} is not supported",
-                n
-            ),
+        let bus: &mut dyn CpuAddressBus = match (parse::get_mapper_num(&rom), cfg!(test)) {
+            (num, false) => match num {
+                // mapper 0 => nrom
+                0 => Box::leak(Box::new(bus::NromCpuAddressBus::new(
+                    &rom[0x10..=prg_size + 0xf],
+                    &rom[0x10 + prg_size..=prg_size + chr_size + 0xf],
+                    mirroring,
+                    ppu,
+                    apu,
+                    controller,
+                    framebuffer,
+                ))),
+                // mapper 4 => mmc3
+                4 => Box::leak(Box::new(bus::Mmc3CpuAddressBus::new(
+                    &rom[0x10..=prg_size + 0xf],
+                    &rom[0x10 + prg_size..=prg_size + chr_size + 0xf],
+                    mirroring,
+                    ppu,
+                    apu,
+                    controller,
+                    framebuffer,
+                ))),
+                n => error_exit!(
+                    "Failed to load rom file: ines mapper {} is not supported",
+                    n
+                ),
+            },
+            // use custom address bus structs in tests
+            (num, true) => match num {
+                0 => Box::leak(Box::new(
+                    test::TestCpuAddressBus::<bus::NromCpuAddressBus>::new(
+                        &rom[0x10..=prg_size + 0xf],
+                        &rom[0x10 + prg_size..=prg_size + chr_size + 0xf],
+                        mirroring,
+                        ppu,
+                        apu,
+                        controller,
+                        framebuffer,
+                    ),
+                )),
+                4 => Box::leak(Box::new(
+                    test::TestCpuAddressBus::<bus::Mmc3CpuAddressBus>::new(
+                        &rom[0x10..=prg_size + 0xf],
+                        &rom[0x10 + prg_size..=prg_size + chr_size + 0xf],
+                        mirroring,
+                        ppu,
+                        apu,
+                        controller,
+                        framebuffer,
+                    ),
+                )),
+                _ => panic!(),
+            },
         };
 
         Self { cpu, bus }
