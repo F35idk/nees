@@ -591,10 +591,10 @@ impl Ppu {
                         ppu.transfer_temp_horizontal_bits();
                     }
 
-                    ppu.cycle_count += 7;
-                    ppu.current_scanline_dot += 7;
+                    ppu.cycle_count += 8;
+                    ppu.current_scanline_dot += 8;
                 }
-                (258..=319, sl) => {
+                (258..=320, sl) => {
                     ppu.oamaddr = 0;
 
                     // continue fetching sprite data
@@ -612,7 +612,8 @@ impl Ppu {
                     }
 
                     if sl == -1
-                        && ppu.current_scanline_dot == 280
+                        // NOTE: this should actually happen at dot 280
+                        && ppu.current_scanline_dot == 281
                         && (ppu.is_sprites_enable() || ppu.is_background_enable())
                     {
                         ppu.transfer_temp_vert_bits();
@@ -621,9 +622,9 @@ impl Ppu {
                     ppu.cycle_count += 8;
                     ppu.current_scanline_dot += 8;
                 }
-                (320..=327, _) => {
-                    ppu.cycle_count += 8;
-                    ppu.current_scanline_dot += 8;
+                (321..=327, _) => {
+                    ppu.cycle_count += 7;
+                    ppu.current_scanline_dot += 7;
                 }
                 (328, _) => {
                     if ppu.is_background_enable() || ppu.is_sprites_enable() {
