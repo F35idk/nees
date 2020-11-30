@@ -1110,35 +1110,59 @@ impl Cpu {
         addressing::read_write_abs_indexed(self, self.x, bus, Self::ror);
     }
 
-    // TODO: cycle accurate reads/writes
     fn rti(&mut self, bus: &mut dyn CpuAddressBus) {
-        // pull into status flags
-        self.sp = self.sp.wrapping_add(1);
-        // NOTE: bit 4 is cleared and bit 5 is set when pulling into status register
-        self.p = (bus.read(self.sp as u16 + 0x100, self) & !0b10000) | 0b100000;
+        self.pc += 1;
+        self.cycle_count += 1;
+
+        // read next instruction byte and discard it
+        let _ = bus.read(self.pc, self);
+        self.cycle_count += 1;
 
         self.sp = self.sp.wrapping_add(1);
+        self.cycle_count += 1;
+
+        // pull into status flags
+        // NOTE: bit 4 is cleared and bit 5 is set when pulling into status register
+        self.p = (bus.read(self.sp as u16 + 0x100, self) & !0b10000) | 0b100000;
+        self.sp = self.sp.wrapping_add(1);
+        self.cycle_count += 1;
+
         // get program counter low bits
         let pc_low = bus.read(self.sp as u16 + 0x100, self);
         self.sp = self.sp.wrapping_add(1);
+        self.cycle_count += 1;
+
         // get program counter high bits
         let pc_hi = bus.read(self.sp as u16 + 0x100, self);
+        self.cycle_count += 1;
 
         self.pc = u16::from_le_bytes([pc_low, pc_hi]);
-        self.cycle_count += 6;
     }
 
-    // TODO: cycle accurate reads/writes
     fn rts(&mut self, bus: &mut dyn CpuAddressBus) {
-        // pull into program counter
+        self.pc += 1;
+        self.cycle_count += 1;
+
+        // read next instruction byte and discard it
+        let _ = bus.read(self.pc, self);
+        self.cycle_count += 1;
+
         self.sp = self.sp.wrapping_add(1);
+        self.cycle_count += 1;
+
         let pc_low = bus.read(self.sp as u16 + 0x100, self);
         self.sp = self.sp.wrapping_add(1);
+        self.cycle_count += 1;
+
         let pc_hi = bus.read(self.sp as u16 + 0x100, self);
-        // add 1 since pushed value is expected to be pc - 1 (from the jsr instruction)
+        self.cycle_count += 1;
+
         // FIXME: should discard carry from low 8 bits when adding?
-        self.pc = u16::from_le_bytes([pc_low, pc_hi]).wrapping_add(1);
-        self.cycle_count += 6;
+        self.pc = u16::from_le_bytes([pc_low, pc_hi]);
+
+        // add 1 since pushed value is expected to be pc - 1 (from the jsr instruction)
+        self.pc += 1;
+        self.cycle_count += 1;
     }
 
     fn sbc(&mut self, val: u8) {
