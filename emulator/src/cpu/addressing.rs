@@ -19,9 +19,9 @@ mod imm {
 
     pub fn read_imm(cpu: &mut Cpu, bus: &mut dyn CpuAddressBus) -> u8 {
         let val = cpu.fetch_operand_byte(bus);
+        cpu.pc += 1;
         cpu.cycle_count += 1;
 
-        cpu.pc += 1;
         val
     }
 }
@@ -33,22 +33,21 @@ mod abs {
     pub fn read_abs(cpu: &mut Cpu, bus: &mut dyn CpuAddressBus) -> u8 {
         let addr = cpu.fetch_operand_u16(bus);
         cpu.cycle_count += 1;
+        cpu.pc += 1;
 
         let val = bus.read(addr, cpu);
         cpu.cycle_count += 1;
 
-        cpu.pc += 1;
         val
     }
 
     pub fn write_abs(cpu: &mut Cpu, val: u8, bus: &mut dyn CpuAddressBus) {
         let addr = cpu.fetch_operand_u16(bus);
         cpu.cycle_count += 1;
+        cpu.pc += 1;
 
         bus.write(addr, val, cpu);
         cpu.cycle_count += 1;
-
-        cpu.pc += 1;
     }
 
     // fetches the absolute address at pc+1, performs 'operation' on the
@@ -60,16 +59,17 @@ mod abs {
     ) {
         let addr = cpu.fetch_operand_u16(bus);
         cpu.cycle_count += 1;
+        cpu.pc += 1;
 
-        cpu.cycle_count += 2;
         let val = bus.read(addr, cpu);
+        cpu.cycle_count += 1;
 
-        // TODO: dummy write here
+        bus.write(addr, val, cpu);
+        cpu.cycle_count += 1;
+
         let res = operation(cpu, val);
         bus.write(addr, res, cpu);
         cpu.cycle_count += 1;
-
-        cpu.pc += 1;
     }
 }
 
@@ -77,34 +77,48 @@ mod abs {
 mod abs_indexed {
     use super::*;
 
-    pub fn write_abs_indexed(cpu: &mut Cpu, val: u8, index: u8, bus: &mut dyn CpuAddressBus) {
-        let addr = cpu.fetch_operand_u16(bus);
-        let addr_indexed = addr.wrapping_add(index as u16);
-        // TODO: dummy read here (addr_indexed fixup cycle)
-        cpu.cycle_count += 2;
-
-        bus.write(addr_indexed, val, cpu);
-        cpu.cycle_count += 1;
-
-        cpu.pc += 1;
-    }
-
     pub fn read_abs_indexed(cpu: &mut Cpu, index: u8, bus: &mut dyn CpuAddressBus) -> u8 {
         let addr_bytes = cpu.fetch_operand_bytes(bus);
-        let (addr_indexed, page_crossed) = {
-            let (low, page_crossed) = addr_bytes[0].overflowing_add(index);
-            let high = addr_bytes[1].wrapping_add(page_crossed as u8);
-            let indexed = u16::from_le_bytes([low, high]);
-
-            (indexed, page_crossed)
-        };
-        cpu.cycle_count += 1 + page_crossed as i16;
-
-        let res = bus.read(addr_indexed, cpu);
+        let (addr_indexed_low, page_crossed) = addr_bytes[0].overflowing_add(index);
+        let addr_indexed_without_carry = u16::from_le_bytes([addr_indexed_low, addr_bytes[1]]);
+        cpu.pc += 1;
         cpu.cycle_count += 1;
 
-        cpu.pc += 1;
+        let res = {
+            let first_read_attempt = bus.read(addr_indexed_without_carry, cpu);
+            cpu.cycle_count += 1;
+
+            if !page_crossed {
+                first_read_attempt
+            } else {
+                let addr_indexed_high = addr_bytes[1].wrapping_add(page_crossed as u8);
+                let addr_indexed_with_carry =
+                    u16::from_le_bytes([addr_indexed_low, addr_indexed_high]);
+
+                let second_read_attempt = bus.read(addr_indexed_with_carry, cpu);
+                cpu.cycle_count += 1;
+                second_read_attempt
+            }
+        };
+
         res
+    }
+
+    pub fn write_abs_indexed(cpu: &mut Cpu, val: u8, index: u8, bus: &mut dyn CpuAddressBus) {
+        let addr_bytes = cpu.fetch_operand_bytes(bus);
+        let (addr_indexed_low, page_crossed) = addr_bytes[0].overflowing_add(index);
+        let addr_indexed_without_carry = u16::from_le_bytes([addr_indexed_low, addr_bytes[1]]);
+        cpu.pc += 1;
+        cpu.cycle_count += 1;
+
+        // perform dummy read before carry has been added to high byte of address
+        let _ = bus.read(addr_indexed_without_carry, cpu);
+        let addr_indexed_high = addr_bytes[1].wrapping_add(page_crossed as u8);
+        let addr_indexed_with_carry = u16::from_le_bytes([addr_indexed_low, addr_indexed_high]);
+        cpu.cycle_count += 1;
+
+        bus.write(addr_indexed_with_carry, val, cpu);
+        cpu.cycle_count += 1;
     }
 
     pub fn read_write_abs_indexed(
@@ -113,22 +127,27 @@ mod abs_indexed {
         bus: &mut dyn CpuAddressBus,
         operation: fn(&mut Cpu, u8) -> u8,
     ) {
-        let addr = cpu.fetch_operand_u16(bus);
-        let addr_indexed = addr.wrapping_add(index as u16);
-        // TODO: dummy read here (is invalid if page crossed)
-        cpu.cycle_count += 2;
-
-        let val = bus.read(addr_indexed, cpu);
+        let addr_bytes = cpu.fetch_operand_bytes(bus);
+        let (addr_indexed_low, page_crossed) = addr_bytes[0].overflowing_add(index);
+        let addr_indexed_without_carry = u16::from_le_bytes([addr_indexed_low, addr_bytes[1]]);
+        cpu.pc += 1;
         cpu.cycle_count += 1;
 
-        // TODO: dummy write here
+        let _ = bus.read(addr_indexed_without_carry, cpu);
+        let addr_indexed_high = addr_bytes[1].wrapping_add(page_crossed as u8);
+        let addr_indexed_with_carry = u16::from_le_bytes([addr_indexed_low, addr_indexed_high]);
+        cpu.cycle_count += 1;
+
+        let val = bus.read(addr_indexed_with_carry, cpu);
+        cpu.cycle_count += 1;
+
+        // perform dummy write before calling 'operation()' on 'val'
+        bus.write(addr_indexed_with_carry, val, cpu);
         let res = operation(cpu, val);
         cpu.cycle_count += 1;
 
-        bus.write(addr_indexed, res, cpu);
+        bus.write(addr_indexed_with_carry, res, cpu);
         cpu.cycle_count += 1;
-
-        cpu.pc += 1;
     }
 }
 
@@ -137,23 +156,22 @@ mod zero_page {
 
     pub fn read_zero_page(cpu: &mut Cpu, bus: &mut dyn CpuAddressBus) -> u8 {
         let addr = cpu.fetch_operand_byte(bus);
+        cpu.pc += 1;
         cpu.cycle_count += 1;
 
         let res = bus.read(addr as u16, cpu);
         cpu.cycle_count += 1;
 
-        cpu.pc += 1;
         res
     }
 
     pub fn write_zero_page(cpu: &mut Cpu, val: u8, bus: &mut dyn CpuAddressBus) {
         let addr = cpu.fetch_operand_byte(bus);
+        cpu.pc += 1;
         cpu.cycle_count += 1;
 
         bus.write(addr as u16, val, cpu);
         cpu.cycle_count += 1;
-
-        cpu.pc += 1;
     }
 
     pub fn read_write_zero_page(
@@ -162,17 +180,19 @@ mod zero_page {
         operation: fn(&mut Cpu, u8) -> u8,
     ) {
         let addr = cpu.fetch_operand_byte(bus);
+        cpu.pc += 1;
         cpu.cycle_count += 1;
 
         let val = bus.read(addr as u16, cpu);
-        cpu.cycle_count += 2;
-        // TODO: dummy write here
-
-        let res = operation(cpu, val);
-        bus.write(addr as u16, res, cpu);
         cpu.cycle_count += 1;
 
-        cpu.pc += 1;
+        // perform dummy write before calling 'operation()' on 'val'
+        bus.write(addr as u16, val, cpu);
+        let res = operation(cpu, val);
+        cpu.cycle_count += 1;
+
+        bus.write(addr as u16, res, cpu);
+        cpu.cycle_count += 1;
     }
 }
 
@@ -181,31 +201,31 @@ mod zero_page_indexed {
 
     pub fn read_zero_page_indexed(cpu: &mut Cpu, index: u8, bus: &mut dyn CpuAddressBus) -> u8 {
         let addr = cpu.fetch_operand_byte(bus);
+        cpu.pc += 1;
         cpu.cycle_count += 1;
 
-        // TODO: dummy read from 'addr' here
+        // perform dummy read before adding 'index' to 'addr'
+        let _ = bus.read(addr as u16, cpu);
         let addr_indexed = addr.wrapping_add(index);
         cpu.cycle_count += 1;
 
         let res = bus.read(addr_indexed as u16, cpu);
         cpu.cycle_count += 1;
 
-        cpu.pc += 1;
         res
     }
 
     pub fn write_zero_page_indexed(cpu: &mut Cpu, val: u8, index: u8, bus: &mut dyn CpuAddressBus) {
         let addr = cpu.fetch_operand_byte(bus);
+        cpu.pc += 1;
         cpu.cycle_count += 1;
 
-        // TODO: dummy read from 'addr' here
+        let _ = bus.read(addr as u16, cpu);
         let addr_indexed = addr.wrapping_add(index);
         cpu.cycle_count += 1;
 
         bus.write(addr_indexed as u16, val, cpu);
         cpu.cycle_count += 1;
-
-        cpu.pc += 1;
     }
 
     pub fn read_write_zero_page_indexed(
@@ -215,23 +235,22 @@ mod zero_page_indexed {
         operation: fn(&mut Cpu, u8) -> u8,
     ) {
         let addr = cpu.fetch_operand_byte(bus);
+        cpu.pc += 1;
         cpu.cycle_count += 1;
 
-        // TODO: dummy read from 'addr' here
+        let _ = bus.read(addr as u16, cpu);
         let addr_indexed = addr.wrapping_add(index);
         cpu.cycle_count += 1;
 
         let val = bus.read(addr_indexed as u16, cpu);
         cpu.cycle_count += 1;
 
-        // TODO: dummy write here (write 'val' to 'addr_indexed')
+        bus.write(addr_indexed as u16, val, cpu);
         let res = operation(cpu, val);
         cpu.cycle_count += 1;
 
         bus.write(addr_indexed as u16, res, cpu);
         cpu.cycle_count += 1;
-
-        cpu.pc += 1;
     }
 }
 
@@ -240,6 +259,7 @@ mod indexed_indirect {
 
     pub fn read_indexed_indirect(cpu: &mut Cpu, bus: &mut dyn CpuAddressBus) -> u8 {
         let addr = cpu.fetch_operand_byte(bus);
+        cpu.pc += 1;
         cpu.cycle_count += 1;
 
         let final_addr = self::calc_indexed_indirect(cpu, addr, bus);
@@ -247,34 +267,33 @@ mod indexed_indirect {
         let res = bus.read(final_addr, cpu);
         cpu.cycle_count += 1;
 
-        cpu.pc += 1;
         res
     }
 
     pub fn write_indexed_indirect(cpu: &mut Cpu, val: u8, bus: &mut dyn CpuAddressBus) {
         let addr = cpu.fetch_operand_byte(bus);
+        cpu.pc += 1;
         cpu.cycle_count += 1;
 
         let final_addr = self::calc_indexed_indirect(cpu, addr, bus);
 
         bus.write(final_addr, val, cpu);
         cpu.cycle_count += 1;
-
-        cpu.pc += 1;
     }
 
     fn calc_indexed_indirect(cpu: &mut Cpu, addr: u8, bus: &mut dyn CpuAddressBus) -> u16 {
-        // TODO: dummy read (from 'addr') here
+        // perform dummy read before adding 'x' to 'addr'
+        let _ = bus.read(addr as u16, cpu);
         let addr_indexed = addr.wrapping_add(cpu.x);
         cpu.cycle_count += 1;
 
-        let addr_lo = bus.read(addr_indexed as u16, cpu);
+        let final_addr_lo = bus.read(addr_indexed as u16, cpu);
         cpu.cycle_count += 1;
 
-        let addr_hi = bus.read(addr_indexed.wrapping_add(1) as u16, cpu);
+        let final_addr_hi = bus.read(addr_indexed.wrapping_add(1) as u16, cpu);
         cpu.cycle_count += 1;
 
-        u16::from_le_bytes([addr_lo, addr_hi])
+        u16::from_le_bytes([final_addr_lo, final_addr_hi])
     }
 }
 
@@ -283,34 +302,59 @@ mod indirect_indexed {
 
     pub fn read_indirect_indexed(cpu: &mut Cpu, bus: &mut dyn CpuAddressBus) -> u8 {
         let addr = cpu.fetch_operand_byte(bus);
-        cpu.cycle_count += 1;
-
-        let (final_addr, page_crossed) = self::calc_indirect_indexed(cpu, addr, bus);
-        // TODO: dummy read here (if page crossed)
-        cpu.cycle_count += page_crossed as i16;
-
-        let res = bus.read(final_addr, cpu);
-        cpu.cycle_count += 1;
-
         cpu.pc += 1;
+        cpu.cycle_count += 1;
+
+        let (addr_indexed_without_carry, page_crossed) =
+            self::calc_addr_without_carry(cpu, addr, bus);
+
+        let res = {
+            // read from address before applying carry to high bits
+            let first_read_attempt = bus.read(u16::from_le_bytes(addr_indexed_without_carry), cpu);
+            cpu.cycle_count += 1;
+
+            if !page_crossed {
+                // if a page wasn't crossed, the address read from was the correct one
+                first_read_attempt
+            } else {
+                // if a page was crossed, add carry to high bits of address before reading from it
+                let addr_indexed_high =
+                    addr_indexed_without_carry[1].wrapping_add(page_crossed as u8);
+                let addr_indexed_with_carry =
+                    u16::from_le_bytes([addr_indexed_without_carry[0], addr_indexed_high]);
+                let second_read_attempt = bus.read(addr_indexed_with_carry, cpu);
+                cpu.cycle_count += 1;
+                second_read_attempt
+            }
+        };
+
         res
     }
 
     pub fn write_indirect_indexed(cpu: &mut Cpu, val: u8, bus: &mut dyn CpuAddressBus) {
         let addr = cpu.fetch_operand_byte(bus);
-        cpu.cycle_count += 1;
-
-        let (final_addr, _) = self::calc_indirect_indexed(cpu, addr, bus);
-        // TODO: dummy read here
-        cpu.cycle_count += 1;
-
-        bus.write(final_addr, val, cpu);
-        cpu.cycle_count += 1;
-
         cpu.pc += 1;
+        cpu.cycle_count += 1;
+
+        let (addr_indexed_without_carry, page_crossed) =
+            self::calc_addr_without_carry(cpu, addr, bus);
+
+        // perform dummy read from address before adding carry to high bits
+        let _ = bus.read(u16::from_le_bytes(addr_indexed_without_carry), cpu);
+        let addr_indexed_high = addr_indexed_without_carry[1].wrapping_add(page_crossed as u8);
+        let addr_indexed_with_carry =
+            u16::from_le_bytes([addr_indexed_without_carry[0], addr_indexed_high]);
+        cpu.cycle_count += 1;
+
+        bus.write(addr_indexed_with_carry, val, cpu);
+        cpu.cycle_count += 1;
     }
 
-    fn calc_indirect_indexed(cpu: &mut Cpu, addr: u8, bus: &mut dyn CpuAddressBus) -> (u16, bool) {
+    fn calc_addr_without_carry(
+        cpu: &mut Cpu,
+        addr: u8,
+        bus: &mut dyn CpuAddressBus,
+    ) -> ([u8; 2], bool) {
         // get address at bus[addr]
         let dest_addr = {
             let low = bus.read(addr as u16, cpu);
@@ -322,12 +366,9 @@ mod indirect_indexed {
             [low, high]
         };
 
-        // add index to address while keeping track of whether a page boundary was crossed
-        let (indexed_addr_low, carry) = dest_addr[0].overflowing_add(cpu.y);
-        let indexed_addr_hi = dest_addr[1].wrapping_add(carry as u8);
+        // add index to low bytes of address and keep track of the carry
+        let (dest_addr_indexed_low, carry) = dest_addr[0].overflowing_add(cpu.y);
 
-        let indexed_addr = u16::from_le_bytes([indexed_addr_low, indexed_addr_hi]);
-
-        (indexed_addr, carry)
+        ([dest_addr_indexed_low, dest_addr[1]], carry)
     }
 }
