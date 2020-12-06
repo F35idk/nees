@@ -1,12 +1,15 @@
+use crate::address_bus::PpuAddressBus;
+use crate::cpu;
+
 #[macro_use]
-use super::{cpu, util};
-use super::address_bus::PpuAddressBus;
+use derive_serialize::Serialize;
 
 mod bg_state;
 mod palette;
 mod sprite_state;
-pub mod test;
+mod test;
 
+#[derive(Serialize, Debug)]
 pub struct Ppu {
     cycle_count: i32,
     current_scanline: i16,
@@ -54,15 +57,17 @@ enum SpriteSize {
     S8x16 = 16,
 }
 
+#[derive(Serialize, Debug)]
 pub struct PrimaryOam {
     pub entries: [OamEntry; 64],
 }
 
+#[derive(Serialize, Debug)]
 pub struct SecondaryOam {
     pub entries: [OamEntry; 8],
 }
 
-#[derive(Copy, Clone, Default)]
+#[derive(Serialize, Copy, Clone, Default, Debug)]
 #[repr(C)]
 pub struct OamEntry {
     pub y: u8,
@@ -110,7 +115,7 @@ macro_rules! oam_impl {
 oam_impl!(PrimaryOam, 64);
 oam_impl!(SecondaryOam, 8);
 
-#[derive(Copy, Clone)]
+#[derive(Serialize, Copy, Clone, Debug)]
 struct VramAddrRegister {
     inner: u16,
 }

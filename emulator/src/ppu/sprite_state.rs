@@ -2,7 +2,10 @@ use super::{PrimaryOam, SecondaryOam, SpriteSize};
 use crate::address_bus::PpuAddressBus;
 use crate::cpu;
 
-#[derive(Default)]
+#[macro_use]
+use derive_serialize::Serialize;
+
+#[derive(Serialize, Default, Debug)]
 pub(super) struct SpriteDrawState {
     // contains data for the 8 sprites to be drawn on the current or
     // next scanline (should be filled with sprite data for the next
@@ -20,7 +23,7 @@ pub(super) struct SpriteDrawState {
 }
 
 // struct used internally in 'SpriteDrawState' to store sprite data between scanlines
-#[derive(Copy, Clone, Default)]
+#[derive(Serialize, Copy, Clone, Default, Debug)]
 struct SpriteRenderData {
     x: u8,
     tile_bitplane_lo: u8,

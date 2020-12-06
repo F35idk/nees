@@ -1,5 +1,10 @@
 use super::{CpuAddressBus, CpuAddressBusBase, PpuAddressBus};
-use crate::{apu, bus, controller as ctrl, cpu, parse, ppu, util, win, PixelRenderer};
+use crate::{apu, controller as ctrl, cpu, parse, ppu, serialize};
+
+#[macro_use]
+use derive_serialize::Serialize;
+
+use std::{fs, io};
 
 pub struct NromCpuAddressBus {
     base: CpuAddressBusBase,
@@ -248,6 +253,39 @@ impl PpuAddressBus for NromPpuAddressBus {
     }
 }
 
+// NOTE: 'Serialize' is implemented manually to avoid serializing rom
+impl serialize::Serialize for NromPpuAddressBus {
+    fn serialize(&self, file: &mut io::BufWriter<fs::File>) -> Result<(), String> {
+        self.chr_ram.serialize(file)?;
+        self.nametables.serialize(file)?;
+        self.palettes.serialize(file)?;
+        self.hor_mirroring.serialize(file)
+    }
+
+    fn deserialize(&mut self, file: &mut io::BufReader<fs::File>) -> Result<(), String> {
+        self.chr_ram.deserialize(file)?;
+        self.nametables.deserialize(file)?;
+        self.palettes.deserialize(file)?;
+        self.hor_mirroring.deserialize(file)
+    }
+}
+
+impl serialize::Serialize for NromCpuAddressBus {
+    fn serialize(&self, file: &mut io::BufWriter<fs::File>) -> Result<(), String> {
+        self.base.serialize(file)?;
+        self.ppu_bus.serialize(file)?;
+        self.internal_ram.serialize(file)?;
+        self.prg_ram.serialize(file)
+    }
+
+    fn deserialize(&mut self, file: &mut io::BufReader<fs::File>) -> Result<(), String> {
+        self.base.deserialize(file)?;
+        self.ppu_bus.deserialize(file)?;
+        self.internal_ram.deserialize(file)?;
+        self.prg_ram.deserialize(file)
+    }
+}
+
 mod test {
     use super::*;
 
@@ -257,8 +295,7 @@ mod test {
         let apu = apu::Apu {};
         let controller = ctrl::Controller::default();
         let mut framebuffer = [0u32; 256 * 240];
-        let mut bus =
-            bus::NromCpuAddressBus::new_empty(0x4000, ppu, apu, controller, &mut framebuffer);
+        let mut bus = NromCpuAddressBus::new_empty(0x4000, ppu, apu, controller, &mut framebuffer);
         let mut cpu = cpu::Cpu::default();
 
         // nrom-128

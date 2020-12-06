@@ -9,6 +9,9 @@ edition = "2018"
 [dependencies.pixel_renderer]
 path = "../pixel_renderer"
 
+[dependencies.derive_serialize]
+path = "../derive_serialize"
+
 [dependencies.xcb-util]
 version = "0.3.0"
 default-features = false

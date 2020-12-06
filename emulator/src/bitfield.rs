@@ -86,6 +86,16 @@ macro_rules! bitfield {
                     unsafe { &mut *(self as *mut _ as *mut Fields)}
                 }
             }
+
+            impl crate::serialize::Serialize for Fields {
+                fn serialize(&self, file: &mut ::std::io::BufWriter<::std::fs::File>) -> Result<(), String> {
+                    self.bits.serialize(file)
+                }
+
+                fn deserialize(&mut self, file: &mut ::std::io::BufReader<::std::fs::File>) -> Result<(), String> {
+                    self.bits.deserialize(file)
+                }
+            }
         }
     };
     // handle trailing commas

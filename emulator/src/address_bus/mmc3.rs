@@ -1,8 +1,12 @@
-use crate::{apu, controller as ctrl, cpu, parse, ppu};
+use crate::{apu, controller as ctrl, cpu, parse, ppu, serialize};
 #[macro_use]
-use crate::util;
+use crate::bitfield;
 use super::{CpuAddressBus, CpuAddressBusBase, PpuAddressBus};
-use crate::PixelRenderer;
+
+#[macro_use]
+use derive_serialize::Serialize;
+
+use std::{fs, io};
 
 // NOTE: current implementation ignores open bus behavior
 // and compatibility with mmc6 or any non-mapper-4 cartridges,
@@ -14,12 +18,13 @@ pub struct Mmc3CpuAddressBus {
     prg_ram: [u8; 0x2000],
     // up to 64 banks
     prg_banks: Box<[[u8; 0x2000]]>,
-    // the bank register to update on the next write to
-    // 'bank data'
-    // NOTE: due to borrowck issues, the bank registers
-    // r0-r7 are located in 'Mmc3PpuAddressBus', instead of
-    // in this struct
+    // the bank register to update on the next write
+    // to 'bank data'
     bank_register_to_update: u8,
+
+    // NOTE: the bank registers r0-r7 are located in
+    // 'Mmc3PpuAddressBus', instead of in this struct
+
     // misc bool flags
     bits: Mmc3CpuBits::BitField,
 }
@@ -64,7 +69,6 @@ impl Mmc3PpuAddressBus {
         if a12 {
             if !self.bits.prev_a12.is_true() {
                 // ignore a12 rise if there was another a12 rise 6 or fewer cycles ago
-                // FIXME:::: gt?? gte??
                 if (cycle_count - self.cycle_count_at_prev_a12_high) as u32 > 6 {
                     if self.bits.irq_reload.is_true() || self.irq_counter == 0 {
                         // reload counter
@@ -244,7 +248,7 @@ impl Mmc3CpuAddressBus {
             let n_banks = prg_rom.len() >> 13;
 
             unsafe {
-                // ensure new slice has the proper length
+                // ensure new slice has correct length
                 let slice = std::slice::from_raw_parts_mut(raw, n_banks);
                 Box::from_raw(slice as *mut [[u8; 0x2000]])
             }
@@ -479,6 +483,49 @@ impl CpuAddressBus for Mmc3CpuAddressBus {
 
     fn base(&mut self) -> (&mut CpuAddressBusBase, &mut dyn PpuAddressBus) {
         (&mut self.base, &mut self.ppu_bus)
+    }
+}
+
+// NOTE: 'Serialize' is implemented manually to avoid serializing rom
+impl serialize::Serialize for Mmc3PpuAddressBus {
+    fn serialize(&self, file: &mut io::BufWriter<fs::File>) -> Result<(), String> {
+        self.r.serialize(file)?;
+        self.nametables.serialize(file)?;
+        self.palettes.serialize(file)?;
+        self.irq_counter.serialize(file)?;
+        self.irq_latch.serialize(file)?;
+        self.cycle_count_at_prev_a12_high.serialize(file)?;
+        self.bits.serialize(file)
+    }
+
+    fn deserialize(&mut self, file: &mut io::BufReader<fs::File>) -> Result<(), String> {
+        self.r.deserialize(file)?;
+        self.nametables.deserialize(file)?;
+        self.palettes.deserialize(file)?;
+        self.irq_counter.deserialize(file)?;
+        self.irq_latch.deserialize(file)?;
+        self.cycle_count_at_prev_a12_high.deserialize(file)?;
+        self.bits.deserialize(file)
+    }
+}
+
+impl serialize::Serialize for Mmc3CpuAddressBus {
+    fn serialize(&self, file: &mut io::BufWriter<fs::File>) -> Result<(), String> {
+        self.base.serialize(file)?;
+        self.ppu_bus.serialize(file)?;
+        self.internal_ram.serialize(file)?;
+        serialize::Serialize::serialize(&self.prg_ram, file)?;
+        self.bank_register_to_update.serialize(file)?;
+        self.bits.serialize(file)
+    }
+
+    fn deserialize(&mut self, file: &mut io::BufReader<fs::File>) -> Result<(), String> {
+        self.base.deserialize(file)?;
+        self.ppu_bus.deserialize(file)?;
+        self.internal_ram.deserialize(file)?;
+        serialize::Serialize::deserialize(&mut self.prg_ram, file)?;
+        self.bank_register_to_update.deserialize(file)?;
+        self.bits.deserialize(file)
     }
 }
 

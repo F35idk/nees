@@ -1,18 +1,11 @@
 use crate::address_bus::PpuAddressBus;
 use crate::cpu;
 
-#[derive(Default)]
-pub(super) struct BgDrawState {
-    // equivalent to the two 16-bit pattern table data shift registers
-    // on the (irl) ppu
-    pub tile_bitplanes_hi: TileBitPlanes,
-    pub tile_bitplanes_lo: TileBitPlanes,
-    // holds the palette indices of the two current tiles (in the first 4 bits)
-    pub tile_palette_indices: u8,
-}
+#[macro_use]
+use derive_serialize::Serialize;
 
 #[repr(align(2))]
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Clone, Default, Serialize, Debug)]
 pub(super) struct TileBitPlanes([u8; 2]);
 
 impl TileBitPlanes {
@@ -24,6 +17,23 @@ impl TileBitPlanes {
         unsafe { std::mem::transmute(self) }
     }
 }
+
+#[derive(Default, Serialize, Debug)]
+pub(super) struct BgDrawState {
+    // equivalent to the two 16-bit pattern table data shift registers
+    // on the (irl) ppu
+    pub tile_bitplanes_hi: TileBitPlanes,
+    pub tile_bitplanes_lo: TileBitPlanes,
+    // holds the palette indices of the two current tiles (in the first 4 bits)
+    pub tile_palette_indices: u8,
+}
+
+// derive_serialize_for_struct!(
+//     BgDrawState,
+//     tile_bitplanes_lo,
+//     tile_bitplanes_hi,
+//     tile_palette_indices
+// );
 
 impl BgDrawState {
     pub(super) fn shift_tile_data_by_8(&mut self) {

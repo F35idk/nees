@@ -1,9 +1,5 @@
-use crate::Nes;
-use crate::{apu, bus, controller as ctrl, cpu, parse, ppu, util, win};
-use {
-    bus::CpuAddressBus, bus::CpuAddressBusBase, bus::Mmc3CpuAddressBus, bus::NromCpuAddressBus,
-    bus::PpuAddressBus,
-};
+use crate::{apu, bus, controller as ctrl, cpu, parse, ppu, serialize};
+use bus::{CpuAddressBus, CpuAddressBusBase, Mmc3CpuAddressBus, NromCpuAddressBus, PpuAddressBus};
 
 // wrapper struct around 'CpuAddressBus' implementations that stores writes
 // in the 0x6000 area (blargg's tests output a result string to these addresses)
@@ -41,8 +37,22 @@ impl TestCpuAddressBus<NromCpuAddressBus> {
     }
 }
 
+// 'Serialize' is required by the 'CpuAddressBus' trait
+impl<A> serialize::Serialize for TestCpuAddressBus<A>
+where
+    A: CpuAddressBus,
+{
+    fn serialize(&self, file: &mut std::io::BufWriter<std::fs::File>) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn deserialize(&mut self, file: &mut std::io::BufReader<std::fs::File>) -> Result<(), String> {
+        Ok(())
+    }
+}
+
 // TODO: make the 'new()' method on 'NromAddressBus' and 'Mmc3CpuAddressBus'
-// part of the 'CpuAddressBus' trait to remove this code duplication
+// a part of the 'CpuAddressBus' trait to remove this code duplication
 impl TestCpuAddressBus<Mmc3CpuAddressBus> {
     pub fn new(
         prg_rom: &[u8],
@@ -102,7 +112,7 @@ where
 fn run_test(rom_path: &str, expected_test_output: &str) {
     let mut rom_file = std::fs::File::open(rom_path).unwrap();
     let mut framebuffer = [0u32; 256 * 240];
-    let mut nes = Nes::new(&mut framebuffer, &mut rom_file);
+    let mut nes = crate::Nes::new(&mut framebuffer, &mut rom_file);
 
     nes.cpu.pc = u16::from_le_bytes([
         nes.bus.read(0xfffc, &mut nes.cpu),
@@ -121,7 +131,7 @@ fn run_test(rom_path: &str, expected_test_output: &str) {
 
         // reset counters
         let base = nes.bus.base().0;
-        base.ppu.cycle_count -= nes.cpu.cycle_count as i32 * 3;
+        base.ppu.sub_cycle_count(nes.cpu.cycle_count as i32 * 3);
         base.ppu.set_frame_done(false);
         nes.cpu.cycle_count = 0;
     }
@@ -273,7 +283,7 @@ fn mmc3_test_2() {
         "\n3-A12_clocking\n\nPassed\n",
     );
 
-    // NOTE: '4-scanline_timing' fails due to cycle inaccuracies (most likey caused by
+    // NOTE: '4-scanline_timing' fails due to cycle inaccuracies (most likely caused by
     // the fact that the 8 cycles at dot 257-265 all have to be executed in one step)
 
     run_test(

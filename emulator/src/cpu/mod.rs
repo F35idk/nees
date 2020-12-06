@@ -1,8 +1,12 @@
-use super::address_bus::CpuAddressBus;
+use crate::address_bus::CpuAddressBus;
+
+#[macro_use]
+use derive_serialize::Serialize;
 
 mod addressing;
 mod test;
 
+#[derive(Serialize)]
 pub struct Cpu {
     pub a: u8,
     pub x: u8,

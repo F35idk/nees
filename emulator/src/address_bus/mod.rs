@@ -1,10 +1,15 @@
+use crate::{apu, controller as ctrl, cpu, ppu, serialize, util, PixelRenderer};
+
+#[macro_use]
+use derive_serialize::Serialize;
+
 mod mmc3;
 mod nrom;
 
 pub use mmc3::{Mmc3CpuAddressBus, Mmc3PpuAddressBus};
 pub use nrom::{NromCpuAddressBus, NromPpuAddressBus};
 
-use crate::{apu, controller as ctrl, cpu, ppu, util, PixelRenderer};
+use std::{fs, io};
 
 // the base struct that all 'CpuAddressBus' implementations should inherit
 // from. can be accessed through the 'CpuAddressBus::base()' trait method
@@ -32,6 +37,22 @@ impl CpuAddressBusBase {
     }
 }
 
+// NOTE: 'Serialize' cannot be derived and must be implemented manually,
+// since the 'framebuffer_raw' pointer doesn't support serialization
+impl serialize::Serialize for CpuAddressBusBase {
+    fn serialize(&self, file: &mut io::BufWriter<fs::File>) -> Result<(), String> {
+        self.apu.serialize(file)?;
+        self.ppu.serialize(file)?;
+        self.controller.serialize(file)
+    }
+
+    fn deserialize(&mut self, file: &mut io::BufReader<fs::File>) -> Result<(), String> {
+        self.apu.deserialize(file)?;
+        self.ppu.deserialize(file)?;
+        self.controller.deserialize(file)
+    }
+}
+
 // trait to represent operations on the cpu memory map/address space.
 // allows implementing custom cpu memory read/write behavior for the
 // various 'mappers' used by nes games/cartridges. the 'CpuAddressBus'
@@ -40,7 +61,7 @@ impl CpuAddressBusBase {
 // functionality for the ppu. the 'CpuAddressBus' implementor owns this
 // as well (it can be accessed through the 'base()' method)
 
-pub trait CpuAddressBus {
+pub trait CpuAddressBus: serialize::Serialize {
     fn base(&mut self) -> (&mut CpuAddressBusBase, &mut dyn PpuAddressBus);
     fn read(&mut self, addr: u16, cpu: &mut cpu::Cpu) -> u8;
     fn write(&mut self, addr: u16, val: u8, cpu: &mut cpu::Cpu);

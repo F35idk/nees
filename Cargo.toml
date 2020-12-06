@@ -3,4 +3,5 @@
 members = [
 "pixel_renderer",
 "emulator",
+"derive_serialize",
 ]

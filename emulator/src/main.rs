@@ -2,6 +2,7 @@
 mod bitfield;
 #[macro_use]
 mod serialize;
+#[macro_use]
 mod util;
 mod address_bus;
 mod apu;
@@ -12,9 +13,8 @@ mod ppu;
 mod test;
 mod win;
 
-use address_bus as bus;
-use bus::{CpuAddressBus, PpuAddressBus};
-use controller as ctrl;
+use address_bus::{CpuAddressBus, PpuAddressBus};
+use {address_bus as bus, controller as ctrl};
 
 use pixel_renderer;
 use pixel_renderer::xcb;
