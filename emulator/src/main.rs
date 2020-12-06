@@ -1,4 +1,6 @@
 #[macro_use]
+mod bitfield;
+#[macro_use]
 mod util;
 mod address_bus;
 mod apu;
