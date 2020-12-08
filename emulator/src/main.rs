@@ -31,8 +31,14 @@ struct Nes<'a> {
 
 impl<'a> Nes<'a> {
     fn new(framebuffer: &mut [u32; 256 * 240], rom_file: &mut std::fs::File) -> Self {
-        let mut rom = vec![0; rom_file.metadata().unwrap().len() as usize];
-        rom_file.read(&mut rom).unwrap();
+        let rom_len = rom_file
+            .metadata()
+            .unwrap_or_else(|e| error_exit!("Failed to query rom file metadata: {}", e))
+            .len() as usize;
+        let mut rom = vec![0; rom_len];
+        rom_file
+            .read(&mut rom)
+            .unwrap_or_else(|e| error_exit!("Failed to read rom file: {}", e));
 
         let prg_size = 0x4000 * (parse::get_prg_size(&rom) as usize);
         let chr_size = 0x2000 * (parse::get_chr_size(&rom) as usize);
@@ -153,7 +159,7 @@ impl<'a> Nes<'a> {
 fn main() {
     let mut args = std::env::args();
     if args.len() < 2 {
-        error_exit!("Failed to parse commandline arguments: too few arguments were provided");
+        error_exit!("Failed to parse commandline arguments: too few arguments provided");
     }
     let rom_path = args.nth(1).unwrap();
     let mut rom_file = std::fs::File::open(rom_path)
@@ -193,7 +199,7 @@ fn main() {
         Some(ref mut save)
             if save
                 .metadata()
-                .unwrap_or_else(|e| error_exit!("Failed to query file metadata: {}", e))
+                .unwrap_or_else(|e| error_exit!("Failed to query save file metadata: {}", e))
                 .len()
                 != 0 =>
         {
@@ -204,8 +210,10 @@ fn main() {
 
             let mut reader = std::io::BufReader::with_capacity(6 * 1024, save_file_cloned);
 
-            cpu.deserialize(&mut reader).unwrap();
-            bus.deserialize(&mut reader).unwrap();
+            cpu.deserialize(&mut reader)
+                .unwrap_or_else(|e| error_exit!("Failed to read from save file: {}", e));
+            bus.deserialize(&mut reader)
+                .unwrap_or_else(|e| error_exit!("Failed to read from save file: {}", e));
         }
         _ => {
             // no save file - start game from beginning
@@ -284,9 +292,15 @@ fn main() {
                                 let mut writer =
                                     std::io::BufWriter::with_capacity(6 * 1024, save_file_cloned);
 
-                                cpu.serialize(&mut writer).unwrap();
-                                bus.serialize(&mut writer).unwrap();
-                                writer.flush().unwrap();
+                                cpu.serialize(&mut writer).unwrap_or_else(|e| {
+                                    error_exit!("Failed to write to save file: {}", e)
+                                });
+                                bus.serialize(&mut writer).unwrap_or_else(|e| {
+                                    error_exit!("Failed to write to save file: {}", e)
+                                });
+                                writer.flush().unwrap_or_else(|e| {
+                                    error_exit!("Failed to flush writes to save file: {}", e)
+                                });
                             }
                         }
                         _ => unsafe { (*base_raw).controller.set_key(key_sym) },
