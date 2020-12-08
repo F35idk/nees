@@ -14,6 +14,7 @@ mod test;
 mod win;
 
 use address_bus::{CpuAddressBus, PpuAddressBus};
+use serialize::Serialize;
 use {address_bus as bus, controller as ctrl};
 
 use pixel_renderer;
@@ -21,7 +22,7 @@ use pixel_renderer::xcb;
 use pixel_renderer::PixelRenderer;
 use xcb_util::keysyms;
 
-use std::io::Read;
+use std::io::{Read, Write};
 
 struct Nes<'a> {
     cpu: cpu::Cpu,
@@ -155,22 +156,66 @@ fn main() {
         error_exit!("Failed to parse commandline arguments: too few arguments were provided");
     }
     let rom_path = args.nth(1).unwrap();
-    let mut rom_file = match std::fs::File::open(rom_path) {
-        Ok(f) => f,
-        Err(e) => error_exit!("Failed to open rom file: {}", e),
+    let mut rom_file = std::fs::File::open(rom_path)
+        .unwrap_or_else(|e| error_exit!("Failed to open rom file: {}", e));
+
+    let mut save_file: Option<std::fs::File> = match args.next() {
+        Some(string) if string == "--save" => match args.next() {
+            Some(save_file_path) => match std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .open(save_file_path)
+            {
+                Ok(f) => Some(f),
+                Err(e) => error_exit!("Failed to open save file: {}", e),
+            },
+            _ => error_exit!(
+                "Failed to parse commandline arguments: expected path to save file after '--save'"
+            ),
+        },
+        Some(string) => error_exit!(
+            "Failed to parse commandline arguments: invalid argument '{}'",
+            string
+        ),
+        _ => None,
     };
 
-    let win = match win::XcbWindowWrapper::new("mynes", 1200, 600) {
-        Ok(w) => w,
-        Err(e) => error_exit!("Failed to create XCB window: {}", e),
-    };
-    let mut renderer = match PixelRenderer::new(&win.connection, win.win, 256, 240) {
-        Ok(r) => r,
-        Err(e) => error_exit!("Failed to initialize renderer: {}", e),
-    };
+    let win = win::XcbWindowWrapper::new("mynes", 1200, 600)
+        .unwrap_or_else(|e| error_exit!("Failed to create XCB window: {}", e));
+    let mut renderer = PixelRenderer::new(&win.connection, win.win, 256, 240)
+        .unwrap_or_else(|e| error_exit!("Failed to initialize renderer: {}", e));
     let key_syms = keysyms::KeySymbols::new(&win.connection);
 
     let Nes { mut cpu, bus } = Nes::new(util::pixels_to_u32(&mut renderer), &mut rom_file);
+
+    match save_file {
+        Some(ref mut save)
+            if save
+                .metadata()
+                .unwrap_or_else(|e| error_exit!("Failed to query file metadata: {}", e))
+                .len()
+                != 0 =>
+        {
+            // save file exists and is non-empty - load from it
+            let save_file_cloned = save
+                .try_clone()
+                .unwrap_or_else(|e| error_exit!("Failed to copy file handle: {}", e));
+
+            let mut reader = std::io::BufReader::with_capacity(6 * 1024, save_file_cloned);
+
+            cpu.deserialize(&mut reader).unwrap();
+            bus.deserialize(&mut reader).unwrap();
+        }
+        _ => {
+            // no save file - start game from beginning
+            cpu.p = 4;
+            cpu.sp = 0xfd;
+            // set pc = reset vector
+            cpu.pc = u16::from_le_bytes([bus.read(0xfffc, &mut cpu), bus.read(0xfffd, &mut cpu)]);
+        }
+    }
+
     // NOTE: raw pointers are used to avoid repeated virtual function calls
     // SAFETY AND RATIONALE: all of the '(*base_raw)' and '(*ppu_bus_raw)'
     // dereferences in the main loop below are equivalent to simply
@@ -183,11 +228,6 @@ fn main() {
     // are instead stored as raw pointers and accessed directly when needed.
     let (base_raw, ppu_bus_raw): (*mut bus::CpuAddressBusBase, *mut dyn bus::PpuAddressBus) =
         (bus.base().0, bus.base().1);
-
-    cpu.p = 4;
-    cpu.sp = 0xfd;
-    // set pc = reset vector
-    cpu.pc = u16::from_le_bytes([bus.read(0xfffc, &mut cpu), bus.read(0xfffd, &mut cpu)]);
 
     win.map_and_flush();
 
@@ -203,36 +243,53 @@ fn main() {
                     let key_press: &xcb::KeyPressEvent = unsafe { xcb::cast_event(&e) };
                     let key_sym = key_syms.press_lookup_keysym(key_press, 0);
 
-                    if key_sym == win::Keys::ESC {
-                        is_paused = !is_paused;
+                    match key_sym {
+                        win::Keys::ESC => {
+                            is_paused = !is_paused;
 
-                        // if paused, call 'wait_for_event()' until an 'ESC'
-                        // key press is received
-                        while is_paused {
-                            match win
-                                .connection
-                                .wait_for_event()
-                                .map(|e| (e.response_type() & !0x80, e))
-                            {
-                                Some((xcb::KEY_PRESS, e)) => {
-                                    let press = unsafe { xcb::cast_event(&e) };
-                                    let sym = key_syms.press_lookup_keysym(press, 0);
+                            // if paused, call 'wait_for_event()' until an 'ESC'
+                            // key press is received
+                            while is_paused {
+                                match win
+                                    .connection
+                                    .wait_for_event()
+                                    .map(|e| (e.response_type() & !0x80, e))
+                                {
+                                    Some((xcb::KEY_PRESS, e)) => {
+                                        let press = unsafe { xcb::cast_event(&e) };
+                                        let sym = key_syms.press_lookup_keysym(press, 0);
 
-                                    if sym == win::Keys::ESC {
-                                        // unpause
-                                        is_paused = false;
+                                        if sym == win::Keys::ESC {
+                                            // unpause
+                                            is_paused = false;
+                                        }
                                     }
+                                    Some((xcb::CONFIGURE_NOTIFY, _)) | Some((xcb::EXPOSE, _)) => {
+                                        // make sure to re-render frame on resize/expose events
+                                        let idx = renderer.render_frame();
+                                        renderer.present(idx);
+                                    }
+                                    _ => (),
                                 }
-                                Some((xcb::CONFIGURE_NOTIFY, _)) | Some((xcb::EXPOSE, _)) => {
-                                    // make sure to re-render frame on resize/expose events
-                                    let idx = renderer.render_frame();
-                                    renderer.present(idx);
-                                }
-                                _ => (),
                             }
                         }
-                    } else {
-                        unsafe { (*base_raw).controller.set_key(key_sym) };
+                        win::Keys::P => {
+                            if let Some(ref mut save_file) = save_file {
+                                let save_file_cloned = save_file.try_clone().unwrap_or_else(|e| {
+                                    error_exit!("Failed to copy file handle: {}", e)
+                                });
+
+                                // OPTIMIZE: don't create a new 'BufWriter' every time
+                                // the game is saved (keep one around instead)
+                                let mut writer =
+                                    std::io::BufWriter::with_capacity(6 * 1024, save_file_cloned);
+
+                                cpu.serialize(&mut writer).unwrap();
+                                bus.serialize(&mut writer).unwrap();
+                                writer.flush().unwrap();
+                            }
+                        }
+                        _ => unsafe { (*base_raw).controller.set_key(key_sym) },
                     }
                 }
                 xcb::KEY_RELEASE => {
