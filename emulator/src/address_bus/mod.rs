@@ -67,7 +67,7 @@ pub trait CpuAddressBus: serialize::Serialize {
     fn write(&mut self, addr: u16, val: u8, cpu: &mut cpu::Cpu);
 }
 
-pub trait PpuAddressBus {
+pub trait PpuAddressBus: 'static {
     fn read(&mut self, addr: u16, ppu_cycle_count: i32, cpu: &mut cpu::Cpu) -> u8;
     fn write(&mut self, addr: u16, val: u8, ppu_cycle_count: i32, cpu: &mut cpu::Cpu);
     fn set_address(&mut self, addr: u16, ppu_cycle_count: i32, cpu: &mut cpu::Cpu);

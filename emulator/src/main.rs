@@ -182,7 +182,7 @@ fn main() {
     // repeated calls to 'base()' in the main loop', 'base' and 'ppu_bus'
     // are instead stored as raw pointers and accessed directly when needed.
     let (base_raw, ppu_bus_raw): (*mut bus::CpuAddressBusBase, *mut dyn bus::PpuAddressBus) =
-        unsafe { (bus.base().0, std::mem::transmute(bus.base().1)) };
+        (bus.base().0, bus.base().1);
 
     cpu.p = 4;
     cpu.sp = 0xfd;
