@@ -2,10 +2,7 @@ use crate::win;
 #[macro_use]
 use crate::util;
 
-#[macro_use]
-use derive_serialize::Serialize;
-
-#[derive(Serialize, Default)]
+#[derive(Default)]
 pub struct Controller {
     key_state_bitmap: u8,
     key_state_shift_reg: u8,

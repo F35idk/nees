@@ -37,19 +37,17 @@ impl CpuAddressBusBase {
     }
 }
 
-// NOTE: 'Serialize' cannot be derived and must be implemented manually,
-// since the 'framebuffer_raw' pointer doesn't support serialization
+// NOTE: 'Serialize' cannot be derived and must be implemented manually, since neither
+// the 'controller' nor the 'framebuffer_raw' fields support serialization
 impl serialize::Serialize for CpuAddressBusBase {
     fn serialize(&self, file: &mut io::BufWriter<fs::File>) -> Result<(), String> {
         self.apu.serialize(file)?;
-        self.ppu.serialize(file)?;
-        self.controller.serialize(file)
+        self.ppu.serialize(file)
     }
 
     fn deserialize(&mut self, file: &mut io::BufReader<fs::File>) -> Result<(), String> {
         self.apu.deserialize(file)?;
-        self.ppu.deserialize(file)?;
-        self.controller.deserialize(file)
+        self.ppu.deserialize(file)
     }
 }
 
