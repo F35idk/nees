@@ -250,13 +250,15 @@ fn main() {
                 xcb::KEY_PRESS => {
                     let key_press: &xcb::KeyPressEvent = unsafe { xcb::cast_event(&e) };
                     let key_sym = key_syms.press_lookup_keysym(key_press, 0);
+                    let key_modifier = key_press.state();
 
-                    match key_sym {
-                        win::Keys::ESC => {
+                    match (key_sym, key_modifier) {
+                        // pause
+                        (win::Keys::ESC, _) => {
                             is_paused = !is_paused;
 
                             // if paused, call 'wait_for_event()' until an 'ESC'
-                            // key press is received
+                            // key press is received or the program shuts down
                             while is_paused {
                                 match win
                                     .connection
@@ -266,10 +268,15 @@ fn main() {
                                     Some((xcb::KEY_PRESS, e)) => {
                                         let press = unsafe { xcb::cast_event(&e) };
                                         let sym = key_syms.press_lookup_keysym(press, 0);
+                                        let modifier = press.state();
 
-                                        if sym == win::Keys::ESC {
-                                            // unpause
-                                            is_paused = false;
+                                        match (sym, modifier) {
+                                            (win::Keys::ESC, _) => is_paused = false,
+                                            // quit on ctrl+q
+                                            (win::Keys::Q, modifier) if (modifier & 4) != 0 => {
+                                                return;
+                                            }
+                                            _ => (),
                                         }
                                     }
                                     Some((xcb::CONFIGURE_NOTIFY, _)) | Some((xcb::EXPOSE, _)) => {
@@ -277,11 +284,20 @@ fn main() {
                                         let idx = renderer.render_frame();
                                         renderer.present(idx);
                                     }
+                                    Some((xcb::CLIENT_MESSAGE, e)) => {
+                                        // handle 'WM_DELETE_WINDOW' events
+                                        let msg: &xcb::ClientMessageEvent =
+                                            unsafe { xcb::cast_event(&e) };
+                                        if msg.data().data32()[0] == win.delete_reply.atom() {
+                                            return;
+                                        }
+                                    }
                                     _ => (),
                                 }
                             }
                         }
-                        win::Keys::P => {
+                        // save
+                        (win::Keys::P, _) => {
                             if let Some(ref mut save_file) = save_file {
                                 let save_file_cloned = save_file.try_clone().unwrap_or_else(|e| {
                                     error_exit!("Failed to copy file handle: {}", e)
@@ -303,7 +319,10 @@ fn main() {
                                 });
                             }
                         }
-                        _ => unsafe { (*base_raw).controller.set_key(key_sym) },
+                        // quit on ctrl+q
+                        (win::Keys::Q, modifier) if (modifier & 4) != 0 => return,
+                        // pass input to emulator
+                        (sym, _) => unsafe { (*base_raw).controller.set_key(sym) },
                     }
                 }
                 xcb::KEY_RELEASE => {
@@ -332,6 +351,13 @@ fn main() {
 
                     current_event = next_event;
                     continue;
+                }
+                xcb::CLIENT_MESSAGE => {
+                    let msg: &xcb::ClientMessageEvent = unsafe { xcb::cast_event(&e) };
+                    if msg.data().data32()[0] == win.delete_reply.atom() {
+                        // 'WM_DELETE_WINDOW' message was sent
+                        return;
+                    }
                 }
                 _ => (),
             }
