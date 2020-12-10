@@ -474,21 +474,35 @@ impl Cpu {
 
     fn branch_if(&mut self, condition: bool, bus: &mut dyn CpuAddressBus) {
         let offset = self.fetch_operand_byte(bus);
+        self.cycle_count += 1;
         self.pc += 1;
 
         if condition {
-            // sign extend 'offset' into an i16
-            let offset_sign_ext = (offset as i8) as i16;
-            // get the carry from adding the low bytes
-            let (_, carry) = (self.pc as u8).overflowing_add(offset as u8);
-            // perform the full addition
-            self.pc = (self.pc as i16 + offset_sign_ext) as u16;
-            // xor sign of 'offset' with 'carry' to determine whether a page boundary was crossed
-            let page_crossed = ((offset as i8) < 0) ^ carry;
+            // dummy opcode fetch attempt (this fetch corresponds to what would've
+            // been the next instruction's opcode fetch if the branch wasn't taken)
+            let _ = bus.read(self.pc, self);
 
-            self.cycle_count += 2 + page_crossed as i16;
-        } else {
+            let (new_pc_low, carry) = (self.pc as u8).overflowing_add(offset as u8);
+            self.pc = u16::from_le_bytes([new_pc_low, self.pc.to_le_bytes()[1]]);
             self.cycle_count += 1;
+
+            let offset_sign = (offset as i8) < 0;
+            // xor sign of 'offset' with 'carry' to determine
+            // whether a page boundary will be crossed
+            let page_crossed = offset_sign ^ carry;
+
+            if page_crossed {
+                let _ = bus.read(self.pc + 1, self);
+                self.cycle_count += 1;
+            }
+
+            // fix high byte of pc
+            self.pc = u16::from_le_bytes([
+                self.pc.to_le_bytes()[0],
+                self.pc.to_le_bytes()[1]
+                    .wrapping_add(carry as u8)
+                    .wrapping_add((offset_sign as u8) * 0xff),
+            ]);
         }
     }
 
