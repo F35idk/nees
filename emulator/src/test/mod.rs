@@ -5,8 +5,8 @@ use bus::{CpuAddressBus, CpuAddressBusBase, Mmc3CpuAddressBus, NromCpuAddressBus
 // in the 0x6000 area (blargg's tests output a result string to these addresses)
 pub struct TestCpuAddressBus<A: CpuAddressBus> {
     bus: A,
-    // the output string (we assume a max size of 0x80 chars)
-    test_output: [u8; 0x80],
+    // the output string (we assume a max size of 255 chars)
+    test_output: [u8; 0xff],
     // the test status written to 0x6000
     test_status: Option<u8>,
 }
@@ -31,7 +31,7 @@ impl TestCpuAddressBus<NromCpuAddressBus> {
                 controller,
                 framebuffer,
             ),
-            test_output: [0; 0x80],
+            test_output: [0; 0xff],
             test_status: None,
         }
     }
@@ -73,7 +73,7 @@ impl TestCpuAddressBus<Mmc3CpuAddressBus> {
                 controller,
                 framebuffer,
             ),
-            test_output: [0; 0x80],
+            test_output: [0; 0xff],
             test_status: None,
         }
     }
@@ -199,6 +199,42 @@ fn instr_test_v5() {
         "src/test/instr_test-v5/rom_singles/16-special.nes",
         "\n16-special\n\nPassed\n",
     );
+}
+
+#[test]
+fn instr_misc() {
+    run_test(
+        "src/test/instr_misc/rom_singles/01-abs_x_wrap.nes",
+        "\n01-abs_x_wrap\n\nPassed\n",
+    );
+
+    run_test(
+        "src/test/instr_misc/rom_singles/02-branch_wrap.nes",
+        "\n02-branch_wrap\n\nPassed\n",
+    );
+
+    run_test(
+        "src/test/instr_misc/rom_singles/03-dummy_reads.nes",
+        "\n03-dummy_reads\n\nPassed\n",
+    );
+
+    // NOTE: '04-dummy_reads_apu' fails since apu emulation isn't implemented yet
+}
+
+#[test]
+fn instr_timing() {
+    // NOTE: both '1-instr_timing' and '2-branch_timing' fail due to lack of apu support
+}
+
+#[test]
+fn cpu_timing_test6() {
+    // NOTE: this test passes, but i've yet to implement a way of verifiying it in code
+    // TODO: allow testing roms that don't output results to 0x6000
+}
+
+#[test]
+fn branch_timing_tests() {
+    // NOTE: all of these tests pass, but haven't been automated for the same reason as above
 }
 
 #[test]
