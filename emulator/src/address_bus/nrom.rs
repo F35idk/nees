@@ -11,7 +11,7 @@ pub struct NromCpuAddressBus {
     ppu_bus: NromPpuAddressBus,
     internal_ram: [u8; 0x800],
     prg_rom: Box<[u8]>,
-    prg_ram: [u8; 0x1000],
+    prg_ram: [u8; 0x2000],
 }
 
 pub struct NromPpuAddressBus {
@@ -68,7 +68,7 @@ impl NromCpuAddressBus {
             base: CpuAddressBusBase::new(ppu, apu, controller, framebuffer),
             ppu_bus,
             internal_ram: [0; 0x800],
-            prg_ram: [0; 0x1000],
+            prg_ram: [0; 0x2000],
             prg_rom: prg_rom.to_vec().into_boxed_slice(),
         }
     }
@@ -84,7 +84,7 @@ impl NromCpuAddressBus {
 
         Self {
             internal_ram: [0; 0x800],
-            prg_ram: [0; 0x1000],
+            prg_ram: [0; 0x2000],
             prg_rom: vec![0; prg_rom_size as usize].into_boxed_slice(),
             ppu_bus: NromPpuAddressBus {
                 chr_ram: [0; 0x2000],
@@ -122,8 +122,7 @@ impl CpuAddressBus for NromCpuAddressBus {
 
         // prg ram
         if super::is_6000_to_7fff(addr) {
-            // mask off bits 11-14 for mirroring
-            addr &= !0b111_1000_0000_0000;
+            addr &= !0b110_0000_0000_0000;
             return unsafe { *self.prg_ram.get(addr as usize).unwrap() };
         }
 
@@ -175,7 +174,7 @@ impl CpuAddressBus for NromCpuAddressBus {
             unsafe {
                 *self
                     .prg_ram
-                    .get_mut((addr & !0b111_1000_0000_0000) as usize)
+                    .get_mut((addr & !0b110_0000_0000_0000) as usize)
                     .unwrap() = val;
             }
             return;
