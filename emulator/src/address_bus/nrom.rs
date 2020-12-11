@@ -103,8 +103,7 @@ impl CpuAddressBus for NromCpuAddressBus {
         if super::is_0_to_1fff(addr) {
             // mask off bit 11 and 12 for mirroring
             addr &= !0b1100000000000;
-            // TODO: revert to unchecked indexing
-            return unsafe { *self.internal_ram.get(addr as usize).unwrap() };
+            return unsafe { *self.internal_ram.get_unchecked(addr as usize) };
         }
 
         // ppu registers
@@ -123,18 +122,18 @@ impl CpuAddressBus for NromCpuAddressBus {
         // prg ram
         if super::is_6000_to_7fff(addr) {
             addr &= !0b110_0000_0000_0000;
-            return unsafe { *self.prg_ram.get(addr as usize).unwrap() };
+            return unsafe { *self.prg_ram.get_unchecked(addr as usize) };
         }
 
         // addres line a15 = 1 (0x8000-0xffff) => prg rom
         if (addr & 0x8000) != 0 {
-            // calculate mirroring mask to apply (depends on whether prg rom.len()
-            // is 0x8000 or 0x4000)
+            // calculate mirroring mask to apply (depends on
+            // whether prg rom.len() is 0x8000 or 0x4000)
             // NOTE: 'prg_rom.len()' is always either 0x4000 or 0x8000 (nrom-128 or nrom-256)
             let mirroring_mask = (self.prg_rom.len() as u16) | 0b1000_0000_0000_0000;
 
             addr &= !mirroring_mask;
-            return unsafe { *self.prg_rom.get(addr as usize).unwrap() };
+            return unsafe { *self.prg_rom.get_unchecked(addr as usize) };
         }
 
         if addr == 0x4016 {
@@ -152,8 +151,7 @@ impl CpuAddressBus for NromCpuAddressBus {
             unsafe {
                 *self
                     .internal_ram
-                    .get_mut((addr & !0b1100000000000) as usize)
-                    .unwrap() = val;
+                    .get_unchecked_mut((addr & !0b1_1000_0000_0000) as usize) = val;
             }
             return;
         }
@@ -174,8 +172,7 @@ impl CpuAddressBus for NromCpuAddressBus {
             unsafe {
                 *self
                     .prg_ram
-                    .get_mut((addr & !0b110_0000_0000_0000) as usize)
-                    .unwrap() = val;
+                    .get_unchecked_mut((addr & !0b110_0000_0000_0000) as usize) = val;
             }
             return;
         }

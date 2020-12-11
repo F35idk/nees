@@ -309,7 +309,7 @@ impl CpuAddressBus for Mmc3CpuAddressBus {
         // internal ram
         if super::is_0_to_1fff(addr) {
             addr &= !0b1_1000_0000_0000;
-            return unsafe { *self.internal_ram.get(addr as usize).unwrap() };
+            return unsafe { *self.internal_ram.get_unchecked(addr as usize) };
         }
 
         // ppu registers
@@ -328,7 +328,7 @@ impl CpuAddressBus for Mmc3CpuAddressBus {
         // prg ram
         if super::is_6000_to_7fff(addr) && self.bits.prg_ram_enable.is_true() {
             addr &= !0b110_0000_0000_0000;
-            return unsafe { *self.prg_ram.get(addr as usize).unwrap() };
+            return unsafe { *self.prg_ram.get_unchecked(addr as usize) };
         }
 
         // FIXME: return open bus when ram is read from but is disabled
@@ -345,7 +345,7 @@ impl CpuAddressBus for Mmc3CpuAddressBus {
             };
 
             addr &= !0b1110_0000_0000_0000;
-            return unsafe { *bank.get(addr as usize).unwrap() };
+            return unsafe { *bank.get_unchecked(addr as usize) };
         }
 
         // switchable bank
@@ -353,7 +353,7 @@ impl CpuAddressBus for Mmc3CpuAddressBus {
             let n_banks = self.prg_banks.len() as u8;
             let bank = &self.prg_banks[(self.ppu_bus.r[7] & (n_banks - 1)) as usize];
             addr &= !0b1110_0000_0000_0000;
-            return unsafe { *bank.get(addr as usize).unwrap() };
+            return unsafe { *bank.get_unchecked(addr as usize) };
         }
 
         // fixed or switchable bank
@@ -366,7 +366,7 @@ impl CpuAddressBus for Mmc3CpuAddressBus {
             };
 
             addr &= !0b1110_0000_0000_0000;
-            return unsafe { *bank.get(addr as usize).unwrap() };
+            return unsafe { *bank.get_unchecked(addr as usize) };
         }
 
         // fixed bank (last)
@@ -374,7 +374,7 @@ impl CpuAddressBus for Mmc3CpuAddressBus {
             let n_banks = self.prg_banks.len();
             let bank = &self.prg_banks[n_banks - 1];
             addr &= !0b1110_0000_0000_0000;
-            return unsafe { *bank.get(addr as usize).unwrap() };
+            return unsafe { *bank.get_unchecked(addr as usize) };
         }
 
         if addr == 0x4016 {
@@ -387,7 +387,7 @@ impl CpuAddressBus for Mmc3CpuAddressBus {
     fn write(&mut self, mut addr: u16, val: u8, cpu: &mut cpu::Cpu) {
         if super::is_0_to_1fff(addr) {
             addr &= !0b1_1000_0000_0000;
-            unsafe { *self.internal_ram.get_mut(addr as usize).unwrap() = val };
+            unsafe { *self.internal_ram.get_unchecked_mut(addr as usize) = val };
             return;
         }
 
@@ -407,7 +407,7 @@ impl CpuAddressBus for Mmc3CpuAddressBus {
             && !self.bits.prg_ram_protect.is_true()
         {
             addr &= !0b110_0000_0000_0000;
-            unsafe { *self.prg_ram.get_mut(addr as usize).unwrap() = val };
+            unsafe { *self.prg_ram.get_unchecked_mut(addr as usize) = val };
             return;
         }
 
