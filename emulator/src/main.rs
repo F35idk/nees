@@ -22,7 +22,7 @@ use pixel_renderer::xcb;
 use pixel_renderer::PixelRenderer;
 use xcb_util::keysyms;
 
-use std::io::{Read, Write};
+use std::io::{Read, Seek, Write};
 
 struct Nes<'a> {
     cpu: cpu::Cpu,
@@ -307,6 +307,12 @@ fn main() {
                                 // the game is saved (keep one around instead)
                                 let mut writer =
                                     std::io::BufWriter::with_capacity(6 * 1024, save_file_cloned);
+
+                                writer
+                                    .seek(std::io::SeekFrom::Start(0))
+                                    .unwrap_or_else(|e| {
+                                        error_exit!("Failed to seek to start of save file: {}", e)
+                                    });
 
                                 cpu.serialize(&mut writer).unwrap_or_else(|e| {
                                     error_exit!("Failed to write to save file: {}", e)
