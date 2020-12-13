@@ -13,8 +13,8 @@ impl Keys {
     pub const S: u32 = 0x73;
     pub const D: u32 = 0x64;
     pub const F: u32 = 0x66;
-    pub const R: u32 = 0x72;
     pub const P: u32 = 0x70;
+    pub const Q: u32 = 0x71;
 }
 
 pub struct XcbWindowWrapper {

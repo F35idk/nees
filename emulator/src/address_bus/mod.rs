@@ -154,7 +154,7 @@ fn calc_ppu_palette_addr(mut addr: u16) -> u8 {
 // (0x2000-0x3eff) and applies proper mirroring to it.
 // returns a value in the range 0-0x7ff.
 // NOTE: this assumes either horizontal or vertical
-// mirroring, not neither
+// mirroring, and doesn't work when both are disabled
 fn calc_ppu_nametable_addr_with_mirroring(mut addr: u16, hor_mirroring: bool) -> u16 {
     debug_assert!(matches!(addr, 0x2000..=0x3eff));
 

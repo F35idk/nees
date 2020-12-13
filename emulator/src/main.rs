@@ -1,3 +1,5 @@
+#![allow(unused_attributes)]
+
 #[macro_use]
 mod bitfield;
 #[macro_use]
@@ -10,10 +12,11 @@ mod controller;
 mod cpu;
 mod parse;
 mod ppu;
+#[cfg(test)]
 mod test;
 mod win;
 
-use address_bus::{CpuAddressBus, PpuAddressBus};
+use address_bus::CpuAddressBus;
 use serialize::Serialize;
 use {address_bus as bus, controller as ctrl};
 
@@ -55,10 +58,7 @@ impl<'a> Nes<'a> {
         logln!("mapper number: {}", parse::get_mapper_num(&rom));
         logln!("prg rom size: {}KB", parse::get_prg_size(&rom) as u32 * 16);
         logln!("chr rom size: {}KB", parse::get_chr_size(&rom) as u32 * 8);
-        logln!(
-            "has battery-backed RAM: {}",
-            parse::has_persistent_mem(&rom)
-        );
+        logln!("has battery-backed RAM: {}", parse::has_prg_ram(&rom));
 
         let ppu = ppu::Ppu::new();
         let apu = apu::Apu {};
@@ -70,10 +70,11 @@ impl<'a> Nes<'a> {
         // safe, as the pointer stays valid at all times. the 'PixelRenderer' that
         // provides the framebuffer pointer is guaranteed to live for the entire
         // duration of the program, and the framebuffer itself is never moved in memory.
-        let bus: &mut dyn CpuAddressBus = match (parse::get_mapper_num(&rom), cfg!(test)) {
-            (num, false) => match num {
-                // mapper 0 => nrom
-                0 => Box::leak(Box::new(bus::NromCpuAddressBus::new(
+        let bus: &mut dyn CpuAddressBus = match parse::get_mapper_num(&rom) {
+            // use custom address bus structs for tests
+            #[cfg(test)]
+            0 => Box::leak(Box::new(
+                test::TestCpuAddressBus::<bus::NromCpuAddressBus>::new(
                     &rom[0x10..=prg_size + 0xf],
                     &rom[0x10 + prg_size..=prg_size + chr_size + 0xf],
                     mirroring,
@@ -81,48 +82,44 @@ impl<'a> Nes<'a> {
                     apu,
                     controller,
                     framebuffer,
-                ))),
-                // mapper 4 => mmc3
-                4 => Box::leak(Box::new(bus::Mmc3CpuAddressBus::new(
-                    &rom[0x10..=prg_size + 0xf],
-                    &rom[0x10 + prg_size..=prg_size + chr_size + 0xf],
-                    mirroring,
-                    ppu,
-                    apu,
-                    controller,
-                    framebuffer,
-                ))),
-                n => error_exit!(
-                    "Failed to load rom file: ines mapper {} is not supported",
-                    n
                 ),
-            },
-            // use custom address bus structs in tests
-            (num, true) => match num {
-                0 => Box::leak(Box::new(
-                    test::TestCpuAddressBus::<bus::NromCpuAddressBus>::new(
-                        &rom[0x10..=prg_size + 0xf],
-                        &rom[0x10 + prg_size..=prg_size + chr_size + 0xf],
-                        mirroring,
-                        ppu,
-                        apu,
-                        controller,
-                        framebuffer,
-                    ),
-                )),
-                4 => Box::leak(Box::new(
-                    test::TestCpuAddressBus::<bus::Mmc3CpuAddressBus>::new(
-                        &rom[0x10..=prg_size + 0xf],
-                        &rom[0x10 + prg_size..=prg_size + chr_size + 0xf],
-                        mirroring,
-                        ppu,
-                        apu,
-                        controller,
-                        framebuffer,
-                    ),
-                )),
-                _ => panic!(),
-            },
+            )),
+            // mapper 0 => nrom
+            0 => Box::leak(Box::new(bus::NromCpuAddressBus::new(
+                &rom[0x10..=prg_size + 0xf],
+                &rom[0x10 + prg_size..=prg_size + chr_size + 0xf],
+                mirroring,
+                ppu,
+                apu,
+                controller,
+                framebuffer,
+            ))),
+            #[cfg(test)]
+            4 => Box::leak(Box::new(
+                test::TestCpuAddressBus::<bus::Mmc3CpuAddressBus>::new(
+                    &rom[0x10..=prg_size + 0xf],
+                    &rom[0x10 + prg_size..=prg_size + chr_size + 0xf],
+                    mirroring,
+                    ppu,
+                    apu,
+                    controller,
+                    framebuffer,
+                ),
+            )),
+            // mapper 4 => mmc3
+            4 => Box::leak(Box::new(bus::Mmc3CpuAddressBus::new(
+                &rom[0x10..=prg_size + 0xf],
+                &rom[0x10 + prg_size..=prg_size + chr_size + 0xf],
+                mirroring,
+                ppu,
+                apu,
+                controller,
+                framebuffer,
+            ))),
+            n => error_exit!(
+                "Failed to load rom file: ines mapper {} is not supported",
+                n
+            ),
         };
 
         Self { cpu, bus }
@@ -167,15 +164,13 @@ fn main() {
 
     let mut save_file: Option<std::fs::File> = match args.next() {
         Some(string) if string == "--save" => match args.next() {
-            Some(save_file_path) => match std::fs::OpenOptions::new()
+            Some(save_file_path) => std::fs::OpenOptions::new()
                 .read(true)
                 .write(true)
                 .create(true)
                 .open(save_file_path)
-            {
-                Ok(f) => Some(f),
-                Err(e) => error_exit!("Failed to open save file: {}", e),
-            },
+                .unwrap_or_else(|e| error_exit!("Failed to open save file: {}", e))
+                .into(),
             _ => error_exit!(
                 "Failed to parse commandline arguments: expected path to save file after '--save'"
             ),
@@ -232,7 +227,7 @@ fn main() {
     // possible when 'bus' isn't hidden behind a dyn pointer. when 'bus'
     // is behind a dyn pointer, the only way to access the fields is
     // through the 'CpuAddressBus::base()' virtual method. to avoid
-    // repeated calls to 'base()' in the main loop', 'base' and 'ppu_bus'
+    // repeated calls to 'base()' in the main loop, 'base' and 'ppu_bus'
     // are instead stored as raw pointers and accessed directly when needed.
     let (base_raw, ppu_bus_raw): (*mut bus::CpuAddressBusBase, *mut dyn bus::PpuAddressBus) =
         (bus.base().0, bus.base().1);
@@ -244,6 +239,7 @@ fn main() {
     loop {
         let start_of_frame = std::time::Instant::now();
 
+        // loop through all pending events
         let mut current_event = win.connection.poll_for_event();
         while let Some(e) = current_event {
             match e.response_type() & !0x80 {
@@ -303,8 +299,8 @@ fn main() {
                                     error_exit!("Failed to copy file handle: {}", e)
                                 });
 
-                                // OPTIMIZE: don't create a new 'BufWriter' every time
-                                // the game is saved (keep one around instead)
+                                // OPTIMIZE: no need to create a new 'BufWriter' every
+                                // time the game is saved (keep one around instead)
                                 let mut writer =
                                     std::io::BufWriter::with_capacity(6 * 1024, save_file_cloned);
 

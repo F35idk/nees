@@ -2,6 +2,7 @@ use crate::Nes;
 use crate::{address_bus as bus, cpu};
 use bus::{CpuAddressBus, PpuAddressBus};
 
+#[cfg(test)]
 fn test_registers(cpu: &mut cpu::Cpu, ppu: &mut super::Ppu, ppu_bus: &mut dyn PpuAddressBus) {
     ppu.ppuctrl = 0b00000011;
     assert_eq!(ppu.get_base_nametable_addr(), 0x2c00);
@@ -66,6 +67,7 @@ fn test_registers(cpu: &mut cpu::Cpu, ppu: &mut super::Ppu, ppu_bus: &mut dyn Pp
     assert_eq!(ppu.current_vram_addr.inner, 0x4fe8 % 0x4000);
 }
 
+#[cfg(test)]
 fn test_write_2007(cpu: &mut cpu::Cpu, cpu_bus: &mut dyn CpuAddressBus) {
     // LDA #ee
     cpu_bus.write(0u16, 0xa9, cpu);
@@ -102,6 +104,7 @@ fn test_write_2007(cpu: &mut cpu::Cpu, cpu_bus: &mut dyn CpuAddressBus) {
     }
 }
 
+#[cfg(test)]
 fn test_write_2000(cpu: &mut cpu::Cpu, cpu_bus: &mut dyn CpuAddressBus) {
     // LDA #ff
     cpu_bus.write(0u16, 0xa9, cpu);
@@ -119,6 +122,7 @@ fn test_write_2000(cpu: &mut cpu::Cpu, cpu_bus: &mut dyn CpuAddressBus) {
     assert_eq!(cpu_bus.base().0.ppu.temp_vram_addr.inner, 0b11_00000_00000)
 }
 
+#[cfg(test)]
 fn test_read_2002(cpu: &mut cpu::Cpu, cpu_bus: &mut dyn CpuAddressBus) {
     // LDA $2002
     cpu_bus.write(0u16, 0xad, cpu);
@@ -132,6 +136,7 @@ fn test_read_2002(cpu: &mut cpu::Cpu, cpu_bus: &mut dyn CpuAddressBus) {
     assert_eq!(cpu_bus.base().0.ppu.bits.low_bits_toggle.is_true(), false);
 }
 
+#[cfg(test)]
 fn test_write_2005(cpu: &mut cpu::Cpu, cpu_bus: &mut dyn CpuAddressBus) {
     // LDA #7d (0b01111_101)
     cpu_bus.write(0u16, 0xa9, cpu);
@@ -170,6 +175,7 @@ fn test_write_2005(cpu: &mut cpu::Cpu, cpu_bus: &mut dyn CpuAddressBus) {
     );
 }
 
+#[cfg(test)]
 fn test_write_2006(cpu: &mut cpu::Cpu, cpu_bus: &mut dyn CpuAddressBus) {
     // LDA #ed (0b11101101)
     cpu_bus.write(0u16, 0xa9, cpu);
@@ -216,6 +222,7 @@ fn test_write_2006(cpu: &mut cpu::Cpu, cpu_bus: &mut dyn CpuAddressBus) {
     }
 }
 
+#[cfg(test)]
 fn test_write_2003_read_2004(cpu: &mut cpu::Cpu, cpu_bus: &mut dyn CpuAddressBus) {
     // LDA #ff
     cpu_bus.write(0u16, 0xa9, cpu);
@@ -243,6 +250,7 @@ fn test_write_2003_read_2004(cpu: &mut cpu::Cpu, cpu_bus: &mut dyn CpuAddressBus
     assert_eq!(cpu.a, 0xee);
 }
 
+#[cfg(test)]
 fn test_increment_vram_addr(
     cpu: &mut cpu::Cpu,
     ppu: &mut super::Ppu,
@@ -277,6 +285,7 @@ fn test_increment_vram_addr(
     assert_eq!(ppu.current_vram_addr.inner, 0x200b);
 }
 
+#[cfg(test)]
 fn test_increment_vram_addr_xy(ppu: &mut super::Ppu) {
     ppu.current_vram_addr.inner = 0b01_01010_11111;
     ppu.increment_vram_addr_coarse_x();
@@ -302,6 +311,7 @@ fn test_increment_vram_addr_xy(ppu: &mut super::Ppu) {
     assert_eq!(ppu.current_vram_addr.inner, 0b111_10_11111_01010);
 }
 
+#[cfg(test)]
 fn test_temp_to_current_vram_transfer(ppu: &mut super::Ppu) {
     ppu.temp_vram_addr.inner = 0b01_00000_10101;
     ppu.current_vram_addr.inner = 0b10_10000_00000;

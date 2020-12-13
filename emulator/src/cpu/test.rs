@@ -2,6 +2,7 @@ use super::Cpu;
 use crate::{address_bus as bus, Nes};
 use bus::CpuAddressBus;
 
+#[cfg(test)]
 fn test_adc(cpu: &mut Cpu, memory: &mut dyn CpuAddressBus) {
     cpu.p = 0x6e;
     cpu.adc(0x69);
@@ -59,6 +60,7 @@ fn test_adc(cpu: &mut Cpu, memory: &mut dyn CpuAddressBus) {
     assert_eq!(cpu.p, 0x24);
 }
 
+#[cfg(test)]
 fn test_and(cpu: &mut Cpu, memory: &mut dyn CpuAddressBus) {
     cpu.a = 0x55;
     cpu.p = 0;
@@ -81,6 +83,7 @@ fn test_and(cpu: &mut Cpu, memory: &mut dyn CpuAddressBus) {
     assert_eq!(cpu.p, 2); // zero-flag should be set
 }
 
+#[cfg(test)]
 fn test_asl(cpu: &mut Cpu, memory: &mut dyn CpuAddressBus) {
     cpu.a = 0x80;
     cpu.p = 0xe5;
@@ -112,6 +115,7 @@ fn test_asl(cpu: &mut Cpu, memory: &mut dyn CpuAddressBus) {
     assert_eq!(cpu.p, 0xa4);
 }
 
+#[cfg(test)]
 fn test_branch_instrs(cpu: &mut Cpu, memory: &mut dyn CpuAddressBus) {
     cpu.p = 0;
     cpu.pc = 0x100;
@@ -142,6 +146,7 @@ fn test_branch_instrs(cpu: &mut Cpu, memory: &mut dyn CpuAddressBus) {
     assert_eq!(cyc, 3);
 }
 
+#[cfg(test)]
 fn test_bit(cpu: &mut Cpu, memory: &mut dyn CpuAddressBus) {
     cpu.p = 0xa4;
     cpu.a = 0xff;
@@ -154,6 +159,7 @@ fn test_bit(cpu: &mut Cpu, memory: &mut dyn CpuAddressBus) {
     assert_eq!(cpu.p, 0xe4);
 }
 
+#[cfg(test)]
 fn test_cmp(cpu: &mut Cpu) {
     cpu.a = 0x40;
     cpu.p = 0x25;
@@ -163,6 +169,7 @@ fn test_cmp(cpu: &mut Cpu) {
     assert_eq!(cpu.p, 0xa4);
 }
 
+#[cfg(test)]
 fn test_dec_inc(cpu: &mut Cpu, memory: &mut dyn CpuAddressBus) {
     memory.write(0x78u16, 0x80, cpu);
     cpu.p = 0xa4;
@@ -174,6 +181,7 @@ fn test_dec_inc(cpu: &mut Cpu, memory: &mut dyn CpuAddressBus) {
     assert_eq!(cpu.p, 0x24);
 }
 
+#[cfg(test)]
 fn test_eor(cpu: &mut Cpu, memory: &mut dyn CpuAddressBus) {
     cpu.p = 0x6c;
     cpu.a = 0x5f;
@@ -198,6 +206,7 @@ fn test_eor(cpu: &mut Cpu, memory: &mut dyn CpuAddressBus) {
     assert_eq!(cpu.p, 0xe4);
 }
 
+#[cfg(test)]
 fn test_jmp(cpu: &mut Cpu, memory: &mut dyn CpuAddressBus) {
     // JMP $c5f5
     cpu.debug_exec_opcode([0x4c, 0xf5, 0xc5], memory);
@@ -213,6 +222,7 @@ fn test_jmp(cpu: &mut Cpu, memory: &mut dyn CpuAddressBus) {
     assert_eq!(cpu.pc, 0x300);
 }
 
+#[cfg(test)]
 fn test_jsr(cpu: &mut Cpu, memory: &mut dyn CpuAddressBus) {
     cpu.pc = 0x300;
     cpu.sp = 0xff;
@@ -260,6 +270,7 @@ fn test_jsr(cpu: &mut Cpu, memory: &mut dyn CpuAddressBus) {
     );
 }
 
+#[cfg(test)]
 fn test_jsr_2(cpu: &mut Cpu, memory: &mut dyn CpuAddressBus) {
     cpu.pc = 0x1620;
     cpu.sp = 0xfb;
@@ -280,6 +291,7 @@ fn test_jsr_2(cpu: &mut Cpu, memory: &mut dyn CpuAddressBus) {
     );
 }
 
+#[cfg(test)]
 fn test_ld(cpu: &mut Cpu, memory: &mut dyn CpuAddressBus) {
     memory.write(0x89u16, 0x00, cpu);
     memory.write(0x8au16, 0x03, cpu);
@@ -304,14 +316,17 @@ fn test_ld(cpu: &mut Cpu, memory: &mut dyn CpuAddressBus) {
     assert_eq!(cpu.p, 0xe5);
 }
 
+#[cfg(test)]
 fn test_lsr() {
     // TODO: ..
 }
 
+#[cfg(test)]
 fn test_ora() {
     // TODO: ..
 }
 
+#[cfg(test)]
 fn test_push_pull(cpu: &mut Cpu, memory: &mut dyn CpuAddressBus) {
     cpu.a = 0xff;
     cpu.sp = 0xfb;
@@ -340,6 +355,7 @@ fn test_push_pull(cpu: &mut Cpu, memory: &mut dyn CpuAddressBus) {
     assert_eq!(cpu.sp, 0xfb);
 }
 
+#[cfg(test)]
 fn test_rol_ror(cpu: &mut Cpu, memory: &mut dyn CpuAddressBus) {
     cpu.a = 0x55;
     cpu.p = 0x24;
@@ -370,10 +386,12 @@ fn test_rol_ror(cpu: &mut Cpu, memory: &mut dyn CpuAddressBus) {
     assert_eq!(memory.read(0x55u16, cpu), 0x80);
 }
 
+#[cfg(test)]
 fn test_rti() {
     // TODO: ..
 }
 
+#[cfg(test)]
 fn test_rts(cpu: &mut Cpu, memory: &mut dyn CpuAddressBus) {
     cpu.pc = 0x0401;
     cpu.sp = 0xf0;
@@ -394,6 +412,7 @@ fn test_rts(cpu: &mut Cpu, memory: &mut dyn CpuAddressBus) {
     assert_eq!(cpu.sp, 0xf0);
 }
 
+#[cfg(test)]
 fn test_sbc(cpu: &mut Cpu) {
     cpu.a = 0x40;
     cpu.p = 0x65;
@@ -424,10 +443,12 @@ fn test_sbc(cpu: &mut Cpu) {
     assert_eq!(cpu.p, 0x65);
 }
 
+#[cfg(test)]
 fn test_sta_stx_sty() {
     // TODO: ..
 }
 
+#[cfg(test)]
 fn test_brk() {
     // FIXME: ..
     // TODO: ..

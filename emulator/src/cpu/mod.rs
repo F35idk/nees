@@ -4,6 +4,7 @@ use crate::address_bus::CpuAddressBus;
 use derive_serialize::Serialize;
 
 mod addressing;
+#[cfg(test)]
 mod test;
 
 #[derive(Serialize)]
@@ -282,7 +283,10 @@ impl Cpu {
             0x9a => self.txs(),
             // TYA
             0x98 => self.tya(),
-            o => panic!("TODO: handle invalid opcode: 0x{:>01x}", o),
+            o => error_exit!(
+                "Failed to execute instruction: opcode {:#x} not supported",
+                o
+            ),
         }
     }
 

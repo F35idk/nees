@@ -327,6 +327,6 @@ fn mmc3_test_2() {
         "\n5-MMC3\n\nPassed\n",
     );
 
-    // NOTE: '6-MMC3_alt' fails since only MMC3 revision B is supported
+    // NOTE: '6-MMC3_alt' fails since only newer MMC3 revisions are supported
     // (both A and B can't be supported at once)
 }

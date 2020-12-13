@@ -115,14 +115,14 @@ impl PpuAddressBus for Mmc3PpuAddressBus {
             // apply horizontal or vertical mirroring
             if !self.bits.no_mirroring.is_true() {
                 addr = super::calc_ppu_nametable_addr_with_mirroring(
-                    addr, //
+                    addr,
                     self.bits.hor_mirroring.is_true(),
                 );
             } else {
                 addr &= !0x3000;
             }
 
-            return unsafe { *self.nametables.get(addr as usize).unwrap() };
+            return unsafe { *self.nametables.get_unchecked(addr as usize) };
         }
 
         // pattern tables (0-0x1fff)
@@ -419,8 +419,8 @@ impl CpuAddressBus for Mmc3CpuAddressBus {
                 self.ppu_bus.bits.a12_invert.set((val & 0b1000_0000) >> 7);
             // TODO: mmc6 stuff
             } else {
-                // NOTE: 'val' is not %'d with the number of banks, as
-                // this is done when reading from the bank registers
+                // NOTE: 'val' is not %'d with the number of banks - this
+                // is instead done when reading from the bank registers
                 self.ppu_bus.r[self.bank_register_to_update as usize] = val;
             }
 
@@ -529,6 +529,7 @@ impl serialize::Serialize for Mmc3CpuAddressBus {
     }
 }
 
+#[cfg(test)]
 mod test {
     use super::*;
 

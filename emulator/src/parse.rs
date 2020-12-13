@@ -36,8 +36,7 @@ pub fn get_mirroring_type(rom_header: &[u8]) -> MirroringType {
     unsafe { std::mem::transmute((rom_header[6] & 1) | ((rom_header[6] & 0b1000) >> 3) * 0xf) }
 }
 
-// NOTE: all persistent memory is not the same
-pub fn has_persistent_mem(rom_header: &[u8]) -> bool {
+pub fn has_prg_ram(rom_header: &[u8]) -> bool {
     (rom_header[6] & 0b10) != 0
 }
 

@@ -7,6 +7,7 @@ use derive_serialize::Serialize;
 mod bg_state;
 mod palette;
 mod sprite_state;
+#[cfg(test)]
 mod test;
 
 #[derive(Serialize, Debug)]
@@ -18,7 +19,6 @@ pub struct Ppu {
     secondary_oam: SecondaryOam,
     bg_state: bg_state::BgDrawState,
     sprite_state: sprite_state::SpriteDrawState,
-
     // registers
     ppuctrl: u8,
     ppumask: u8,
@@ -28,9 +28,8 @@ pub struct Ppu {
     // emulated, but it may be worth keeping in mind
     oamaddr: u8,
     ppudata_read_buffer: u8,
-
+    // bitfield w/ misc ppu flags
     bits: PpuBits::BitField,
-
     // address of the current tile to be fetched and drawn. points
     // to a byte in one of the nametables in vram. referred to
     // as 'v' in the nesdev.com 'ppu scrolling' article
@@ -179,6 +178,7 @@ impl Ppu {
         }
     }
 
+    #[cfg(test)]
     pub fn reset_state(&mut self) {
         self.secondary_oam = SecondaryOam::default();
         self.primary_oam = PrimaryOam::default();
@@ -448,7 +448,7 @@ impl Ppu {
         }
     }
 
-    // NOTE: this is also used by 'CpuAddressBus::write_oamdma()'
+    // NOTE: this is also used by 'write_oamdma()' in 'address_bus'
     pub fn write_to_oam_and_increment_addr(&mut self, val: u8) {
         self.primary_oam.set_byte(self.oamaddr, val);
         self.oamaddr = self.oamaddr.wrapping_add(1);
@@ -462,9 +462,7 @@ impl Ppu {
         bus: &mut dyn PpuAddressBus,
         framebuffer: &mut [u32; 256 * 240],
     ) {
-        // NOTE: cpu.cycle_count could be negative here
         let target_cycles = cpu.cycle_count as i32 * 3;
-
         while self.cycle_count < target_cycles {
             self.step(cpu, bus, framebuffer);
         }
@@ -996,6 +994,7 @@ impl Ppu {
         self.bits.low_bits_toggle.set(!prev as u8);
     }
 
+    #[cfg(test)]
     fn get_base_nametable_addr(&self) -> u16 {
         0x2000 | (((self.ppuctrl & 3) as u16) << 10)
     }
@@ -1055,10 +1054,6 @@ impl Ppu {
 
     fn set_sprite_overflow(&mut self, overflow: bool) {
         self.ppustatus = (self.ppustatus & !0b100000) | ((overflow as u8) << 5);
-    }
-
-    fn is_sprite_zero_hit(&self) -> bool {
-        (self.ppustatus & 0b1000000) != 0
     }
 
     fn set_sprite_zero_hit(&mut self, hit: bool) {

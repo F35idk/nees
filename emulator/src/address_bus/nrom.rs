@@ -34,7 +34,7 @@ impl NromCpuAddressBus {
     ) -> Self {
         if chr_ram.len() != 0x2000 {
             error_exit!(
-                "Failed to load rom file: prg rom was the wrong size ({}) for nrom (mapper 0)",
+                "Failed to load rom file: chr rom was the wrong size ({}) for nrom (mapper 0)",
                 chr_ram.len()
             )
         }
@@ -73,6 +73,7 @@ impl NromCpuAddressBus {
         }
     }
 
+    #[cfg(test)]
     pub fn new_empty(
         prg_rom_size: u16,
         ppu: ppu::Ppu,
@@ -235,7 +236,7 @@ impl PpuAddressBus for NromPpuAddressBus {
 
         if addr >= 0x2000 {
             let addr = super::calc_ppu_nametable_addr_with_mirroring(addr, self.hor_mirroring);
-            unsafe { *self.nametables.get_mut(addr as usize).unwrap() = val };
+            unsafe { *self.nametables.get_unchecked_mut(addr as usize) = val };
             return;
         }
 
@@ -282,6 +283,7 @@ impl serialize::Serialize for NromCpuAddressBus {
     }
 }
 
+#[cfg(test)]
 mod test {
     use super::*;
 
@@ -312,14 +314,6 @@ mod test {
             // 'unmapped' area reads, should return 0
             assert_eq!(bus.read(0x48f0, &mut cpu), 0);
             assert_eq!(bus.read(0x5000, &mut cpu), 0);
-
-            // prg ram writes
-            bus.write(0x7fffu16, 0xfe, &mut cpu);
-            bus.write(0x6000u16, 0xce, &mut cpu);
-            assert_eq!(bus.prg_ram[0x7ff], 0xfe);
-            assert_eq!(bus.read(0x6fff, &mut cpu), 0xfe);
-            assert_eq!(bus.prg_ram[0], 0xce);
-            assert_eq!(bus.read(0x7000, &mut cpu), 0xce);
 
             // special io stuff, should just return 0
             assert_eq!(bus.read(0x401f, &mut cpu), 0);

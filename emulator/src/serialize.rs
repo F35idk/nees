@@ -18,7 +18,7 @@ macro_rules! impl_serialize_for_num {
             }
 
             fn deserialize(&mut self, file: &mut io::BufReader<fs::File>) -> Result<(), String> {
-                const N_BYTES: usize = ::std::mem::size_of::<$num_type>();
+                const N_BYTES: usize = std::mem::size_of::<$num_type>();
                 let mut bytes = [0u8; N_BYTES];
 
                 file.read_exact(&mut bytes)
