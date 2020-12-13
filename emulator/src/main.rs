@@ -187,7 +187,7 @@ fn main() {
         _ => None,
     };
 
-    let win = win::XcbWindowWrapper::new("mynes", 1200, 600)
+    let win = win::XcbWindowWrapper::new("nees", 1200, 600)
         .unwrap_or_else(|e| error_exit!("Failed to create XCB window: {}", e));
     let mut renderer = PixelRenderer::new(&win.connection, win.win, 256, 240)
         .unwrap_or_else(|e| error_exit!("Failed to initialize renderer: {}", e));

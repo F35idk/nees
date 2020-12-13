@@ -55,7 +55,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "mynes"
+name = "nees"
 version = "0.1.0"
 dependencies = [
  "derive_serialize",
