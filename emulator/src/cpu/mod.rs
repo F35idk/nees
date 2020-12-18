@@ -496,7 +496,7 @@ impl Cpu {
             let page_crossed = offset_sign ^ carry;
 
             if page_crossed {
-                let _ = bus.read(self.pc + 1, self);
+                let _ = bus.read(self.pc, self);
                 self.cycle_count += 1;
             }
 
