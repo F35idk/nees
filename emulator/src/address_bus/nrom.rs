@@ -4,10 +4,11 @@ use crate::{apu, controller as ctrl, cpu, parse, ppu, serialize};
 #[macro_use]
 use derive_serialize::Serialize;
 
+use std::cell::Cell;
 use std::{fs, io};
 
-pub struct NromCpuAddressBus {
-    base: CpuAddressBusBase,
+pub struct NromCpuAddressBus<'a> {
+    base: CpuAddressBusBase<'a>,
     ppu_bus: NromPpuAddressBus,
     internal_ram: [u8; 0x800],
     prg_rom: Box<[u8]>,
@@ -21,7 +22,7 @@ pub struct NromPpuAddressBus {
     hor_mirroring: bool,
 }
 
-impl NromCpuAddressBus {
+impl<'a> NromCpuAddressBus<'a> {
     // TODO: reduce unnecessary copying
     pub fn new(
         prg_rom: &[u8],
@@ -30,7 +31,7 @@ impl NromCpuAddressBus {
         ppu: ppu::Ppu,
         apu: apu::Apu,
         controller: ctrl::Controller,
-        framebuffer: &mut [u32; 256 * 240],
+        framebuffer: &'a [Cell<u32>; 256 * 240],
     ) -> Self {
         if chr_ram.len() != 0x2000 {
             error_exit!(
@@ -79,7 +80,7 @@ impl NromCpuAddressBus {
         ppu: ppu::Ppu,
         apu: apu::Apu,
         controller: ctrl::Controller,
-        framebuffer: &mut [u32; 256 * 240],
+        framebuffer: &'a [Cell<u32>; 256 * 240],
     ) -> Self {
         assert!(matches!(prg_rom_size, 0x4000 | 0x8000));
 
@@ -98,7 +99,7 @@ impl NromCpuAddressBus {
     }
 }
 
-impl CpuAddressBus for NromCpuAddressBus {
+impl<'a> CpuAddressBus<'a> for NromCpuAddressBus<'a> {
     fn read(&mut self, mut addr: u16, cpu: &mut cpu::Cpu) -> u8 {
         // internal ram
         if super::is_0_to_1fff(addr) {
@@ -110,8 +111,9 @@ impl CpuAddressBus for NromCpuAddressBus {
         // ppu registers
         if super::is_2000_to_3fff(addr) {
             // catch ppu up to cpu before reading
-            let framebuffer = unsafe { &mut *self.base.framebuffer_raw };
-            self.base.ppu.catch_up(cpu, &mut self.ppu_bus, framebuffer);
+            self.base
+                .ppu
+                .catch_up(cpu, &mut self.ppu_bus, self.base.framebuffer);
             // ignore all but low 3 bits
             addr &= 0b111;
             return self
@@ -159,8 +161,9 @@ impl CpuAddressBus for NromCpuAddressBus {
 
         if super::is_2000_to_3fff(addr) {
             // catch ppu up to cpu before writing
-            let framebuffer = unsafe { &mut *self.base.framebuffer_raw };
-            self.base.ppu.catch_up(cpu, &mut self.ppu_bus, framebuffer);
+            self.base
+                .ppu
+                .catch_up(cpu, &mut self.ppu_bus, self.base.framebuffer);
 
             self.base
                 .ppu
@@ -180,8 +183,9 @@ impl CpuAddressBus for NromCpuAddressBus {
 
         // ppu oamdma register
         if addr == 0x4014 {
-            let framebuffer = unsafe { &mut *self.base.framebuffer_raw };
-            self.base.ppu.catch_up(cpu, &mut self.ppu_bus, framebuffer);
+            self.base
+                .ppu
+                .catch_up(cpu, &mut self.ppu_bus, self.base.framebuffer);
             super::write_oamdma(self, val, cpu);
             return;
         }
@@ -194,7 +198,7 @@ impl CpuAddressBus for NromCpuAddressBus {
         // necessary to explicitly ignore attempts to write to rom
     }
 
-    fn base(&mut self) -> (&mut CpuAddressBusBase, &mut dyn PpuAddressBus) {
+    fn base(&mut self) -> (&mut CpuAddressBusBase<'a>, &mut dyn PpuAddressBus) {
         (&mut self.base, &mut self.ppu_bus)
     }
 }
@@ -267,7 +271,7 @@ impl serialize::Serialize for NromPpuAddressBus {
     }
 }
 
-impl serialize::Serialize for NromCpuAddressBus {
+impl<'a> serialize::Serialize for NromCpuAddressBus<'a> {
     fn serialize(&self, file: &mut io::BufWriter<fs::File>) -> Result<(), String> {
         self.base.serialize(file)?;
         self.ppu_bus.serialize(file)?;
@@ -292,8 +296,10 @@ mod test {
         let ppu = ppu::Ppu::new();
         let apu = apu::Apu {};
         let controller = ctrl::Controller::default();
-        let mut framebuffer = [0u32; 256 * 240];
-        let mut bus = NromCpuAddressBus::new_empty(0x4000, ppu, apu, controller, &mut framebuffer);
+        let framebuffer = Cell::new([0u32; 256 * 240]);
+        let mut bus = NromCpuAddressBus::new_empty(0x4000, ppu, apu, controller, unsafe {
+            &*(&framebuffer as *const _ as *const _)
+        });
         let mut cpu = cpu::Cpu::default();
 
         // nrom-128

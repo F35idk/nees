@@ -2,6 +2,8 @@ use super::Cpu;
 use crate::{address_bus as bus, Nes};
 use bus::CpuAddressBus;
 
+use std::cell::Cell;
+
 #[cfg(test)]
 fn test_adc(cpu: &mut Cpu, memory: &mut dyn CpuAddressBus) {
     cpu.p = 0x6e;
@@ -456,8 +458,8 @@ fn test_brk() {
 
 #[test]
 fn test_all() {
-    let mut framebuffer = [0u32; 256 * 240];
-    let mut nes = Nes::new_test(&mut framebuffer);
+    let framebuffer = Cell::new([0u32; 256 * 240]);
+    let mut nes = Nes::new_test(unsafe { &*(&framebuffer as *const _ as *const _) });
 
     test_adc(&mut nes.cpu, nes.bus);
     nes.reset_state();

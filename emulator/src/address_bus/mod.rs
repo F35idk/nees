@@ -9,37 +9,37 @@ mod nrom;
 pub use mmc3::{Mmc3CpuAddressBus, Mmc3PpuAddressBus};
 pub use nrom::{NromCpuAddressBus, NromPpuAddressBus};
 
+use std::cell::Cell;
 use std::{fs, io};
 
 // the base struct that all 'CpuAddressBus' implementations should inherit
 // from. can be accessed through the 'CpuAddressBus::base()' trait method
-pub struct CpuAddressBusBase {
+pub struct CpuAddressBusBase<'a> {
     pub apu: apu::Apu,
     pub ppu: ppu::Ppu,
-    // NOTE: see 'Nes::new()' in 'main' for comment about raw pointer safety
-    pub framebuffer_raw: *mut [u32; 256 * 240],
+    pub framebuffer: &'a [Cell<u32>; 256 * 240],
     pub controller: ctrl::Controller,
 }
 
-impl CpuAddressBusBase {
+impl<'a> CpuAddressBusBase<'a> {
     pub fn new(
         ppu: ppu::Ppu,
         apu: apu::Apu,
         controller: ctrl::Controller,
-        framebuffer: &mut [u32; 256 * 240],
+        framebuffer: &'a [Cell<u32>; 256 * 240],
     ) -> Self {
         Self {
             ppu,
             apu,
-            framebuffer_raw: framebuffer,
+            framebuffer,
             controller,
         }
     }
 }
 
 // NOTE: 'Serialize' cannot be derived and must be implemented manually, since neither
-// the 'controller' nor the 'framebuffer_raw' fields support serialization
-impl serialize::Serialize for CpuAddressBusBase {
+// the 'controller' nor the 'framebuffer' fields support serialization
+impl<'a> serialize::Serialize for CpuAddressBusBase<'a> {
     fn serialize(&self, file: &mut io::BufWriter<fs::File>) -> Result<(), String> {
         self.apu.serialize(file)?;
         self.ppu.serialize(file)
@@ -59,8 +59,8 @@ impl serialize::Serialize for CpuAddressBusBase {
 // functionality for the ppu. the 'CpuAddressBus' implementor owns this
 // as well (it can be accessed through the 'base()' method)
 
-pub trait CpuAddressBus: serialize::Serialize {
-    fn base(&mut self) -> (&mut CpuAddressBusBase, &mut dyn PpuAddressBus);
+pub trait CpuAddressBus<'a>: serialize::Serialize {
+    fn base(&mut self) -> (&mut CpuAddressBusBase<'a>, &mut dyn PpuAddressBus);
     fn read(&mut self, addr: u16, cpu: &mut cpu::Cpu) -> u8;
     fn write(&mut self, addr: u16, val: u8, cpu: &mut cpu::Cpu);
 }
@@ -75,7 +75,7 @@ pub trait PpuAddressBus: 'static {
 // utility function for writing to the 'oamdma' register on the ppu
 // (0x4014). only requires 'CpuAddressBus::read()' to be implemented.
 // intented to be used by 'CpuAddressBus::write()' implementations.
-fn write_oamdma<M: CpuAddressBus>(memory: &mut M, val: u8, cpu: &mut cpu::Cpu) {
+fn write_oamdma<'a, M: CpuAddressBus<'a>>(memory: &mut M, val: u8, cpu: &mut cpu::Cpu) {
     memory.base().0.ppu.set_ppustatus_low_bits(val);
 
     // if 'val' is $XX, start address should be $XX00
@@ -90,8 +90,7 @@ fn write_oamdma<M: CpuAddressBus>(memory: &mut M, val: u8, cpu: &mut cpu::Cpu) {
         // catch the ppu up to the cpu on every 4th iteration
         if i % 4 == 0 {
             let (base, ppu_memory) = memory.base();
-            base.ppu
-                .catch_up(cpu, ppu_memory, unsafe { &mut *base.framebuffer_raw });
+            base.ppu.catch_up(cpu, ppu_memory, &base.framebuffer);
         }
     }
 

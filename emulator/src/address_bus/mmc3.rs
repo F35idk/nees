@@ -6,13 +6,14 @@ use super::{CpuAddressBus, CpuAddressBusBase, PpuAddressBus};
 #[macro_use]
 use derive_serialize::Serialize;
 
+use std::cell::Cell;
 use std::{fs, io};
 
 // NOTE: current implementation ignores open bus behavior
 // and compatibility with mmc6 or any non-mapper-4 cartridges,
 
-pub struct Mmc3CpuAddressBus {
-    base: CpuAddressBusBase,
+pub struct Mmc3CpuAddressBus<'a> {
+    base: CpuAddressBusBase<'a>,
     ppu_bus: Mmc3PpuAddressBus,
     internal_ram: [u8; 0x800],
     prg_ram: [u8; 0x2000],
@@ -208,7 +209,7 @@ impl PpuAddressBus for Mmc3PpuAddressBus {
     }
 }
 
-impl Mmc3CpuAddressBus {
+impl<'a> Mmc3CpuAddressBus<'a> {
     pub fn new(
         prg_rom: &[u8],
         chr_rom: &[u8],
@@ -216,7 +217,7 @@ impl Mmc3CpuAddressBus {
         ppu: ppu::Ppu,
         apu: apu::Apu,
         controller: ctrl::Controller,
-        framebuffer: &mut [u32; 256 * 240],
+        framebuffer: &'a [Cell<u32>; 256 * 240],
     ) -> Self {
         match prg_rom.len() {
             0x4000..=0x80000 => (),
@@ -304,7 +305,7 @@ impl Mmc3CpuAddressBus {
     }
 }
 
-impl CpuAddressBus for Mmc3CpuAddressBus {
+impl<'a> CpuAddressBus<'a> for Mmc3CpuAddressBus<'a> {
     fn read(&mut self, mut addr: u16, cpu: &mut cpu::Cpu) -> u8 {
         // internal ram
         if super::is_0_to_1fff(addr) {
@@ -314,9 +315,9 @@ impl CpuAddressBus for Mmc3CpuAddressBus {
 
         // ppu registers
         if super::is_2000_to_3fff(addr) {
-            self.base.ppu.catch_up(cpu, &mut self.ppu_bus, unsafe {
-                &mut *self.base.framebuffer_raw
-            });
+            self.base
+                .ppu
+                .catch_up(cpu, &mut self.ppu_bus, &self.base.framebuffer);
 
             addr &= 0b111;
             return self
@@ -392,8 +393,9 @@ impl CpuAddressBus for Mmc3CpuAddressBus {
         }
 
         if super::is_2000_to_3fff(addr) {
-            let framebuffer = unsafe { &mut *self.base.framebuffer_raw };
-            self.base.ppu.catch_up(cpu, &mut self.ppu_bus, framebuffer);
+            self.base
+                .ppu
+                .catch_up(cpu, &mut self.ppu_bus, self.base.framebuffer);
 
             self.base
                 .ppu
@@ -468,8 +470,9 @@ impl CpuAddressBus for Mmc3CpuAddressBus {
 
         // oamdma
         if addr == 0x4014 {
-            let framebuffer = unsafe { &mut *self.base.framebuffer_raw };
-            self.base.ppu.catch_up(cpu, &mut self.ppu_bus, framebuffer);
+            self.base
+                .ppu
+                .catch_up(cpu, &mut self.ppu_bus, self.base.framebuffer);
             super::write_oamdma(self, val, cpu);
             return;
         }
@@ -481,7 +484,7 @@ impl CpuAddressBus for Mmc3CpuAddressBus {
         }
     }
 
-    fn base(&mut self) -> (&mut CpuAddressBusBase, &mut dyn PpuAddressBus) {
+    fn base(&mut self) -> (&mut CpuAddressBusBase<'a>, &mut dyn PpuAddressBus) {
         (&mut self.base, &mut self.ppu_bus)
     }
 }
@@ -509,7 +512,7 @@ impl serialize::Serialize for Mmc3PpuAddressBus {
     }
 }
 
-impl serialize::Serialize for Mmc3CpuAddressBus {
+impl<'a> serialize::Serialize for Mmc3CpuAddressBus<'a> {
     fn serialize(&self, file: &mut io::BufWriter<fs::File>) -> Result<(), String> {
         self.base.serialize(file)?;
         self.ppu_bus.serialize(file)?;
@@ -538,7 +541,7 @@ mod test {
         let ppu = ppu::Ppu::new();
         let apu = apu::Apu {};
         let controller = ctrl::Controller::default();
-        let mut framebuffer = [0u32; 256 * 240];
+        let framebuffer = Cell::new([0u32; 256 * 240]);
 
         let prg_rom = vec![0; 1024 * 128];
         let chr_rom = vec![0; 1024 * 128];
@@ -551,7 +554,7 @@ mod test {
             ppu,
             apu,
             controller,
-            &mut framebuffer,
+            unsafe { &*(&framebuffer as *const _ as *const _) },
         );
 
         assert_eq!(cpu_bus.ppu_bus.chr_banks.len(), 128);

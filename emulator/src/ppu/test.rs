@@ -2,6 +2,8 @@ use crate::Nes;
 use crate::{address_bus as bus, cpu};
 use bus::{CpuAddressBus, PpuAddressBus};
 
+use std::cell::Cell;
+
 #[cfg(test)]
 fn test_registers(cpu: &mut cpu::Cpu, ppu: &mut super::Ppu, ppu_bus: &mut dyn PpuAddressBus) {
     ppu.ppuctrl = 0b00000011;
@@ -328,8 +330,8 @@ fn test_temp_to_current_vram_transfer(ppu: &mut super::Ppu) {
 
 #[test]
 fn test_all() {
-    let mut framebuffer = [0u32; 256 * 240];
-    let mut nes = Nes::new_test(&mut framebuffer);
+    let framebuffer = Cell::new([0u32; 256 * 240]);
+    let mut nes = Nes::new_test(unsafe { &*(&framebuffer as *const _ as *const _) });
 
     {
         let (bus::CpuAddressBusBase { ref mut ppu, .. }, ref mut ppu_bus) = nes.bus.base();

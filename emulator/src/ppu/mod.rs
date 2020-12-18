@@ -4,6 +4,8 @@ use crate::cpu;
 #[macro_use]
 use derive_serialize::Serialize;
 
+use std::cell::Cell;
+
 mod bg_state;
 mod palette;
 mod sprite_state;
@@ -460,7 +462,7 @@ impl Ppu {
         &mut self,
         cpu: &mut cpu::Cpu,
         bus: &mut dyn PpuAddressBus,
-        framebuffer: &mut [u32; 256 * 240],
+        framebuffer: &[Cell<u32>; 256 * 240],
     ) {
         let target_cycles = cpu.cycle_count as i32 * 3;
         while self.cycle_count < target_cycles {
@@ -474,7 +476,7 @@ impl Ppu {
         &mut self,
         cpu: &mut cpu::Cpu,
         bus: &mut dyn PpuAddressBus,
-        framebuffer: &mut [u32; 256 * 240],
+        framebuffer: &[Cell<u32>; 256 * 240],
     ) {
         // NOTE: this function is split into multiple subfunctions
         {
@@ -492,7 +494,7 @@ impl Ppu {
         fn step_pre_render_or_visible_line(
             ppu: &mut Ppu,
             bus: &mut dyn PpuAddressBus,
-            framebuffer: &mut [u32; 256 * 240],
+            framebuffer: &[Cell<u32>; 256 * 240],
             cpu: &mut cpu::Cpu,
         ) {
             match (ppu.current_scanline_dot, ppu.current_scanline) {
@@ -759,7 +761,7 @@ impl Ppu {
     // writing to 'framebuffer'. returns whether sprite zero was hit
     fn draw_8_pixels(
         &self,
-        framebuffer: &mut [u32; 256 * 240],
+        framebuffer: &[Cell<u32>; 256 * 240],
         bus: &mut dyn PpuAddressBus,
     ) -> bool {
         {
@@ -773,7 +775,7 @@ impl Ppu {
 
         fn draw_8_pixels_bg_and_sprites(
             ppu: &Ppu,
-            framebuffer: &mut [u32; 256 * 240],
+            framebuffer: &[Cell<u32>; 256 * 240],
             bus: &dyn PpuAddressBus,
         ) -> bool {
             let mut sprite_zero_hit = false;
@@ -848,7 +850,7 @@ impl Ppu {
                 let screen_y = ppu.current_scanline as usize;
 
                 // TODO: OPTIMIZE: unchecked indexing
-                framebuffer[screen_y * 256 + screen_x] = pixel_color;
+                framebuffer[screen_y * 256 + screen_x].set(pixel_color);
             }
 
             sprite_zero_hit
@@ -858,7 +860,7 @@ impl Ppu {
         // >= 0x3f00, draws the color 'current_vram_addr' points to)
         fn draw_8_pixels_backdrop_color(
             ppu: &Ppu,
-            framebuffer: &mut [u32; 256 * 240],
+            framebuffer: &[Cell<u32>; 256 * 240],
             bus: &dyn PpuAddressBus,
         ) {
             for i in 0..8 {
@@ -881,7 +883,7 @@ impl Ppu {
 
                 let screen_x = (ppu.current_scanline_dot - 1 + i as u16) as usize;
                 let screen_y = ppu.current_scanline as usize;
-                framebuffer[screen_y * 256 + screen_x] = pixel_color;
+                framebuffer[screen_y * 256 + screen_x].set(pixel_color);
             }
         }
 

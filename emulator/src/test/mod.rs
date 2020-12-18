@@ -1,17 +1,19 @@
 use crate::{apu, bus, controller as ctrl, cpu, parse, ppu, serialize};
 use bus::{CpuAddressBus, CpuAddressBusBase, Mmc3CpuAddressBus, NromCpuAddressBus, PpuAddressBus};
 
+use std::cell::Cell;
+
 // wrapper struct around 'CpuAddressBus' implementations that stores writes
 // in the 0x6000 area (blargg's tests output a result string to these addresses)
-pub struct TestCpuAddressBus<A: CpuAddressBus> {
+pub struct TestCpuAddressBus<A> {
     bus: A,
-    // the output string (we assume a max size of 255 chars)
-    test_output: [u8; 0xff],
+    // the output string (we assume a max size of 256 chars)
+    test_output: [u8; 0x100],
     // the test status written to 0x6000
     test_status: Option<u8>,
 }
 
-impl TestCpuAddressBus<NromCpuAddressBus> {
+impl<'a> TestCpuAddressBus<NromCpuAddressBus<'a>> {
     pub fn new(
         prg_rom: &[u8],
         chr_ram: &[u8],
@@ -19,7 +21,7 @@ impl TestCpuAddressBus<NromCpuAddressBus> {
         ppu: ppu::Ppu,
         apu: apu::Apu,
         controller: ctrl::Controller,
-        framebuffer: &mut [u32; 256 * 240],
+        framebuffer: &'a [Cell<u32>; 256 * 240],
     ) -> Self {
         Self {
             bus: NromCpuAddressBus::new(
@@ -31,29 +33,15 @@ impl TestCpuAddressBus<NromCpuAddressBus> {
                 controller,
                 framebuffer,
             ),
-            test_output: [0; 0xff],
+            test_output: [0; 0x100],
             test_status: None,
         }
     }
 }
 
-// 'Serialize' is required by the 'CpuAddressBus' trait
-impl<A> serialize::Serialize for TestCpuAddressBus<A>
-where
-    A: CpuAddressBus,
-{
-    fn serialize(&self, file: &mut std::io::BufWriter<std::fs::File>) -> Result<(), String> {
-        Ok(())
-    }
-
-    fn deserialize(&mut self, file: &mut std::io::BufReader<std::fs::File>) -> Result<(), String> {
-        Ok(())
-    }
-}
-
-// TODO: make the 'new()' method on 'NromAddressBus' and 'Mmc3CpuAddressBus'
-// a part of the 'CpuAddressBus' trait to remove this code duplication
-impl TestCpuAddressBus<Mmc3CpuAddressBus> {
+// // TODO: make the 'new()' method on 'NromAddressBus' and 'Mmc3CpuAddressBus'
+// // a part of the 'CpuAddressBus' trait to remove this code duplication
+impl<'a> TestCpuAddressBus<Mmc3CpuAddressBus<'a>> {
     pub fn new(
         prg_rom: &[u8],
         chr_ram: &[u8],
@@ -61,7 +49,7 @@ impl TestCpuAddressBus<Mmc3CpuAddressBus> {
         ppu: ppu::Ppu,
         apu: apu::Apu,
         controller: ctrl::Controller,
-        framebuffer: &mut [u32; 256 * 240],
+        framebuffer: &'a [Cell<u32>; 256 * 240],
     ) -> Self {
         Self {
             bus: Mmc3CpuAddressBus::new(
@@ -73,15 +61,29 @@ impl TestCpuAddressBus<Mmc3CpuAddressBus> {
                 controller,
                 framebuffer,
             ),
-            test_output: [0; 0xff],
+            test_output: [0; 0x100],
             test_status: None,
         }
     }
 }
 
-impl<A> CpuAddressBus for TestCpuAddressBus<A>
+// 'Serialize' is required by the 'CpuAddressBus' trait
+impl<'a, A> serialize::Serialize for TestCpuAddressBus<A>
 where
-    A: CpuAddressBus,
+    A: CpuAddressBus<'a>,
+{
+    fn serialize(&self, file: &mut std::io::BufWriter<std::fs::File>) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn deserialize(&mut self, file: &mut std::io::BufReader<std::fs::File>) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+impl<'a, A> CpuAddressBus<'a> for TestCpuAddressBus<A>
+where
+    A: CpuAddressBus<'a>,
 {
     fn read(&mut self, addr: u16, cpu: &mut cpu::Cpu) -> u8 {
         if addr >= 0x6004 && addr <= 0x6004 + self.test_output.len() as u16 {
@@ -103,7 +105,7 @@ where
         self.bus.write(addr, val, cpu);
     }
 
-    fn base(&mut self) -> (&mut CpuAddressBusBase, &mut dyn PpuAddressBus) {
+    fn base(&mut self) -> (&mut CpuAddressBusBase<'a>, &mut dyn PpuAddressBus) {
         self.bus.base()
     }
 }
@@ -111,8 +113,11 @@ where
 #[cfg(test)]
 fn run_test(rom_path: &str, expected_test_output: &str) {
     let mut rom_file = std::fs::File::open(rom_path).unwrap();
-    let mut framebuffer = [0u32; 256 * 240];
-    let mut nes = crate::Nes::new(&mut framebuffer, &mut rom_file);
+    let framebuffer = Cell::new([0u32; 256 * 240]);
+    let mut nes = crate::Nes::new(
+        unsafe { &*(&framebuffer as *const _ as *const _) },
+        &mut rom_file,
+    );
 
     nes.cpu.pc = u16::from_le_bytes([
         nes.bus.read(0xfffc, &mut nes.cpu),
@@ -125,7 +130,7 @@ fn run_test(rom_path: &str, expected_test_output: &str) {
         while !nes.bus.base().0.ppu.is_frame_done() {
             nes.cpu.exec_instruction(nes.bus);
             let (base, ppu_bus) = nes.bus.base();
-            let framebuffer = unsafe { &mut *base.framebuffer_raw };
+            let framebuffer = base.framebuffer;
             base.ppu.catch_up(&mut nes.cpu, ppu_bus, framebuffer);
         }
 

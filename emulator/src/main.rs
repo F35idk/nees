@@ -25,15 +25,16 @@ use pixel_renderer::xcb;
 use pixel_renderer::PixelRenderer;
 use xcb_util::keysyms;
 
+use std::cell::Cell;
 use std::io::{Read, Seek, Write};
 
 struct Nes<'a> {
     cpu: cpu::Cpu,
-    bus: &'a mut dyn CpuAddressBus,
+    bus: &'a mut dyn CpuAddressBus<'a>,
 }
 
 impl<'a> Nes<'a> {
-    fn new(framebuffer: &mut [u32; 256 * 240], rom_file: &mut std::fs::File) -> Self {
+    fn new(framebuffer: &'a [Cell<u32>; 256 * 240], rom_file: &mut std::fs::File) -> Self {
         let rom_len = rom_file
             .metadata()
             .unwrap_or_else(|e| error_exit!("Failed to query rom file metadata: {}", e))
@@ -65,11 +66,6 @@ impl<'a> Nes<'a> {
         let controller = ctrl::Controller::default();
 
         let cpu = cpu::Cpu::default();
-        // NOTE: 'bus' stores the 'framebuffer' pointer as a raw pointer and keeps it
-        // until the emulator exits. in the context of this program, this is totally
-        // safe, as the pointer stays valid at all times. the 'PixelRenderer' that
-        // provides the framebuffer pointer is guaranteed to live for the entire
-        // duration of the program, and the framebuffer itself is never moved in memory.
         let bus: &mut dyn CpuAddressBus = match parse::get_mapper_num(&rom) {
             // use custom address bus structs for tests
             #[cfg(test)]
@@ -136,7 +132,7 @@ impl<'a> Nes<'a> {
     }
 
     #[cfg(test)]
-    fn new_test(framebuffer: &mut [u32; 256 * 240]) -> Self {
+    fn new_test(framebuffer: &'a [Cell<u32>; 256 * 240]) -> Self {
         let ppu = ppu::Ppu::new();
         let apu = apu::Apu {};
         let cpu = cpu::Cpu::default();
@@ -184,11 +180,11 @@ fn main() {
 
     let win = win::XcbWindowWrapper::new("nees", 1200, 600)
         .unwrap_or_else(|e| error_exit!("Failed to create XCB window: {}", e));
-    let mut renderer = PixelRenderer::new(&win.connection, win.win, 256, 240)
+    let renderer = PixelRenderer::new(&win.connection, win.win, 256, 240)
         .unwrap_or_else(|e| error_exit!("Failed to initialize renderer: {}", e));
     let key_syms = keysyms::KeySymbols::new(&win.connection);
 
-    let Nes { mut cpu, bus } = Nes::new(util::pixels_to_u32(&mut renderer), &mut rom_file);
+    let Nes { mut cpu, bus } = Nes::new(util::pixels_to_u32(&renderer), &mut rom_file);
 
     match save_file {
         Some(ref mut save)
@@ -375,7 +371,7 @@ fn main() {
                 (*base_raw).ppu.catch_up(
                     &mut cpu,
                     &mut *ppu_bus_raw,
-                    util::pixels_to_u32(&mut renderer),
+                    util::pixels_to_u32(&renderer),
                 );
             }
         }
