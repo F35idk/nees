@@ -1,3 +1,4 @@
+use std::cell::{Cell, UnsafeCell};
 use std::ffi::CStr;
 
 use ash::extensions::{ext, khr};
@@ -8,8 +9,7 @@ use ash::vk;
 // re-export xcb and ash
 pub use ash;
 pub use xcb;
-use xcb::base::Connection;
-use xcb::xproto::Window;
+use xcb::{Connection, Window};
 
 #[macro_use]
 mod debug;
@@ -60,15 +60,15 @@ pub struct PixelRenderer<'a> {
     instance: ash::Instance,
     surface: SurfaceWrapper<'a>,
     device: DeviceWrapper,
-    swapchain: SwapchainWrapper,
+    swapchain: UnsafeCell<SwapchainWrapper>,
 
     pixel_image: PixelImage,
     sampler: vk::Sampler,
     descriptor_sets: DescriptorSetsWrapper,
 
-    pipeline: PipelineWrapper,
-    framebuffers: Vec<vk::Framebuffer>,
-    command_buffers: CommandBuffersWrapper,
+    pipeline: UnsafeCell<PipelineWrapper>,
+    framebuffers: UnsafeCell<Vec<vk::Framebuffer>>,
+    command_buffers: UnsafeCell<CommandBuffersWrapper>,
 
     image_available_semaphore: vk::Semaphore,
 
@@ -107,7 +107,7 @@ impl<'a> PixelRenderer<'a> {
         // set up ApplicationInfo
         let app_info = {
             let name: &'static CStr =
-                unsafe { CStr::from_bytes_with_nul_unchecked(b"Hello Triangle\0") };
+                unsafe { CStr::from_bytes_with_nul_unchecked(b"pixel_renderer\0") };
 
             // get system's vulkan api version
             let api_version = match entry.try_enumerate_instance_version()? {
@@ -404,20 +404,32 @@ impl<'a> PixelRenderer<'a> {
             instance,
             surface,
             device,
-            swapchain,
-            pipeline,
+            swapchain: UnsafeCell::new(swapchain),
+            pipeline: UnsafeCell::new(pipeline),
             pixel_image,
             sampler,
             descriptor_sets,
-            framebuffers,
-            command_buffers,
+            framebuffers: UnsafeCell::new(framebuffers),
+            command_buffers: UnsafeCell::new(command_buffers),
             image_available_semaphore,
             debug_messenger,
         })
     }
 
     #[inline]
-    pub fn get_pixels<'b>(&'b mut self) -> &'b mut [u8] {
+    pub fn get_pixels<'b>(&'b self) -> &'b [Cell<u8>] {
+        unsafe {
+            let slice = std::slice::from_raw_parts(
+                self.pixel_image.pixels_raw,
+                (self.pixel_image.width * self.pixel_image.height * PIXEL_SIZE) as usize,
+            );
+
+            &*(slice as *const _ as *const _)
+        }
+    }
+
+    #[inline]
+    pub fn get_pixels_mut<'b>(&'b mut self) -> &'b mut [u8] {
         unsafe {
             std::slice::from_raw_parts_mut::<u8>(
                 self.pixel_image.pixels_raw,
@@ -433,14 +445,39 @@ impl<'a> PixelRenderer<'a> {
         )
     }
 
+    #[allow(unused_unsafe)]
+    unsafe fn create_framebuffers(
+        logical_device: &ash::Device,
+        image_views: &Vec<vk::ImageView>,
+        render_pass: vk::RenderPass,
+        swapchain_extent: vk::Extent2D,
+    ) -> VkResult<Vec<vk::Framebuffer>> {
+        // we need one framebuffer per swapchain image view
+        image_views
+            .iter()
+            .map(|view| {
+                let attachments = [*view];
+
+                let framebuffer_info = vk::FramebufferCreateInfo::builder()
+                    .render_pass(render_pass)
+                    .attachments(&attachments)
+                    .width(swapchain_extent.width)
+                    .height(swapchain_extent.height)
+                    .layers(1);
+
+                unsafe { logical_device.create_framebuffer(&framebuffer_info, None) }
+            })
+            .collect::<VkResult<Vec<vk::Framebuffer>>>()
+    }
+
     // renders a frame without presenting it. returns the index of the image rendered to
-    pub fn render_frame(&mut self) -> u32 {
+    pub fn render_frame(&self) -> u32 {
         // get index of next image in swapchain
         // NOTE: this operation is asynchronous and we use a semaphore
         // that signals us when the index can actually be used
         let image_index = match unsafe {
-            self.swapchain.entry.acquire_next_image(
-                self.swapchain.swapchain,
+            (*self.swapchain.get()).entry.acquire_next_image(
+                (*self.swapchain.get()).swapchain,
                 std::u64::MAX, // no timeout
                 self.image_available_semaphore,
                 vk::Fence::null(), // no fence
@@ -463,7 +500,7 @@ impl<'a> PixelRenderer<'a> {
             }
             Ok((index, suboptimal)) => {
                 // if swapchain doesn't match surface exactly (due to resize)
-                if suboptimal == true {
+                if suboptimal {
                     // TODO: we may wish to handle this as well
                 }
                 index
@@ -479,7 +516,8 @@ impl<'a> PixelRenderer<'a> {
         // on the framebuffer that holds the image we retrieved (as a color
         // attachment). the index of this command buffer is the same as the
         // index of the image it corresponds to
-        let cmd_buf_to_submit = [self.command_buffers.buffers[image_index as usize]];
+        let cmd_buf_to_submit =
+            unsafe { [(*self.command_buffers.get()).buffers[image_index as usize]] };
         // we don't need any signal semaphores, as render_frame() waits
         // on all graphics queue operations to finish before returning,
         // meaning PixelRenderer::present() won't ever be called prematurely
@@ -533,8 +571,8 @@ impl<'a> PixelRenderer<'a> {
     }
 
     // presents the image corresponding to image_index.
-    pub fn present(&mut self, image_index: u32) {
-        let swapchains = [self.swapchain.swapchain];
+    pub fn present(&self, image_index: u32) {
+        let swapchains = unsafe { [(*self.swapchain.get()).swapchain] };
         let img_indices = [image_index];
         let present_info = vk::PresentInfoKHR::builder()
             // no wait semaphores needed
@@ -544,8 +582,7 @@ impl<'a> PixelRenderer<'a> {
 
         // queue image for presentation
         unsafe {
-            if let Err(e) = self
-                .swapchain
+            if let Err(e) = (*self.swapchain.get())
                 .entry
                 .queue_present(self.device.queues.presentation, &present_info)
             {
@@ -566,34 +603,9 @@ impl<'a> PixelRenderer<'a> {
         };
     }
 
-    #[allow(unused_unsafe)]
-    unsafe fn create_framebuffers(
-        logical_device: &ash::Device,
-        image_views: &Vec<vk::ImageView>,
-        render_pass: vk::RenderPass,
-        swapchain_extent: vk::Extent2D,
-    ) -> VkResult<Vec<vk::Framebuffer>> {
-        // we need one framebuffer per swapchain image view
-        image_views
-            .iter()
-            .map(|view| {
-                let attachments = [*view];
-
-                let framebuffer_info = vk::FramebufferCreateInfo::builder()
-                    .render_pass(render_pass)
-                    .attachments(&attachments)
-                    .width(swapchain_extent.width)
-                    .height(swapchain_extent.height)
-                    .layers(1);
-
-                unsafe { logical_device.create_framebuffer(&framebuffer_info, None) }
-            })
-            .collect::<VkResult<Vec<vk::Framebuffer>>>()
-    }
-
     // called on window resize to ensure the swapchain is still valid
     #[allow(unused_unsafe)]
-    unsafe fn recreate_swapchain(&mut self) -> Result<(), VulkanError> {
+    unsafe fn recreate_swapchain(&self) -> Result<(), VulkanError> {
         // create new swapchain-dependent objects
         let new_swapchain = unsafe {
             SwapchainWrapper::new(
@@ -605,7 +617,7 @@ impl<'a> PixelRenderer<'a> {
                 &self.surface.entry,
                 self.surface.surface,
                 // pass current swapchain as old_swapchain
-                Some(self.swapchain.swapchain),
+                Some((*self.swapchain.get()).swapchain),
                 vk::PresentModeKHR::IMMEDIATE,
                 Some(vk::PresentModeKHR::FIFO),
             )?
@@ -648,7 +660,7 @@ impl<'a> PixelRenderer<'a> {
         let new_command_buffers = unsafe {
             match CommandBuffersWrapper::create_buffers(
                 &self.device.logical,
-                self.command_buffers.pool,
+                (*self.command_buffers.get()).pool,
                 &new_framebuffers,
                 new_pipeline.render_pass,
                 new_pipeline.pipeline,
@@ -680,9 +692,10 @@ impl<'a> PixelRenderer<'a> {
             match self.device.logical.device_wait_idle() {
                 Ok(o) => o,
                 Err(e) => {
-                    self.device
-                        .logical
-                        .free_command_buffers(self.command_buffers.pool, &new_command_buffers);
+                    self.device.logical.free_command_buffers(
+                        (*self.command_buffers.get()).pool,
+                        &new_command_buffers,
+                    );
 
                     for f in new_framebuffers {
                         self.device.logical.destroy_framebuffer(f, None);
@@ -698,24 +711,25 @@ impl<'a> PixelRenderer<'a> {
 
         // destroy current swapchain-dependent objects
         unsafe {
-            for f in &self.framebuffers {
+            for f in &(*self.framebuffers.get()) {
                 self.device.logical.destroy_framebuffer(*f, None);
             }
 
-            self.swapchain.destroy(&self.device.logical);
-            self.pipeline.destroy(&self.device.logical);
+            (*self.swapchain.get()).destroy(&self.device.logical);
+            (*self.pipeline.get()).destroy(&self.device.logical);
 
             // free command buffers instead of destroying entire pool
-            self.device
-                .logical
-                .free_command_buffers(self.command_buffers.pool, &self.command_buffers.buffers);
+            self.device.logical.free_command_buffers(
+                (*self.command_buffers.get()).pool,
+                &(*self.command_buffers.get()).buffers,
+            );
         }
 
         // add new swapchain objects to self
-        self.pipeline = new_pipeline;
-        self.swapchain = new_swapchain;
-        self.framebuffers = new_framebuffers;
-        self.command_buffers.buffers = new_command_buffers;
+        (*self.pipeline.get()) = new_pipeline;
+        (*self.swapchain.get()) = new_swapchain;
+        (*self.framebuffers.get()) = new_framebuffers;
+        (*self.command_buffers.get()).buffers = new_command_buffers;
 
         Ok(())
     }
@@ -738,18 +752,18 @@ impl<'a> Drop for PixelRenderer<'a> {
                 .logical
                 .destroy_semaphore(self.image_available_semaphore, None);
 
-            self.command_buffers.destroy(&self.device.logical);
+            (*self.command_buffers.get()).destroy(&self.device.logical);
 
-            for f in &self.framebuffers {
+            for f in &(*self.framebuffers.get()) {
                 self.device.logical.destroy_framebuffer(*f, None);
             }
 
-            self.pipeline.destroy(&self.device.logical);
+            (*self.pipeline.get()).destroy(&self.device.logical);
             self.descriptor_sets.destroy(&self.device.logical);
             self.device.logical.destroy_sampler(self.sampler, None);
             self.pixel_image.destroy(&self.device.logical);
             // destroy swapchain before device and surface
-            self.swapchain.destroy(&self.device.logical);
+            (*self.swapchain.get()).destroy(&self.device.logical);
             self.device.destroy();
             self.surface.destroy();
 
