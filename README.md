@@ -60,7 +60,9 @@ NOTE: Game compatibility remains low. Only mappers 0 and 4 are supported, and RO
 * ppu_sprite_overflow
     * [x] 01-basics
     * [x] 02-details
-    * [ ] 03-05 (fails for reasons i've yet to investigate)
+    * [ ] 03-timing (fails for reasons i've yet to investigate)
+    * [x] 04-obscure
+    * [ ] 05 (haven't investigated this either)
 * mmc3_test_2
     * [x] 1-clocking
     * [x] 2-details

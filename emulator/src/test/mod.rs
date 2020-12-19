@@ -304,7 +304,14 @@ fn ppu_sprite_overflow() {
         "\n02-details\n\nPassed\n",
     );
 
-    // NOTE: tests 03 through 05 fail (for reasons i've yet to investigate)
+    // NOTE: test 03 fails (for reasons i've yet to investigate)
+
+    run_test(
+        "src/test/ppu_sprite_overflow/rom_singles/04-obscure.nes",
+        "\n04-obscure\n\nPassed\n",
+    );
+
+    // NOTE: test 05 also fails
 }
 
 #[test]

@@ -58,6 +58,8 @@ impl SpriteDrawState {
             return false;
         }
 
+        // TODO: refactor this
+
         if self.sprites_found < 8 {
             // copy the byte pointed to by 'current_sprite_idx' from primary to secondary oam
             let byte = primary_oam.get_byte(self.current_sprite_idx);
@@ -131,7 +133,7 @@ impl SpriteDrawState {
 
                 // increment 'm' without carry (from nesdev.com 'PPU Sprite Evaluation' page)
                 self.current_sprite_idx = if self.current_sprite_idx & 0b11 == 0b11 {
-                    self.current_sprite_idx & 0b11
+                    self.current_sprite_idx & !0b11
                 } else {
                     self.current_sprite_idx + 1
                 };
