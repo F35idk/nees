@@ -28,13 +28,6 @@ pub(super) struct BgDrawState {
     pub tile_palette_indices: u8,
 }
 
-// derive_serialize_for_struct!(
-//     BgDrawState,
-//     tile_bitplanes_lo,
-//     tile_bitplanes_hi,
-//     tile_palette_indices
-// );
-
 impl BgDrawState {
     pub(super) fn shift_tile_data_by_8(&mut self) {
         *(self.tile_bitplanes_hi.as_u16()) <<= 8;

@@ -456,8 +456,7 @@ impl Ppu {
         self.oamaddr = self.oamaddr.wrapping_add(1);
     }
 
-    // catches the ppu up to the cpu (approximately). stops if the end
-    // of the frame is reached before the ppu is fully caught up
+    // catches the ppu up to the cpu (approximately)
     pub fn catch_up(
         &mut self,
         cpu: &mut cpu::Cpu,
@@ -757,8 +756,8 @@ impl Ppu {
         }
     }
 
-    // draws 8 pixels, without making any state changes to 'self', apart from
-    // writing to 'framebuffer'. returns whether sprite zero was hit
+    // draws 8 pixels, without making any state changes to 'self'.
+    // returns whether sprite zero was hit
     fn draw_8_pixels(
         &self,
         framebuffer: &[Cell<u32>; 256 * 240],
