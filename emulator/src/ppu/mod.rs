@@ -89,15 +89,27 @@ macro_rules! oam_impl {
                 unsafe { std::mem::transmute(self) }
             }
 
+            // NOTE: this function is only used by 'PrimaryOam'
+            #[allow(dead_code)]
             pub fn get_byte(&self, index: u8) -> u8 {
+                assert_eq!($n_entries, 64);
+                // SAFETY: 'index' is a u8 and cannot be larger than
+                // the size of oam, making unchecked indexing safe
                 unsafe { *self.as_bytes().get_unchecked(index as usize) }
             }
 
             pub fn set_byte(&mut self, index: u8, val: u8) {
+                assert!((index as u16) < $n_entries as u16 * 4);
                 unsafe { *self.as_bytes_mut().get_unchecked_mut(index as usize) = val };
             }
 
-            #[inline]
+            // gets the 'OamEntry' given by 'index' (a byte index into oam)
+            // without doing bounds checking. for safety, this requires
+            // that 'index' doesn't point past the last 4 bytes of oam.
+            // for correctness, 'index' should also be a multiple of 4,
+            // so as to fetch the right sprite data from oam.
+            // NOTE: this function is only used by 'SecondaryOam'
+            #[allow(dead_code)]
             pub unsafe fn get_sprite_unchecked(&self, index: u8) -> OamEntry {
                 *(self.as_bytes().get_unchecked(index as usize) as *const _ as *const _)
             }

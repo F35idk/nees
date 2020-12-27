@@ -156,18 +156,24 @@ impl SpriteDrawState {
     ) {
         debug_assert!(matches!(current_scanline, -1..=239));
         debug_assert!(matches!(current_scanline_dot, 257..=320));
-        debug_assert!(self.sprites_found <= 8);
-        debug_assert!((self.current_sprite_idx >> 2) < 8);
 
         // make garbage nametable fetches
         let _ = bus.read(0x2000, cycle_count, cpu);
         let _ = bus.read(0x2000, cycle_count + 2, cpu);
 
+        assert!(self.sprites_found <= 8);
+
         if (self.current_sprite_idx >> 2) < self.sprites_found {
             // fill a slot in 'current_sprites_data' with data for the current sprite
 
+            assert!((self.current_sprite_idx >> 2) < 8);
+
+            // SAFETY: if ('current_sprite_idx' >> 2) is less than 8, and'ing away the lower two
+            // bits gives a maximum index of 0x1c, which aligns with the byte index of the last
+            // sprite in secondary oam
             let sprite =
                 unsafe { secondary_oam.get_sprite_unchecked(self.current_sprite_idx & !0b11) };
+
             let x = sprite.x;
             let y = sprite.y;
             let attributes = sprite.attributes;
