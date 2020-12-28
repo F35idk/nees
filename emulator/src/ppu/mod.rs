@@ -227,6 +227,12 @@ impl Ppu {
         self.bits.frame_done.set(done as u8);
     }
 
+    // NOTE: this is also used by 'write_oamdma()' in 'address_bus'
+    pub fn write_to_oam_and_increment_addr(&mut self, val: u8) {
+        self.primary_oam.set_byte(self.oamaddr, val);
+        self.oamaddr = self.oamaddr.wrapping_add(1);
+    }
+
     // used for reading the registers located in the cpu memory map at 0x2000-0x2007
     pub fn read_register_by_index(
         &mut self,
@@ -301,7 +307,7 @@ impl Ppu {
                 // store value at mirrored address (down to 0x2f00-0x2fff)
                 // in read buffer
                 ppu.ppudata_read_buffer = bus.read(
-                    ppu.current_vram_addr.get_addr() & !0b01000000000000,
+                    ppu.current_vram_addr.get_addr() & !0x1000,
                     ppu.cycle_count,
                     cpu,
                 );
@@ -462,12 +468,6 @@ impl Ppu {
         }
     }
 
-    // NOTE: this is also used by 'write_oamdma()' in 'address_bus'
-    pub fn write_to_oam_and_increment_addr(&mut self, val: u8) {
-        self.primary_oam.set_byte(self.oamaddr, val);
-        self.oamaddr = self.oamaddr.wrapping_add(1);
-    }
-
     // catches the ppu up to the cpu (approximately)
     pub fn catch_up(
         &mut self,
@@ -481,8 +481,8 @@ impl Ppu {
         }
     }
 
-    // steps the ppu for one tile worth of cycles (1-8 cycles).
-    // only used internally by the ppu, in 'Ppu.catch_up()'
+    // steps the ppu for one tile worth of cycles or less (1-8 cycles).
+    // only used internally by the ppu, in 'Ppu::catch_up()'
     fn step(
         &mut self,
         cpu: &mut cpu::Cpu,
@@ -530,6 +530,9 @@ impl Ppu {
                     // of sprite evaluation, meaning a litle later than this
                     ppu.sprite_state.current_sprite_idx = 0;
                 }
+                // NOTE: though we often match on contiguous ranges of dots (x..=y) while
+                // stepping, the ppu is usually only advanced 8 cycles/dots at a time. this
+                // means that most of the dots in the range are never actually hit.
                 (1..=256, sl) => {
                     match sl {
                         // pre-render line
@@ -583,7 +586,11 @@ impl Ppu {
                             // NOTE: may wish to increment x here as well (what the ppu does irl)
                             ppu.increment_vram_addr_y();
                         } else {
+                            // shift previously drawn tile data leftwards
+                            // in 'bg_state' shift registers
                             ppu.bg_state.shift_tile_data_by_8();
+                            // fill rightmost 8 bits of 'bg_state' shift registers
+                            // with tile data for the next 8 pixels to draw
                             ppu.bg_state.fetch_current_tile_data(
                                 ppu.cycle_count,
                                 ppu.get_background_pattern_table_addr(),
@@ -591,6 +598,7 @@ impl Ppu {
                                 bus,
                                 cpu,
                             );
+                            // increment 'current_vram_addr' by one tile horizontally
                             ppu.increment_vram_addr_coarse_x();
                         }
                     }
@@ -658,7 +666,7 @@ impl Ppu {
                     ppu.cycle_count += 7;
                     ppu.current_scanline_dot += 7;
                 }
-                (328, _) => {
+                (328..=336, _) => {
                     if ppu.is_background_enable() || ppu.is_sprites_enable() {
                         ppu.bg_state.shift_tile_data_by_8();
                         ppu.bg_state.fetch_current_tile_data(
@@ -671,28 +679,21 @@ impl Ppu {
                         ppu.increment_vram_addr_coarse_x();
                     }
 
-                    ppu.cycle_count += 8;
-                    ppu.current_scanline_dot += 8;
-                }
-                (336, _) => {
-                    if ppu.is_background_enable() || ppu.is_sprites_enable() {
-                        ppu.bg_state.shift_tile_data_by_8();
-                        ppu.bg_state.fetch_current_tile_data(
-                            ppu.cycle_count,
-                            ppu.get_background_pattern_table_addr(),
-                            ppu.current_vram_addr,
-                            bus,
-                            cpu,
-                        );
-                        ppu.increment_vram_addr_coarse_x();
-                    }
+                    match ppu.current_scanline_dot {
+                        328 => {
+                            ppu.cycle_count += 8;
+                            ppu.current_scanline_dot += 8;
+                        }
+                        336 => {
+                            ppu.cycle_count += 5;
+                            ppu.current_scanline_dot = 0;
+                            ppu.current_scanline += 1;
 
-                    ppu.cycle_count += 5;
-                    ppu.current_scanline_dot = 0;
-                    ppu.current_scanline += 1;
-
-                    if ppu.current_scanline == 240 {
-                        ppu.bits.frame_done.set(1);
+                            if ppu.current_scanline == 240 {
+                                ppu.bits.frame_done.set(1);
+                            }
+                        }
+                        _ => (),
                     }
                 }
                 _ => (),
@@ -706,10 +707,11 @@ impl Ppu {
                     ppu.current_scanline_dot = 0;
                     ppu.current_scanline = 241;
                 }
-                _ => {
-                    ppu.cycle_count += 8;
-                    ppu.current_scanline_dot += 8;
+                0 | 168 => {
+                    ppu.cycle_count += 168;
+                    ppu.current_scanline_dot += 168;
                 }
+                _ => (),
             }
         }
 
@@ -736,7 +738,7 @@ impl Ppu {
                     // NOTE: we wait until dot 3 to assert nmi (even though the vblank flag
                     // is set on dot 1), in order to more accurately emulate nmi/vblank flag
                     // suppression. this way, any reads to ppustatus during dot 2 or 3 (before
-                    // this chunck of code is executed) will prevent nmi from being asserted
+                    // this chunk of code is executed) will prevent nmi from being asserted
                     if ppu.current_scanline == 241 {
                         if ppu.is_vblank_nmi_enabled() && ppu.is_vblank() {
                             cpu.bits.nmi.set(1);
@@ -775,6 +777,7 @@ impl Ppu {
         framebuffer: &[Cell<u32>; 256 * 240],
         bus: &mut dyn PpuAddressBus,
     ) -> bool {
+        // NOTE: this function is also split into subfunctions
         {
             if self.is_background_enable() || self.is_sprites_enable() {
                 return draw_8_pixels_bg_and_sprites(self, framebuffer, bus);
@@ -860,7 +863,7 @@ impl Ppu {
                 let screen_x = (ppu.current_scanline_dot - 1) as usize + i as usize;
                 let screen_y = ppu.current_scanline as usize;
 
-                // TODO: OPTIMIZE: unchecked indexing
+                // OPTIMIZE: unchecked indexing
                 framebuffer[screen_y * 256 + screen_x].set(pixel_color);
             }
 

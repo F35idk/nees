@@ -80,10 +80,12 @@ impl BgDrawState {
         // store the data
         {
             // NOTE: all of this assumes little endian
+            // FIXME: don't assume little endian (store the bytes differently)
 
             // the tile bitplane byte we want to store our high bg bitplane
             // in should be zero (its contents should have been shifted
-            // leftwards into 'self.tile_bitplanes_hi.0[1]' previously)
+            // leftwards into 'self.tile_bitplanes_hi.0[1]' by a call to
+            // 'shift_tile_data_by_8()' previously)
             debug_assert_eq!(self.tile_bitplanes_hi.0[0], 0);
             self.tile_bitplanes_hi.0[0] = bg_bitplane_hi;
 

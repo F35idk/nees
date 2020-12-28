@@ -129,7 +129,7 @@ impl Serialize for bool {
 }
 
 #[test]
-fn serialize_test() {
+fn test() {
     use std::io::Seek;
     let file = fs::OpenOptions::new()
         .write(true)

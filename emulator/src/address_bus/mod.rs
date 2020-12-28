@@ -1,7 +1,4 @@
-use crate::{apu, controller as ctrl, cpu, ppu, serialize, util, PixelRenderer};
-
-#[macro_use]
-use derive_serialize::Serialize;
+use crate::{apu, controller as ctrl, cpu, ppu, serialize};
 
 mod mmc3;
 mod nrom;
@@ -61,14 +58,24 @@ impl<'a> serialize::Serialize for CpuAddressBusBase<'a> {
 
 pub trait CpuAddressBus<'a>: serialize::Serialize {
     fn base(&mut self) -> (&mut CpuAddressBusBase<'a>, &mut dyn PpuAddressBus);
+    // called by 'Cpu' when reading from memory
     fn read(&mut self, addr: u16, cpu: &mut cpu::Cpu) -> u8;
+    // called by 'Cpu' when writing to memory
     fn write(&mut self, addr: u16, val: u8, cpu: &mut cpu::Cpu);
 }
 
 pub trait PpuAddressBus: 'static {
+    // called by 'Ppu' when reading from memory
     fn read(&mut self, addr: u16, ppu_cycle_count: i32, cpu: &mut cpu::Cpu) -> u8;
+    // called by 'Ppu' when writing to memory
     fn write(&mut self, addr: u16, val: u8, ppu_cycle_count: i32, cpu: &mut cpu::Cpu);
+    // called by 'Ppu' when it updates the address on the ppu address
+    // bus, without reading or writing to memory (this may happen when
+    // 'current_vram_addr' on 'Ppu' is changed, for example)
     fn set_address(&mut self, addr: u16, ppu_cycle_count: i32, cpu: &mut cpu::Cpu);
+    // called when 'Ppu' reads from palette memory directly, without updating
+    // the address on the address bus (happens during rendering). for MMC3,
+    // this should /not/ affect the irq counter
     fn read_palette_memory(&self, color_idx: u8) -> u8;
 }
 

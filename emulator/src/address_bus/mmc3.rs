@@ -9,7 +9,7 @@ use derive_serialize::Serialize;
 use std::cell::Cell;
 use std::{fs, io};
 
-// NOTE: current implementation ignores open bus behavior
+// NOTE: the current implementation ignores open bus behavior
 // and compatibility with mmc6 or any non-mapper-4 cartridges,
 
 pub struct Mmc3CpuAddressBus<'a> {
@@ -64,151 +64,6 @@ bitfield!(Mmc3PpuBits<u8>(
     trigger_irq: 6..6,
 ));
 
-impl Mmc3PpuAddressBus {
-    fn clock_irq_counter(&mut self, a12: bool, cycle_count: i32, cpu: &mut cpu::Cpu) {
-        // if current a12 is high and a12 was low on previous read/write (a12 has risen)
-        if a12 {
-            if !self.bits.prev_a12.is_true() {
-                // ignore a12 rise if there was another a12 rise 6 or fewer cycles ago
-                if (cycle_count - self.cycle_count_at_prev_a12_high) as u32 > 6 {
-                    if self.bits.irq_reload.is_true() || self.irq_counter == 0 {
-                        // reload counter
-                        self.irq_counter = self.irq_latch;
-                        self.bits.irq_reload.set(0);
-                    } else {
-                        // decrement
-                        self.irq_counter -= 1;
-                    }
-
-                    if self.irq_counter == 0 && self.bits.irq_enable.is_true() {
-                        // if not already triggering cpu irq
-                        if !self.bits.trigger_irq.is_true() {
-                            self.bits.trigger_irq.set(1);
-                            // increment 'irq' on cpu
-                            cpu.irq += 1;
-                        }
-                    }
-                }
-            }
-
-            self.cycle_count_at_prev_a12_high = cycle_count;
-        }
-
-        self.bits.prev_a12.set(a12 as u8);
-    }
-}
-
-impl PpuAddressBus for Mmc3PpuAddressBus {
-    fn read(&mut self, mut addr: u16, cycle_count: i32, cpu: &mut cpu::Cpu) -> u8 {
-        assert!(addr <= 0x3fff);
-
-        let a12 = (addr & 0b1_0000_0000_0000) != 0;
-        self.clock_irq_counter(a12, cycle_count, cpu);
-
-        // palette memory
-        if addr >= 0x3f00 {
-            let addr = super::calc_ppu_palette_addr(addr);
-            return unsafe { *self.palettes.get_unchecked(addr as usize) };
-        }
-
-        // nametables (0x2000-0x3eff)
-        if addr >= 0x2000 {
-            // apply horizontal or vertical mirroring
-            if !self.bits.no_mirroring.is_true() {
-                addr = super::calc_ppu_nametable_addr_with_mirroring(
-                    addr,
-                    self.bits.hor_mirroring.is_true(),
-                );
-            } else {
-                addr &= !0x3000;
-            }
-
-            return unsafe { *self.nametables.get_unchecked(addr as usize) };
-        }
-
-        // pattern tables (0-0x1fff)
-
-        let a12_invert = self.bits.a12_invert.is_true();
-        let n_banks = self.chr_banks.len() as u16;
-        assert!(n_banks.is_power_of_two());
-
-        if a12 == a12_invert {
-            // if this is reached, addr points to one of the 2kb chr banks
-
-            // calculate bank register index (should point to either r1 or r0)
-            let bank_register_idx = ((addr >> 11) & 1) as u8;
-
-            let bank_idx = if addr & 0b0100_0000_0000 != 0 {
-                // addr points to upper section of 2kb bank
-                assert!(matches!(
-                    addr,
-                    (0x400..=0x7ff) | (0xc00..=0xfff) | (0x1400..=0x17ff) | (0x1c00..=0x1fff)
-                ));
-
-                // - set lowest to bit to make 'bank_idx' reflect this
-                (self.r[bank_register_idx as usize] & ((n_banks - 1) as u8)) | 1
-            } else {
-                // addr points to lower section of 2kb bank
-                assert!(matches!(
-                    addr,
-                    (0..=0x3ff) | (0x800..=0xbff) | (0x1000..=0x13ff) | (0x1800..=0x1bff)
-                ));
-
-                // - clear lowest bit
-                // NOTE: the value in 'r[idx]' is %'d with the number of banks
-                (self.r[bank_register_idx as usize] & ((n_banks - 1) as u8)) & !1
-            };
-
-            let bank = &self.chr_banks[bank_idx as usize];
-            unsafe { *bank.get_unchecked(addr as usize & (bank.len() - 1)) }
-        } else {
-            // if this is reached, addr points to any of the 2kb chr banks (r2-r5)
-            let bank_register_idx = if a12_invert {
-                ((addr >> 10) + 2) as u8
-            } else {
-                ((addr >> 10) - 2) as u8
-            };
-
-            assert!(bank_register_idx >= 2);
-
-            let bank_idx = self.r[bank_register_idx as usize] & ((n_banks - 1) as u8);
-            let bank = &self.chr_banks[bank_idx as usize];
-            unsafe { *bank.get_unchecked(addr as usize & (bank.len() - 1)) }
-        }
-    }
-
-    fn write(&mut self, mut addr: u16, val: u8, cycle_count: i32, cpu: &mut cpu::Cpu) {
-        let a12 = (addr & 0b1_0000_0000_0000) != 0;
-        self.clock_irq_counter(a12, cycle_count, cpu);
-
-        if addr >= 0x3f00 {
-            let addr = super::calc_ppu_palette_addr(addr);
-            unsafe { *self.palettes.get_unchecked_mut(addr as usize) = val };
-            return;
-        }
-
-        if addr >= 0x2000 {
-            if !self.bits.no_mirroring.is_true() {
-                addr = super::calc_ppu_nametable_addr_with_mirroring(
-                    addr, //
-                    self.bits.hor_mirroring.is_true(),
-                );
-            }
-
-            unsafe { *self.nametables.get_unchecked_mut((addr & !0x3000) as usize) = val };
-        }
-    }
-
-    fn set_address(&mut self, addr: u16, cycle_count: i32, cpu: &mut cpu::Cpu) {
-        let a12 = (addr & 0b1_0000_0000_0000) != 0;
-        self.clock_irq_counter(a12, cycle_count, cpu);
-    }
-
-    fn read_palette_memory(&self, color_idx: u8) -> u8 {
-        self.palettes[super::calc_ppu_palette_addr(color_idx as u16) as usize]
-    }
-}
-
 impl<'a> Mmc3CpuAddressBus<'a> {
     pub fn new(
         prg_rom: &[u8],
@@ -221,25 +76,31 @@ impl<'a> Mmc3CpuAddressBus<'a> {
     ) -> Self {
         match prg_rom.len() {
             0x4000..=0x80000 => (),
-            _ => error_exit!("Failed to load rom file: prg rom must be between 16 and 512 KB for mmc3 (mapper 4)")
+            _ => error_exit!(
+                "Failed to load rom file: prg rom must be \
+                 between 16 and 512 KB for mmc3 (mapper 4)"
+            ),
         }
 
         if !prg_rom.len().is_power_of_two() {
             error_exit!(
-                "Failed to load rom file: prg rom size must be a power of two for mmc3 (mapper 4)"
+                "Failed to load rom file: prg rom size must be \
+                 a power of two for mmc3 (mapper 4)"
             );
         }
 
         match chr_rom.len() {
             0x2000..=0x40000 => (),
             _ => error_exit!(
-                "Failed to load rom file: chr rom must be between 8 and 256 KB for mmc3 (mapper 4)"
+                "Failed to load rom file: chr rom must be between \
+                 8 and 256 KB for mmc3 (mapper 4)"
             ),
         }
 
         if !chr_rom.len().is_power_of_two() {
             error_exit!(
-                "Failed to load rom file: chr rom size must be a power of two for mmc3 (mapper 4)"
+                "Failed to load rom file: chr rom size must be a \
+                 power of two for mmc3 (mapper 4)"
             );
         }
 
@@ -489,6 +350,154 @@ impl<'a> CpuAddressBus<'a> for Mmc3CpuAddressBus<'a> {
     }
 }
 
+impl Mmc3PpuAddressBus {
+    // clocks the irq counter depending on the state of a12 and the time since the
+    // last a12 rise. may trigger a cpu irq. called when 'read()'ing, 'write()'ing
+    // and 'set_address()'ing (see the 'PpuAddressBus trait impl below)
+    fn clock_irq_counter(&mut self, a12: bool, cycle_count: i32, cpu: &mut cpu::Cpu) {
+        // if current a12 is high and a12 was low on previous read/write (a12 has risen)
+        if a12 {
+            if !self.bits.prev_a12.is_true() {
+                // ignore a12 rise if there was another a12 rise 6 or fewer cycles ago
+                if (cycle_count - self.cycle_count_at_prev_a12_high) as u32 > 6 {
+                    if self.bits.irq_reload.is_true() || self.irq_counter == 0 {
+                        // reload counter
+                        self.irq_counter = self.irq_latch;
+                        self.bits.irq_reload.set(0);
+                    } else {
+                        // decrement
+                        self.irq_counter -= 1;
+                    }
+
+                    if self.irq_counter == 0 && self.bits.irq_enable.is_true() {
+                        // if not already triggering cpu irq
+                        if !self.bits.trigger_irq.is_true() {
+                            self.bits.trigger_irq.set(1);
+                            // increment 'irq' on cpu
+                            cpu.irq += 1;
+                        }
+                    }
+                }
+            }
+
+            self.cycle_count_at_prev_a12_high = cycle_count;
+        }
+
+        self.bits.prev_a12.set(a12 as u8);
+    }
+}
+
+impl PpuAddressBus for Mmc3PpuAddressBus {
+    fn read(&mut self, mut addr: u16, cycle_count: i32, cpu: &mut cpu::Cpu) -> u8 {
+        assert!(addr <= 0x3fff);
+
+        let a12 = (addr & 0b1_0000_0000_0000) != 0;
+        self.clock_irq_counter(a12, cycle_count, cpu);
+
+        // palette memory
+        if addr >= 0x3f00 {
+            let addr = super::calc_ppu_palette_addr(addr);
+            return unsafe { *self.palettes.get_unchecked(addr as usize) };
+        }
+
+        // nametables (0x2000-0x3eff)
+        if addr >= 0x2000 {
+            // apply horizontal or vertical mirroring
+            if !self.bits.no_mirroring.is_true() {
+                addr = super::calc_ppu_nametable_addr_with_mirroring(
+                    addr,
+                    self.bits.hor_mirroring.is_true(),
+                );
+            } else {
+                addr &= !0x3000;
+            }
+
+            return unsafe { *self.nametables.get_unchecked(addr as usize) };
+        }
+
+        // pattern tables (0-0x1fff)
+
+        let a12_invert = self.bits.a12_invert.is_true();
+        let n_banks = self.chr_banks.len() as u16;
+        assert!(n_banks.is_power_of_two());
+
+        if a12 == a12_invert {
+            // if this is reached, addr points to one of the 2kb chr banks
+
+            // calculate bank register index (should point to either r1 or r0)
+            let bank_register_idx = ((addr >> 11) & 1) as u8;
+
+            let bank_idx = if addr & 0b0100_0000_0000 != 0 {
+                // addr points to upper section of 2kb bank
+                assert!(matches!(
+                    addr,
+                    (0x400..=0x7ff) | (0xc00..=0xfff) | (0x1400..=0x17ff) | (0x1c00..=0x1fff)
+                ));
+
+                // - set lowest to bit to make 'bank_idx' reflect this
+                (self.r[bank_register_idx as usize] & ((n_banks - 1) as u8)) | 1
+            } else {
+                // addr points to lower section of 2kb bank
+                assert!(matches!(
+                    addr,
+                    (0..=0x3ff) | (0x800..=0xbff) | (0x1000..=0x13ff) | (0x1800..=0x1bff)
+                ));
+
+                // - clear lowest bit
+                // NOTE: the value in 'r[idx]' is %'d with the number of banks
+                (self.r[bank_register_idx as usize] & ((n_banks - 1) as u8)) & !1
+            };
+
+            let bank = &self.chr_banks[bank_idx as usize];
+            unsafe { *bank.get_unchecked(addr as usize & (bank.len() - 1)) }
+        } else {
+            // if this is reached, addr points to any of the 2kb chr banks (r2-r5)
+            let bank_register_idx = if a12_invert {
+                ((addr >> 10) + 2) as u8
+            } else {
+                ((addr >> 10) - 2) as u8
+            };
+
+            assert!(bank_register_idx >= 2);
+
+            let bank_idx = self.r[bank_register_idx as usize] & ((n_banks - 1) as u8);
+            let bank = &self.chr_banks[bank_idx as usize];
+            unsafe { *bank.get_unchecked(addr as usize & (bank.len() - 1)) }
+        }
+    }
+
+    fn write(&mut self, mut addr: u16, val: u8, cycle_count: i32, cpu: &mut cpu::Cpu) {
+        let a12 = (addr & 0b1_0000_0000_0000) != 0;
+        self.clock_irq_counter(a12, cycle_count, cpu);
+
+        if addr >= 0x3f00 {
+            let addr = super::calc_ppu_palette_addr(addr);
+            unsafe { *self.palettes.get_unchecked_mut(addr as usize) = val };
+            return;
+        }
+
+        if addr >= 0x2000 {
+            if !self.bits.no_mirroring.is_true() {
+                addr = super::calc_ppu_nametable_addr_with_mirroring(
+                    addr, //
+                    self.bits.hor_mirroring.is_true(),
+                );
+            }
+
+            unsafe { *self.nametables.get_unchecked_mut((addr & !0x3000) as usize) = val };
+        }
+    }
+
+    fn set_address(&mut self, addr: u16, cycle_count: i32, cpu: &mut cpu::Cpu) {
+        let a12 = (addr & 0b1_0000_0000_0000) != 0;
+        self.clock_irq_counter(a12, cycle_count, cpu);
+    }
+
+    fn read_palette_memory(&self, color_idx: u8) -> u8 {
+        self.palettes[super::calc_ppu_palette_addr(color_idx as u16) as usize]
+    }
+}
+
 // NOTE: 'Serialize' is implemented manually to avoid serializing rom
 impl serialize::Serialize for Mmc3PpuAddressBus {
     fn serialize(&self, file: &mut io::BufWriter<fs::File>) -> Result<(), String> {
@@ -517,6 +526,12 @@ impl<'a> serialize::Serialize for Mmc3CpuAddressBus<'a> {
         self.base.serialize(file)?;
         self.ppu_bus.serialize(file)?;
         self.internal_ram.serialize(file)?;
+        // NOTE: we use fully qualified trait syntax to avoid accidentally going
+        // through 'CoerceUnsized' and picking the wrong 'Serialize' implementation
+        // (the 'Serialize' impl I wrote for [u8; 0x2000] should be faster than the
+        // implementation I wrote for [T]). This is probably not needed, as Rust
+        // should pick the right impl regardless (it should prefer not going
+        // through 'CoerceUnsized'), but I'm keeping it anyway
         serialize::Serialize::serialize(&self.prg_ram, file)?;
         self.bank_register_to_update.serialize(file)?;
         self.bits.serialize(file)
@@ -716,6 +731,8 @@ mod test {
 
     #[test]
     fn test_calc_chr_bank_register_idx() {
+        // the algorithm used by 'Mmc3PpuAddressBus' in 'read()' and
+        // 'write()' to calculate chr bank register indices
         fn calc_chr_bank_register_idx(addr: u16, a12_invert: bool) -> u8 {
             let a12 = (addr & 0b1_0000_0000_0000) != 0;
 
