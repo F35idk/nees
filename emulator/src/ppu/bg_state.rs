@@ -10,11 +10,12 @@ pub(super) struct TileBitPlanes([u8; 2]);
 
 impl TileBitPlanes {
     pub(super) fn to_u16(self) -> u16 {
-        unsafe { std::mem::transmute(self) }
+        u16::from_le_bytes(self.0)
     }
 
-    fn as_u16(&mut self) -> &mut u16 {
-        unsafe { std::mem::transmute(self) }
+    fn shift_by_eight(&mut self) {
+        self.0[1] = self.0[0];
+        self.0[0] = 0x00;
     }
 }
 
@@ -30,8 +31,8 @@ pub(super) struct BgDrawState {
 
 impl BgDrawState {
     pub(super) fn shift_tile_data_by_8(&mut self) {
-        *(self.tile_bitplanes_hi.as_u16()) <<= 8;
-        *(self.tile_bitplanes_lo.as_u16()) <<= 8;
+        self.tile_bitplanes_hi.shift_by_eight();
+        self.tile_bitplanes_lo.shift_by_eight();
         self.tile_palette_indices &= 0b11;
         self.tile_palette_indices <<= 2;
     }
@@ -79,9 +80,6 @@ impl BgDrawState {
 
         // store the data
         {
-            // NOTE: all of this assumes little endian
-            // FIXME: don't assume little endian (store the bytes differently)
-
             // the tile bitplane byte we want to store our high bg bitplane
             // in should be zero (its contents should have been shifted
             // leftwards into 'self.tile_bitplanes_hi.0[1]' by a call to
